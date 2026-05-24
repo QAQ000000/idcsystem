@@ -11,6 +11,8 @@ class AdminUser extends Authenticatable
 {
     use HasApiTokens, HasRoles, SoftDeletes;
 
+    protected string $guard_name = 'web';
+
     protected $fillable = [
         'username', 'email', 'password', 'real_name', 'phone',
         'status', 'last_login_at', 'last_login_ip',

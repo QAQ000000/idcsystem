@@ -1,0 +1,103 @@
+<?php
+
+namespace App\Http\Controllers\Install;
+
+use App\Http\Controllers\Controller;
+use App\Services\InstallService;
+use Illuminate\Http\Request;
+use RuntimeException;
+use Throwable;
+
+class InstallController extends Controller
+{
+    public function index(InstallService $installer)
+    {
+        if ($installer->isInstalled()) {
+            return redirect()->route('admin.login');
+        }
+
+        return view('install.check', $installer->status());
+    }
+
+    public function database(InstallService $installer)
+    {
+        if ($installer->isInstalled()) {
+            return redirect()->route('admin.login');
+        }
+
+        return view('install.database', [
+            'checksPassed' => $installer->passesChecks(),
+        ]);
+    }
+
+    public function saveDatabase(Request $request, InstallService $installer)
+    {
+        if ($installer->isInstalled()) {
+            return redirect()->route('admin.login');
+        }
+
+        $data = $request->validate([
+            'host' => ['required', 'string', 'max:255'],
+            'port' => ['required', 'integer', 'min:1', 'max:65535'],
+            'database' => ['required', 'string', 'max:100'],
+            'username' => ['required', 'string', 'max:100'],
+            'password' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        try {
+            $installer->testDatabase($data);
+            $installer->runMigrationsAndSeeders();
+        } catch (Throwable $exception) {
+            return back()->withInput()->withErrors([
+                'database' => '数据库初始化失败：' . $exception->getMessage(),
+            ]);
+        }
+
+        return redirect()->route('install.admin')->with('status', '数据库配置和迁移已完成');
+    }
+
+    public function admin(InstallService $installer)
+    {
+        if ($installer->isInstalled()) {
+            return redirect()->route('admin.login');
+        }
+
+        return view('install.admin');
+    }
+
+    public function saveAdmin(Request $request, InstallService $installer)
+    {
+        if ($installer->isInstalled()) {
+            return redirect()->route('admin.login');
+        }
+
+        $data = $request->validate([
+            'username' => ['required', 'string', 'max:50'],
+            'email' => ['required', 'email', 'max:100'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'real_name' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        try {
+            $installer->createAdmin($data);
+            $installer->markInstalled(['admin' => $data['username']]);
+        } catch (RuntimeException $exception) {
+            return redirect()->route('admin.login');
+        } catch (Throwable $exception) {
+            return back()->withInput()->withErrors([
+                'admin' => '管理员创建失败：' . $exception->getMessage(),
+            ]);
+        }
+
+        return redirect()->route('install.finish');
+    }
+
+    public function finish(InstallService $installer)
+    {
+        if (!$installer->isInstalled()) {
+            return redirect()->route('install.index');
+        }
+
+        return view('install.finish');
+    }
+}

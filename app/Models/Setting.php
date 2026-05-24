@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\SettingsService;
 use Illuminate\Database\Eloquent\Model;
 
 class Setting extends Model
@@ -10,14 +11,11 @@ class Setting extends Model
 
     public static function get(string $key, mixed $default = null): mixed
     {
-        return static::where('key', $key)->value('value') ?? $default;
+        return app(SettingsService::class)->get($key, $default);
     }
 
     public static function set(string $key, mixed $value, string $group = 'general'): void
     {
-        static::updateOrCreate(
-            ['key' => $key],
-            ['value' => $value, 'group' => $group]
-        );
+        app(SettingsService::class)->set($key, $value, $group);
     }
 }
