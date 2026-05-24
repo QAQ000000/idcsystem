@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Jobs\SendSmsJob;
 use App\Models\Plugin;
 use App\Models\SmsLog;
+use App\Models\SmsTemplate;
 use App\Modules\Admin\Models\AdminUser;
 use App\Modules\Finance\Models\Currency;
 use App\Modules\Finance\Services\InvoiceService;
@@ -20,6 +21,8 @@ use App\Services\SmsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Hash;
+use RuntimeException;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class SmsTest extends TestCase
@@ -106,7 +109,32 @@ class SmsTest extends TestCase
         ]);
     }
 
-    public function test_send_sms_job_marks_log_failed_when_provider_missing(): void
+    public function test_send_sms_job_claims_log_once_when_dispatched_more_than_once(): void
+    {
+        $this->installSms();
+        $log = SmsLog::query()->create([
+            'phone' => '13800138012',
+            'template' => 'invoice_paid',
+            'template_code' => 'invoice_paid',
+            'content' => '支付成功',
+            'provider' => 'aliyun',
+            'status' => 'pending',
+            'success' => false,
+            'payload' => [],
+            'attempts' => 0,
+        ]);
+        $job = app(SendSmsJob::class, ['smsLogId' => $log->id]);
+
+        $job->handle(app(SmsService::class));
+        $job->handle(app(SmsService::class));
+
+        $log->refresh();
+        $this->assertSame('sent', $log->status);
+        $this->assertTrue($log->success);
+        $this->assertSame(1, $log->attempts);
+    }
+
+    public function test_send_sms_job_marks_log_failed_and_throws_when_provider_missing(): void
     {
         $log = SmsLog::query()->create([
             'phone' => '13800138003',
@@ -120,7 +148,12 @@ class SmsTest extends TestCase
             'attempts' => 0,
         ]);
 
-        app(SendSmsJob::class, ['smsLogId' => $log->id])->handle(app(SmsService::class));
+        try {
+            app(SendSmsJob::class, ['smsLogId' => $log->id])->handle(app(SmsService::class));
+            $this->fail('Expected SMS job to throw when delivery fails.');
+        } catch (RuntimeException $exception) {
+            $this->assertStringContainsString('SMS notification failed', $exception->getMessage());
+        }
 
         $this->assertDatabaseHas('sms_logs', [
             'id' => $log->id,
@@ -214,6 +247,101 @@ class SmsTest extends TestCase
             ->assertRedirect(route('admin.sms-logs.show', $log));
     }
 
+    public function test_retry_failed_template_sms_rerenders_current_template(): void
+    {
+        $this->installSms();
+        SmsTemplate::query()->create([
+            'name' => 'invoice_created',
+            'content' => '旧短信 {{invoice_number}}',
+            'enabled' => false,
+        ]);
+
+        $this->assertFalse(app(SmsService::class)->send('13800138888', 'invoice_created', [
+            'invoice_number' => 'INV-SMS-RETRY',
+        ], ['async' => false]));
+
+        $log = SmsLog::query()->where('phone', '13800138888')->firstOrFail();
+        $this->assertSame('failed', $log->status);
+        $this->assertSame('', $log->content);
+
+        SmsTemplate::query()->where('name', 'invoice_created')->update([
+            'content' => '新短信 {{invoice_number}}',
+            'enabled' => true,
+        ]);
+
+        $this->assertTrue(app(SmsService::class)->retry($log->fresh(), false));
+
+        $log->refresh();
+        $this->assertSame('sent', $log->status);
+        $this->assertSame('新短信 INV-SMS-RETRY', $log->content);
+    }
+
+    public function test_sent_sms_log_cannot_be_retried(): void
+    {
+        $log = SmsLog::query()->create([
+            'phone' => '13800138999',
+            'template' => 'invoice_paid',
+            'template_code' => 'invoice_paid',
+            'content' => '已发送',
+            'provider' => 'aliyun',
+            'status' => 'sent',
+            'success' => true,
+            'payload' => [],
+            'attempts' => 1,
+            'sent_at' => now(),
+        ]);
+
+        $this->assertFalse(app(SmsService::class)->retry($log, false));
+        $this->assertSame('sent', $log->fresh()->status);
+        $this->assertSame(1, $log->fresh()->attempts);
+    }
+
+    public function test_admin_cannot_retry_sent_sms_log_by_posting_directly(): void
+    {
+        $admin = $this->admin();
+        $log = SmsLog::query()->create([
+            'phone' => '13800138666',
+            'template' => 'invoice_paid',
+            'template_code' => 'invoice_paid',
+            'content' => '已发送',
+            'provider' => 'aliyun',
+            'status' => 'sent',
+            'success' => true,
+            'payload' => [],
+            'attempts' => 1,
+            'sent_at' => now(),
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.sms-logs.retry', $log))
+            ->assertRedirect(route('admin.sms-logs.show', $log))
+            ->assertSessionHas('error');
+
+        $this->assertSame('sent', $log->fresh()->status);
+        $this->assertSame(1, $log->fresh()->attempts);
+    }
+
+    public function test_sms_retry_stays_failed_when_template_is_unavailable(): void
+    {
+        $log = SmsLog::query()->create([
+            'phone' => '13800138777',
+            'template' => 'missing_template',
+            'template_code' => 'missing_template',
+            'content' => '',
+            'provider' => 'aliyun',
+            'status' => 'failed',
+            'success' => false,
+            'payload' => ['invoice_number' => 'INV-SMS-MISSING'],
+            'error' => 'test error',
+            'attempts' => 1,
+        ]);
+
+        $this->assertFalse(app(SmsService::class)->retry($log, false));
+        $log->refresh();
+        $this->assertSame('failed', $log->status);
+        $this->assertSame('SMS template unavailable', $log->error);
+    }
+
     private function installSms(): void
     {
         $manager = app(PluginManager::class);
@@ -274,12 +402,17 @@ class SmsTest extends TestCase
 
     private function admin(): AdminUser
     {
-        return AdminUser::query()->create([
+        $admin = AdminUser::query()->create([
             'username' => 'admin-sms',
             'email' => 'admin-sms@example.com',
             'password' => Hash::make('admin123456'),
             'real_name' => '短信管理员',
             'status' => 1,
         ]);
+
+        Role::query()->firstOrCreate(['name' => 'super-admin', 'guard_name' => 'web']);
+        $admin->syncRoles(['super-admin']);
+
+        return $admin;
     }
 }

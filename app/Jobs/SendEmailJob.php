@@ -6,6 +6,7 @@ use App\Models\EmailLog;
 use App\Services\MailService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use RuntimeException;
 
 class SendEmailJob implements ShouldQueue
 {
@@ -20,12 +21,21 @@ class SendEmailJob implements ShouldQueue
 
     public function handle(MailService $mail): void
     {
-        $log = EmailLog::query()->find($this->emailLogId);
-
-        if (!$log || $log->status === 'sent') {
+        $claimed = EmailLog::query()
+            ->whereKey($this->emailLogId)
+            ->whereIn('status', ['pending', 'failed'])
+            ->update(['status' => 'processing']);
+        if ($claimed !== 1) {
             return;
         }
 
-        $mail->sendLog($log);
+        $log = EmailLog::query()->find($this->emailLogId);
+        if (!$log) {
+            return;
+        }
+
+        if (!$mail->sendLog($log)) {
+            throw new RuntimeException('Email notification failed for log #' . $log->id);
+        }
     }
 }

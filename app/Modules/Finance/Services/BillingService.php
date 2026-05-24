@@ -2,6 +2,7 @@
 
 namespace App\Modules\Finance\Services;
 
+use App\Modules\Finance\Models\InvoiceItem;
 use App\Modules\Order\Models\Host;
 use App\Modules\Order\Services\HostService;
 use Illuminate\Support\Facades\DB;
@@ -31,6 +32,10 @@ class BillingService
             ->chunkById(100, function ($hosts) use (&$count) {
                 foreach ($hosts as $host) {
                     DB::transaction(function () use ($host, &$count) {
+                        if ($this->hasUnpaidRenewalInvoice($host)) {
+                            return;
+                        }
+
                         $this->hostService->renew($host, $host->billing_cycle);
                         $host->update(['next_invoice_date' => $host->next_due_date?->copy()->subDays(7)]);
                         $count++;
@@ -73,5 +78,14 @@ class BillingService
             });
 
         return $count;
+    }
+
+    private function hasUnpaidRenewalInvoice(Host $host): bool
+    {
+        return InvoiceItem::query()
+            ->where('type', 'renewal')
+            ->where('rel_id', $host->id)
+            ->whereHas('invoice', fn ($query) => $query->where('status', 'Unpaid'))
+            ->exists();
     }
 }

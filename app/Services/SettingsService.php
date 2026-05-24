@@ -33,11 +33,17 @@ class SettingsService
 
     public function all(?string $group = null)
     {
-        $settings = Cache::rememberForever(self::CACHE_KEY, function () {
-            return Setting::query()
-                ->get()
-                ->mapWithKeys(fn (Setting $setting) => [$setting->key => $this->decode($setting->value)]);
-        });
+        $cached = Cache::get(self::CACHE_KEY);
+
+        // 旧版本曾把 Collection 对象写入缓存，部分缓存驱动反序列化后会变成 incomplete object。
+        // 这里只信任普通数组，发现旧缓存就丢弃并从数据库重建，避免后台设置页被历史缓存打崩。
+        if (!is_array($cached)) {
+            Cache::forget(self::CACHE_KEY);
+            $cached = $this->settingsArray();
+            Cache::forever(self::CACHE_KEY, $cached);
+        }
+
+        $settings = collect($cached);
 
         if (!$group) {
             return $settings;
@@ -75,5 +81,13 @@ class SettingsService
         $decoded = json_decode($value, true);
 
         return json_last_error() === JSON_ERROR_NONE ? $decoded : $value;
+    }
+
+    private function settingsArray(): array
+    {
+        return Setting::query()
+            ->get()
+            ->mapWithKeys(fn (Setting $setting) => [$setting->key => $this->decode($setting->value)])
+            ->all();
     }
 }

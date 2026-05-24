@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Finance\Models\Currency;
+use App\Services\AdminAuditService;
 use App\Services\SettingsService;
 use Illuminate\Http\Request;
 
@@ -17,7 +18,7 @@ class SettingController extends Controller
         ]);
     }
 
-    public function update(Request $request, SettingsService $settings)
+    public function update(Request $request, SettingsService $settings, AdminAuditService $audit)
     {
         $data = $request->validate([
             'site_name' => ['required', 'string', 'max:100'],
@@ -86,6 +87,11 @@ class SettingController extends Controller
             'notify_ticket_replied_mail' => $request->boolean('notify_ticket_replied_mail', true),
             'notify_ticket_replied_sms' => $request->boolean('notify_ticket_replied_sms', true),
         ], 'notification');
+        $audit->record($request, 'settings.update', null, 'success', $data + [
+            'maintenance_mode' => $request->boolean('maintenance_mode'),
+            'mail_queue_enabled' => $request->boolean('mail_queue_enabled'),
+            'sms_queue_enabled' => $request->boolean('sms_queue_enabled'),
+        ]);
 
         return redirect()->route('admin.settings.index')->with('status', '系统设置已保存');
     }

@@ -27,6 +27,7 @@ class SmsService
         if (!$template) {
             $this->createLog($phone, $templateName, '', $options + [
                 'template' => $templateName,
+                'payload' => $variables,
                 'status' => 'failed',
                 'error' => 'SMS template unavailable',
             ]);
@@ -46,7 +47,13 @@ class SmsService
             : $this->smsQueueEnabled();
 
         if ($async) {
-            SendSmsJob::dispatch($log->id);
+            try {
+                SendSmsJob::dispatch($log->id);
+            } catch (Throwable) {
+                $this->markFailed($log->fresh(), 'SMS dispatch failed');
+
+                return false;
+            }
 
             return true;
         }
@@ -88,6 +95,15 @@ class SmsService
 
     public function retry(SmsLog $log, bool $async = true): bool
     {
+        if ($log->status !== 'failed') {
+            return false;
+        }
+
+        $log = $this->refreshTemplateLog($log);
+        if (!$log) {
+            return false;
+        }
+
         $log->update([
             'status' => 'pending',
             'success' => false,
@@ -96,12 +112,43 @@ class SmsService
         ]);
 
         if ($async) {
-            SendSmsJob::dispatch($log->id);
+            try {
+                SendSmsJob::dispatch($log->id);
+            } catch (Throwable) {
+                $this->markFailed($log->fresh(), 'SMS retry dispatch failed');
+
+                return false;
+            }
 
             return true;
         }
 
         return $this->sendLog($log->fresh());
+    }
+
+    private function refreshTemplateLog(SmsLog $log): ?SmsLog
+    {
+        if (!$log->template) {
+            return $log;
+        }
+
+        $template = SmsTemplate::query()
+            ->where('name', $log->template)
+            ->where('enabled', true)
+            ->first();
+
+        if (!$template) {
+            $this->markFailed($log, 'SMS template unavailable');
+
+            return null;
+        }
+
+        $log->update([
+            'template_code' => $log->template_code ?: $log->template,
+            'content' => $this->render($template->content, $log->payload ?? []),
+        ]);
+
+        return $log->fresh();
     }
 
     public function render(string $content, array $variables): string

@@ -6,7 +6,7 @@ return new class extends Migration {
     public function up(): void {
         Schema::create('ticket_statuses', function (Blueprint $table) {
             $table->id();
-            $table->string('name', 50);
+            $table->string('name', 50)->unique();
             $table->string('color', 20)->default('#888888');
             $table->boolean('show_client')->default(true);
             $table->boolean('is_default')->default(false);

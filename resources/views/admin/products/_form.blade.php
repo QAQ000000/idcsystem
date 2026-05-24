@@ -44,7 +44,7 @@
             <option value="">不绑定服务器模块</option>
             @foreach (($serverPlugins ?? collect()) as $plugin)
                 <option value="{{ $plugin->name }}" @selected(old('server_type', $product?->server_type) === $plugin->name)>
-                    {{ $plugin->title ?: $plugin->name }}
+                    {{ $plugin->title ?: $plugin->name }}{{ $plugin->status ? '' : '（已停用）' }}
                 </option>
             @endforeach
         </select>

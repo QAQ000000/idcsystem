@@ -41,6 +41,19 @@ class SystemTaskTest extends TestCase
         ]);
     }
 
+    public function test_system_task_service_marks_partial_failures_as_failed(): void
+    {
+        $log = app(SystemTaskService::class)->run('demo:partial-failed', fn () => [
+            'processed' => 2,
+            'success' => 1,
+            'failed' => 1,
+        ]);
+
+        $this->assertSame('failed', $log->status);
+        $this->assertSame('1 个子任务失败', $log->error);
+        $this->assertSame('{"processed":2,"success":1,"failed":1}', $log->output);
+    }
+
     public function test_host_usage_command_writes_system_task_log(): void
     {
         $this->artisan('host:sync-usage')->assertExitCode(0);

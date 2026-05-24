@@ -81,7 +81,13 @@ class TicketController extends Controller
             'message' => ['required', 'string'],
         ]);
 
-        $tickets->reply($ticket, 'client', (int) $client->id, $data['message']);
+        $reply = $tickets->reply($ticket, 'client', (int) $client->id, $data['message']);
+
+        if (!$reply) {
+            return redirect()->route('client.tickets.show', $ticket)->withErrors([
+                'ticket' => '已关闭工单不允许继续回复',
+            ]);
+        }
 
         return redirect()->route('client.tickets.show', $ticket)->with('status', '工单已回复');
     }

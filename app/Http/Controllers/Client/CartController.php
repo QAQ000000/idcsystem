@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Order\Services\CartService;
+use App\Modules\Order\Services\HostService;
 use App\Modules\Product\Models\Product;
+use App\Modules\Product\Services\ProductService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -21,7 +23,7 @@ class CartController extends Controller
         return view('client.cart.index', ['cart' => $cart->getCart($client)]);
     }
 
-    public function add(Request $request, CartService $cart)
+    public function add(Request $request, CartService $cart, HostService $hosts, ProductService $products)
     {
         $client = Auth::guard('client')->user();
 
@@ -31,11 +33,23 @@ class CartController extends Controller
 
         $data = $request->validate([
             'product_id' => ['required', 'integer', 'exists:products,id'],
-            'billing_cycle' => ['nullable', 'string', 'max:50'],
+            'billing_cycle' => ['nullable', 'string', 'max:50', 'in:' . implode(',', $hosts->availableCycles())],
             'qty' => ['nullable', 'integer', 'min:1'],
         ]);
 
-        $cart->add($client, Product::query()->findOrFail($data['product_id']), $data);
+        $product = Product::query()
+            ->where('hidden', false)
+            ->where('retired', false)
+            ->findOrFail($data['product_id']);
+        if (!$products->isPurchasable($product, (int) ($data['qty'] ?? 1))) {
+            abort(404);
+        }
+
+        if (!$cart->add($client, $product, $data)) {
+            return redirect()->route('client.products.show', $product)->withErrors([
+                'product' => '当前产品或计费周期不可购买',
+            ]);
+        }
 
         return redirect()->route('client.cart.index')->with('status', '产品已加入购物车');
     }

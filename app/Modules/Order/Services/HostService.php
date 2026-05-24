@@ -69,6 +69,12 @@ class HostService
      */
     public function provision(Host $host): bool
     {
+        if ($host->status !== 'Pending') {
+            $this->logFailure($host, 'provision', '当前服务状态不允许开通', ['status' => $host->status]);
+
+            return false;
+        }
+
         return DB::transaction(function () use ($host) {
             $plugin = $this->serverPlugin($host);
             if ($plugin) {
@@ -107,9 +113,17 @@ class HostService
      */
     public function suspend(Host $host, string $reason): bool
     {
+        if ($host->status !== 'Active') {
+            $this->logFailure($host, 'suspend', '当前服务状态不允许暂停', ['status' => $host->status]);
+
+            return false;
+        }
+
         return DB::transaction(function () use ($host, $reason) {
             $plugin = $this->serverPlugin($host);
             if ($plugin && !$plugin->suspendAccount($this->serverParams($host) + ['reason' => $reason])) {
+                $this->logFailure($host, 'suspend', '服务器模块暂停失败');
+
                 return false;
             }
 
@@ -131,9 +145,17 @@ class HostService
      */
     public function unsuspend(Host $host): bool
     {
+        if ($host->status !== 'Suspended') {
+            $this->logFailure($host, 'unsuspend', '当前服务状态不允许解除暂停', ['status' => $host->status]);
+
+            return false;
+        }
+
         return DB::transaction(function () use ($host) {
             $plugin = $this->serverPlugin($host);
             if ($plugin && !$plugin->unsuspendAccount($this->serverParams($host))) {
+                $this->logFailure($host, 'unsuspend', '服务器模块解除暂停失败');
+
                 return false;
             }
 
@@ -155,9 +177,17 @@ class HostService
      */
     public function terminate(Host $host): bool
     {
+        if (!in_array($host->status, ['Active', 'Suspended'], true)) {
+            $this->logFailure($host, 'terminate', '当前服务状态不允许终止', ['status' => $host->status]);
+
+            return false;
+        }
+
         return DB::transaction(function () use ($host) {
             $plugin = $this->serverPlugin($host);
             if ($plugin && !$plugin->terminateAccount($this->serverParams($host))) {
+                $this->logFailure($host, 'terminate', '服务器模块终止失败');
+
                 return false;
             }
 
@@ -179,11 +209,18 @@ class HostService
      */
     public function renew(Host $host, string $billingCycle): Invoice
     {
-        return DB::transaction(function () use ($host, $billingCycle) {
-            $amount = $this->pricingService->calculatePrice($host->product, $billingCycle, [
-                'currency_id' => $host->client->currency_id,
+        $amount = $this->pricingService->calculatePrice($host->product, $billingCycle, [
+            'currency_id' => $host->client->currency_id,
+        ]);
+        if ($amount <= 0) {
+            $this->logFailure($host, 'renew_invoice', '续费周期未配置有效价格', [
+                'billing_cycle' => $billingCycle,
             ]);
 
+            throw new \RuntimeException('当前续费周期未配置有效价格。');
+        }
+
+        return DB::transaction(function () use ($host, $billingCycle, $amount) {
             $invoice = $this->invoiceService->generate($host->client, [[
                 'type' => 'renewal',
                 'description' => $host->product->name . ' renewal (' . $billingCycle . ')',
@@ -228,6 +265,26 @@ class HostService
                 'status' => 'Pending',
             ]);
 
+            if ($type === 'downgrade') {
+                $this->completeUpgrade($upgrade);
+                $this->log($host, 'downgrade_completed', '降配已直接生效', [
+                    'upgrade_id' => $upgrade->id,
+                    'from_product_id' => $host->product_id,
+                    'to_product_id' => $targetProduct->id,
+                    'recurring_amount' => $target,
+                ]);
+
+                $invoice = $this->invoiceService->generateNoPaymentRequired($host->client, [[
+                    'type' => 'downgrade',
+                    'description' => $host->product->name . ' to ' . $targetProduct->name . ' downgrade adjustment',
+                    'amount' => 0,
+                    'rel_id' => $upgrade->id,
+                ]]);
+                $upgrade->update(['status' => 'Completed', 'completed_at' => now()]);
+
+                return $invoice->fresh(['items']);
+            }
+
             $invoice = $this->invoiceService->generate($host->client, [[
                 'type' => 'upgrade',
                 'description' => $host->product->name . ' to ' . $targetProduct->name,
@@ -262,12 +319,16 @@ class HostService
     public function resetPassword(Host $host): bool
     {
         if (!in_array($host->status, ['Active', 'Suspended'], true)) {
+            $this->logFailure($host, 'reset_password', '当前服务状态不允许重置密码', ['status' => $host->status]);
+
             return false;
         }
 
         $password = Str::password(12);
         $plugin = $this->serverPlugin($host);
         if ($plugin && !$plugin->changePassword($this->serverParams($host) + ['new_password' => $password])) {
+            $this->logFailure($host, 'reset_password', '服务器模块重置密码失败');
+
             return false;
         }
 
@@ -282,6 +343,8 @@ class HostService
     public function reboot(Host $host): bool
     {
         if ($host->status !== 'Active') {
+            $this->logFailure($host, 'reboot', '当前服务状态不允许重启', ['status' => $host->status]);
+
             return false;
         }
 
@@ -292,9 +355,17 @@ class HostService
 
     public function cancelAutoRenew(Host $host): bool
     {
+        if (!$host->auto_renew) {
+            $this->logFailure($host, 'cancel_auto_renew', '自动续费已经关闭');
+
+            return false;
+        }
+
         $updated = $host->update(['auto_renew' => false]);
         if ($updated) {
             $this->log($host, 'cancel_auto_renew', '自动续费已取消');
+        } else {
+            $this->logFailure($host, 'cancel_auto_renew', '自动续费关闭失败');
         }
 
         return $updated;
@@ -367,8 +438,11 @@ class HostService
         $host->update([
             'next_due_date' => $nextDueDate,
             'next_invoice_date' => $nextDueDate?->copy()->subDays(7),
-            'status' => $host->status === 'Suspended' ? 'Active' : $host->status,
         ]);
+        if ($host->status === 'Suspended') {
+            $this->unsuspend($host->fresh(['client', 'product']));
+        }
+
         $this->log($host, 'renew_paid', '续费已生效', ['invoice_item_id' => $item->id]);
     }
 
@@ -380,10 +454,7 @@ class HostService
         }
 
         $host = $upgrade->host;
-        $host->update([
-            'product_id' => $upgrade->to_product_id,
-            'recurring_amount' => $upgrade->amount > 0 ? $upgrade->amount : $host->recurring_amount,
-        ]);
+        $this->completeUpgrade($upgrade);
         $upgrade->update([
             'status' => 'Completed',
             'completed_at' => now(),
@@ -393,6 +464,21 @@ class HostService
         app(NotificationService::class)->notifyClient($host->client, 'host_upgrade_completed', [
             'client_name' => $host->client->username,
             'product_name' => $host->product?->name ?? '服务',
+        ]);
+    }
+
+    private function completeUpgrade(Upgrade $upgrade): void
+    {
+        $upgrade->loadMissing(['host.client']);
+        $host = $upgrade->host;
+        $targetProduct = Product::query()->findOrFail($upgrade->to_product_id);
+        $targetAmount = $this->pricingService->calculatePrice($targetProduct, $host->billing_cycle, [
+            'currency_id' => $host->client->currency_id,
+        ]);
+
+        $host->update([
+            'product_id' => $upgrade->to_product_id,
+            'recurring_amount' => round($targetAmount, 2),
         ]);
     }
 
@@ -419,5 +505,10 @@ class HostService
             'message' => $message,
             'meta' => $meta,
         ]);
+    }
+
+    private function logFailure(Host $host, string $action, string $message, array $meta = []): void
+    {
+        $this->log($host, $action . '_failed', $message, $meta);
     }
 }

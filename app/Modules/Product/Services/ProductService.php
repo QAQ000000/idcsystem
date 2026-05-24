@@ -50,6 +50,23 @@ class ProductService
         return (int) $product->stock_qty > 0;
     }
 
+    public function isPurchasable(Product $product, int $qty = 1): bool
+    {
+        if ($product->hidden || $product->retired) {
+            return false;
+        }
+
+        if ($qty < 1) {
+            return false;
+        }
+
+        if (!$product->stock_control) {
+            return true;
+        }
+
+        return (int) $product->stock_qty >= $qty;
+    }
+
     /**
      * 扣减库存，库存不足时返回 false。
      */

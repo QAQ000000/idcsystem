@@ -14,7 +14,7 @@ return new class extends Migration {
             $table->longText('body')->nullable();
             $table->string('template', 100)->nullable();
             $table->string('provider', 100)->nullable();
-            $table->string('status', 20)->default('pending')->comment('pending,sent,failed');
+            $table->string('status', 20)->default('pending')->comment('pending,processing,sent,failed');
             $table->boolean('success')->default(false);
             $table->json('payload')->nullable();
             $table->text('error')->nullable();

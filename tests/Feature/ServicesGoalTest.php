@@ -3,8 +3,11 @@
 namespace Tests\Feature;
 
 use App\Modules\Finance\Models\Currency;
+use App\Modules\Finance\Models\InvoiceItem;
 use App\Modules\Finance\Services\BillingService;
 use App\Modules\Finance\Services\InvoiceService;
+use App\Modules\Order\Models\Host;
+use App\Modules\Order\Models\Order;
 use App\Modules\Order\Services\CartService;
 use App\Modules\Order\Services\HostService;
 use App\Modules\Order\Services\OrderService;
@@ -103,5 +106,67 @@ class ServicesGoalTest extends TestCase
 
         $billingService = new BillingService($hostService);
         $this->assertIsInt($billingService->sendDueReminders());
+    }
+
+    public function test_recurring_invoice_generation_skips_hosts_with_unpaid_renewal_invoice(): void
+    {
+        $currency = Currency::create([
+            'code' => 'CNY',
+            'prefix' => '¥',
+            'suffix' => '',
+            'exchange_rate' => 1,
+            'is_default' => true,
+        ]);
+
+        $client = Client::create([
+            'username' => 'billing-client',
+            'email' => 'billing-client@example.com',
+            'password' => 'secret',
+            'status' => 1,
+            'currency_id' => $currency->id,
+        ]);
+
+        $group = ProductGroup::create(['name' => 'VPS']);
+        $product = Product::create([
+            'group_id' => $group->id,
+            'name' => 'Billing VPS',
+            'type' => 'vps',
+            'status' => 'Active',
+        ]);
+
+        $pricingService = new PricingService();
+        $pricingService->setPricing('product', $product->id, $currency->id, [
+            'monthly' => 50,
+        ]);
+
+        $order = Order::create([
+            'client_id' => $client->id,
+            'order_number' => 'ORD-BILLING-1',
+            'status' => 'Paid',
+            'amount' => 50,
+            'currency_id' => $currency->id,
+        ]);
+
+        $host = Host::create([
+            'client_id' => $client->id,
+            'order_id' => $order->id,
+            'product_id' => $product->id,
+            'billing_cycle' => 'monthly',
+            'first_payment_amount' => 50,
+            'recurring_amount' => 50,
+            'next_due_date' => now()->addDays(5),
+            'next_invoice_date' => now()->subDay(),
+            'status' => 'Active',
+            'auto_renew' => true,
+        ]);
+
+        $billingService = new BillingService(new HostService($pricingService, new InvoiceService()));
+
+        $this->assertSame(1, $billingService->generateRecurringInvoices());
+        $this->assertSame(0, $billingService->generateRecurringInvoices());
+        $this->assertSame(1, InvoiceItem::query()
+            ->where('type', 'renewal')
+            ->where('rel_id', $host->id)
+            ->count());
     }
 }

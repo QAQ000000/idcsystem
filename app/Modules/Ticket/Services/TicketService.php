@@ -33,8 +33,12 @@ class TicketService
     /**
      * 回复工单。
      */
-    public function reply(Ticket $ticket, string $authorType, int $authorId, string $message): TicketReply
+    public function reply(Ticket $ticket, string $authorType, int $authorId, string $message): ?TicketReply
     {
+        if ($this->isClosed($ticket)) {
+            return null;
+        }
+
         $reply = DB::transaction(function () use ($ticket, $authorType, $authorId, $message) {
             $reply = TicketReply::create([
                 'ticket_id' => $ticket->id,
@@ -69,6 +73,14 @@ class TicketService
      */
     public function changeStatus(Ticket $ticket, int $statusId): bool
     {
+        if (!TicketStatus::query()->whereKey($statusId)->exists()) {
+            return false;
+        }
+
+        if ($this->isClosed($ticket) && !$this->isClosedStatusId($statusId)) {
+            return false;
+        }
+
         return $ticket->update(['status_id' => $statusId]);
     }
 
@@ -85,8 +97,10 @@ class TicketService
      */
     public function close(Ticket $ticket): bool
     {
-        $statusId = TicketStatus::query()->where('name', 'Closed')->value('id')
-            ?: $ticket->status_id;
+        $statusId = TicketStatus::query()->where('name', 'Closed')->value('id');
+        if (!$statusId) {
+            return false;
+        }
 
         return $ticket->update(['status_id' => $statusId]);
     }
@@ -103,11 +117,38 @@ class TicketService
         return $ticket->update(['rating' => $rating]);
     }
 
+    private function isClosed(Ticket $ticket): bool
+    {
+        $ticket->loadMissing('status');
+
+        return $ticket->status?->name === 'Closed';
+    }
+
+    private function isClosedStatusId(int $statusId): bool
+    {
+        return TicketStatus::query()
+            ->whereKey($statusId)
+            ->where('name', 'Closed')
+            ->exists();
+    }
+
     private function defaultStatusId(): int
     {
-        return (int) (TicketStatus::query()->where('is_default', true)->value('id')
+        $statusId = (int) (TicketStatus::query()->where('is_default', true)->value('id')
             ?: TicketStatus::query()->orderBy('sort_order')->orderBy('id')->value('id')
-            ?: 1);
+            ?: 0);
+
+        if ($statusId > 0) {
+            return $statusId;
+        }
+
+        return (int) TicketStatus::query()->create([
+            'name' => 'Open',
+            'color' => '#16a34a',
+            'show_client' => true,
+            'is_default' => true,
+            'sort_order' => 1,
+        ])->id;
     }
 
     private function nextTicketNumber(): string

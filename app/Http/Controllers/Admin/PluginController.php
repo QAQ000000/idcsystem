@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Plugin as PluginModel;
 use App\Plugins\Core\PluginManager;
+use App\Services\AdminAuditService;
 use App\Services\PluginConfigService;
 use Illuminate\Http\Request;
 
@@ -23,35 +24,63 @@ class PluginController extends Controller
         ]);
     }
 
-    public function install(Request $request, PluginManager $plugins)
+    public function install(Request $request, PluginManager $plugins, AdminAuditService $audit)
     {
         $data = $request->validate([
-            'type' => ['required', 'string', 'max:50'],
-            'name' => ['required', 'string', 'max:100'],
+            'type' => ['required', 'string', 'in:gateway,email,sms,server'],
+            'name' => ['required', 'string', 'max:100', 'regex:/^[A-Za-z0-9_-]+$/'],
         ]);
 
-        $plugins->install($data['type'], $data['name']);
+        $success = $plugins->install($data['type'], $data['name']);
+        $plugin = PluginModel::query()->where('name', $data['name'])->first();
+        $audit->record($request, 'plugin.install', $plugin, $success ? 'success' : 'failed', $data, $success ? null : '插件安装失败');
+
+        if (!$success) {
+            return redirect()->route('admin.plugins.index')->with('error', '插件安装失败');
+        }
 
         return redirect()->route('admin.plugins.index')->with('status', '插件已安装');
     }
 
-    public function uninstall(string $name, PluginManager $plugins)
+    public function uninstall(Request $request, string $name, PluginManager $plugins, AdminAuditService $audit)
     {
-        $plugins->uninstall($name);
+        $plugin = PluginModel::query()->where('name', $name)->first();
+        $target = $plugin;
+        $success = $plugin && $plugins->uninstall($name);
+        $audit->record($request, 'plugin.uninstall', $target, $success ? 'success' : 'failed', [
+            'name' => $name,
+            'type' => $plugin?->type,
+        ], $success ? null : '插件卸载失败');
+
+        if (!$success) {
+            return redirect()->route('admin.plugins.index')->with('error', '插件卸载失败');
+        }
 
         return redirect()->route('admin.plugins.index')->with('status', '插件已卸载');
     }
 
-    public function enable(string $name, PluginManager $plugins)
+    public function enable(Request $request, string $name, PluginManager $plugins, AdminAuditService $audit)
     {
-        $plugins->enable($name);
+        $success = $plugins->enable($name);
+        $plugin = PluginModel::query()->where('name', $name)->first();
+        $audit->record($request, 'plugin.enable', $plugin, $success ? 'success' : 'failed', ['name' => $name], $success ? null : '插件启用失败');
+
+        if (!$success) {
+            return redirect()->route('admin.plugins.index')->with('error', '插件启用失败');
+        }
 
         return redirect()->route('admin.plugins.index')->with('status', '插件已启用');
     }
 
-    public function disable(string $name, PluginManager $plugins)
+    public function disable(Request $request, string $name, PluginManager $plugins, AdminAuditService $audit)
     {
-        $plugins->disable($name);
+        $success = $plugins->disable($name);
+        $plugin = PluginModel::query()->where('name', $name)->first();
+        $audit->record($request, 'plugin.disable', $plugin, $success ? 'success' : 'failed', ['name' => $name], $success ? null : '插件禁用失败');
+
+        if (!$success) {
+            return redirect()->route('admin.plugins.index')->with('error', '插件禁用失败');
+        }
 
         return redirect()->route('admin.plugins.index')->with('status', '插件已禁用');
     }
@@ -63,13 +92,17 @@ class PluginController extends Controller
         return view('admin.plugins.config', compact('plugin'));
     }
 
-    public function saveConfig(Request $request, string $name, PluginConfigService $configs)
+    public function saveConfig(Request $request, string $name, PluginConfigService $configs, AdminAuditService $audit)
     {
         $data = $request->validate([
             'config' => ['nullable', 'array'],
         ]);
 
-        $configs->save($name, $data['config'] ?? []);
+        $plugin = $configs->save($name, $data['config'] ?? []);
+        $audit->record($request, 'plugin.config.save', $plugin, 'success', [
+            'name' => $name,
+            'config' => $data['config'] ?? [],
+        ]);
 
         return redirect()->route('admin.plugins.config', $name)->with('status', '插件配置已保存');
     }

@@ -96,21 +96,21 @@ class OrderService
     public function markAsPaid(Order $order, string $paymentMethod, string $transId): bool
     {
         return DB::transaction(function () use ($order, $paymentMethod, $transId) {
-            $order->update([
+            $lockedOrder = Order::query()->whereKey($order->id)->lockForUpdate()->first();
+            if (!$lockedOrder || $lockedOrder->status !== 'Pending') {
+                return false;
+            }
+
+            $invoice = $lockedOrder->invoice()->lockForUpdate()->first();
+            if ($invoice) {
+                return $this->invoiceService->markAsPaid($invoice, $paymentMethod, $transId);
+            }
+
+            $lockedOrder->update([
                 'status' => 'Paid',
                 'payment_method' => $paymentMethod,
                 'paid_at' => now(),
             ]);
-
-            if ($order->invoice) {
-                $this->invoiceService->markAsPaid($order->invoice, $paymentMethod, $transId);
-            }
-
-            foreach ($order->hosts as $host) {
-                if ($host->status === 'Pending') {
-                    (new HostService($this->pricingService, $this->invoiceService))->provision($host);
-                }
-            }
 
             return true;
         });
@@ -122,15 +122,28 @@ class OrderService
     public function cancel(Order $order, string $reason): bool
     {
         return DB::transaction(function () use ($order, $reason) {
-            $order->update([
+            $lockedOrder = Order::query()->whereKey($order->id)->lockForUpdate()->first();
+            if (!$lockedOrder || $lockedOrder->status !== 'Pending') {
+                return false;
+            }
+
+            $lockedOrder->update([
                 'status' => 'Cancelled',
-                'admin_notes' => trim(($order->admin_notes ? $order->admin_notes . PHP_EOL : '') . $reason),
+                'admin_notes' => trim(($lockedOrder->admin_notes ? $lockedOrder->admin_notes . PHP_EOL : '') . $reason),
             ]);
 
-            $order->hosts()->where('status', 'Pending')->update([
+            $lockedOrder->hosts()->where('status', 'Pending')->update([
                 'status' => 'Cancelled',
                 'admin_notes' => $reason,
             ]);
+
+            $invoice = $lockedOrder->invoice()->lockForUpdate()->first();
+            if ($invoice && $invoice->status === 'Unpaid') {
+                $invoice->update([
+                    'status' => 'Cancelled',
+                    'notes' => trim(($invoice->notes ? $invoice->notes . PHP_EOL : '') . $reason),
+                ]);
+            }
 
             return true;
         });

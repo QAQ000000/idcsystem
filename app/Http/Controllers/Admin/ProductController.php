@@ -9,7 +9,9 @@ use App\Modules\Product\Models\ProductGroup;
 use App\Modules\Product\Services\PricingService;
 use App\Modules\Product\Services\ProductService;
 use App\Models\Plugin;
+use App\Services\AdminAuditService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class ProductController extends Controller
 {
@@ -28,9 +30,11 @@ class ProductController extends Controller
         ]);
     }
 
-    public function store(Request $request, ProductService $products)
+    public function store(Request $request, ProductService $products, AdminAuditService $audit)
     {
-        $product = $products->create($this->validatedProduct($request));
+        $data = $this->validatedProduct($request);
+        $product = $products->create($data);
+        $audit->record($request, 'product.create', $product, 'success', $data);
 
         return redirect()->route('admin.products.show', $product)->with('status', '产品已创建');
     }
@@ -47,20 +51,24 @@ class ProductController extends Controller
         return view('admin.products.edit', [
             'product' => $product,
             'groups' => ProductGroup::query()->orderBy('sort_order')->get(),
-            'serverPlugins' => $this->serverPlugins(),
+            'serverPlugins' => $this->serverPlugins($product),
         ]);
     }
 
-    public function update(Request $request, Product $product, ProductService $products)
+    public function update(Request $request, Product $product, ProductService $products, AdminAuditService $audit)
     {
-        $products->update($product, $this->validatedProduct($request));
+        $data = $this->validatedProduct($request, $product);
+        $products->update($product, $data);
+        $audit->record($request, 'product.update', $product, 'success', $data);
 
         return redirect()->route('admin.products.show', $product)->with('status', '产品已更新');
     }
 
-    public function destroy(Product $product, ProductService $products)
+    public function destroy(Request $request, Product $product, ProductService $products, AdminAuditService $audit)
     {
+        $productId = $product->id;
         $products->delete($product);
+        $audit->record($request, 'product.delete', $product, 'success', ['product_id' => $productId]);
 
         return redirect()->route('admin.products.index')->with('status', '产品已删除');
     }
@@ -76,7 +84,7 @@ class ProductController extends Controller
         ]);
     }
 
-    public function updatePricing(Request $request, Product $product, PricingService $pricing)
+    public function updatePricing(Request $request, Product $product, PricingService $pricing, AdminAuditService $audit)
     {
         $data = $request->validate([
             'currency_id' => ['required', 'integer', 'exists:currencies,id'],
@@ -100,21 +108,30 @@ class ProductController extends Controller
         $currencyId = (int) $data['currency_id'];
         unset($data['currency_id']);
         $pricing->setPricing('product', (int) $product->id, $currencyId, $data);
+        $audit->record($request, 'product.pricing.update', $product, 'success', [
+            'currency_id' => $currencyId,
+            'pricing' => $data,
+        ]);
 
         return redirect()->route('admin.products.pricing', $product)->with('status', '产品价格已保存');
     }
 
-    private function validatedProduct(Request $request): array
+    private function validatedProduct(Request $request, ?Product $product = null): array
     {
         $data = $request->validate([
-            'group_id' => ['required', 'integer'],
+            'group_id' => ['required', 'integer', 'exists:product_groups,id'],
             'name' => ['required', 'string', 'max:100'],
             'description' => ['nullable', 'string'],
             'type' => ['required', 'string', 'max:25'],
             'pay_type' => ['nullable', 'string', 'max:50'],
             'pay_method' => ['nullable', 'string', 'max:20'],
             'auto_setup' => ['nullable', 'string', 'max:20'],
-            'server_type' => ['nullable', 'string', 'max:100'],
+            'server_type' => [
+                'nullable',
+                'string',
+                'max:100',
+                $this->serverTypeRule($product),
+            ],
             'stock_control' => ['nullable', 'boolean'],
             'stock_qty' => ['nullable', 'integer', 'min:0'],
             'hidden' => ['nullable', 'boolean'],
@@ -137,12 +154,32 @@ class ProductController extends Controller
         return $data;
     }
 
-    private function serverPlugins()
+    private function serverPlugins(?Product $product = null)
     {
         return Plugin::query()
             ->where('type', 'server')
-            ->where('status', 1)
+            ->where(function ($query) use ($product) {
+                $query->where('status', 1);
+
+                if ($product?->server_type) {
+                    $query->orWhere('name', $product->server_type);
+                }
+            })
             ->orderBy('title')
             ->get();
+    }
+
+    private function serverTypeRule(?Product $product)
+    {
+        return Rule::exists('plugins', 'name')->where(function ($query) use ($product) {
+            $query->where('type', 'server')
+                ->where(function ($query) use ($product) {
+                    $query->where('status', 1);
+
+                    if ($product?->server_type) {
+                        $query->orWhere('name', $product->server_type);
+                    }
+                });
+        });
     }
 }

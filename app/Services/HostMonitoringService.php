@@ -16,6 +16,8 @@ class HostMonitoringService
         try {
             $plugin = $this->serverPlugin($host);
             if (!$plugin) {
+                $this->logUsageFailure($host, 'Server module unavailable');
+
                 return $this->snapshot($host, [], 'Server module unavailable');
             }
 
@@ -23,12 +25,7 @@ class HostMonitoringService
 
             return $this->snapshot($host, $stats);
         } catch (Throwable $exception) {
-            HostActionLog::query()->create([
-                'host_id' => $host->id,
-                'action' => 'usage_sync_failed',
-                'message' => $exception->getMessage(),
-                'meta' => [],
-            ]);
+            $this->logUsageFailure($host, $exception->getMessage());
 
             return $this->snapshot($host, [], $exception->getMessage());
         }
@@ -71,20 +68,26 @@ class HostMonitoringService
                         continue;
                     }
 
-                    app(NotificationService::class)->notifyClient($host->client, 'host_due_reminder', [
+                    $notification = app(NotificationService::class)->notifyClient($host->client, 'host_due_reminder', [
                         'client_name' => $host->client->username,
                         'product_name' => $host->product?->name ?? '服务',
                         'due_date' => $host->next_due_date?->format('Y-m-d'),
                     ]);
 
+                    $sent = ($notification['mail'] ?? false) === true || ($notification['sms'] ?? false) === true;
                     HostActionLog::query()->create([
                         'host_id' => $host->id,
-                        'action' => 'due_reminder',
-                        'message' => '服务到期提醒已触发',
-                        'meta' => ['due_date' => $host->next_due_date?->toDateTimeString()],
+                        'action' => $sent ? 'due_reminder' : 'due_reminder_failed',
+                        'message' => $sent ? '服务到期提醒已触发' : '服务到期提醒发送失败',
+                        'meta' => [
+                            'due_date' => $host->next_due_date?->toDateTimeString(),
+                            'notification' => $notification,
+                        ],
                     ]);
 
-                    $result['notified']++;
+                    if ($sent) {
+                        $result['notified']++;
+                    }
                 }
             });
 
@@ -138,5 +141,15 @@ class HostMonitoringService
             'server_id' => $host->server_id,
             'config' => is_array($host->notes) ? $host->notes : [],
         ];
+    }
+
+    private function logUsageFailure(Host $host, string $message): void
+    {
+        HostActionLog::query()->create([
+            'host_id' => $host->id,
+            'action' => 'usage_sync_failed',
+            'message' => $message,
+            'meta' => [],
+        ]);
     }
 }

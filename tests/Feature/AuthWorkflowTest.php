@@ -110,6 +110,13 @@ class AuthWorkflowTest extends TestCase
         $this->actingAs($client, 'client')->get(route('client.dashboard'))->assertRedirect(route('client.login'));
     }
 
+    public function test_auth_entrypoints_are_rate_limited(): void
+    {
+        $this->assertContains('throttle:10,1', \Illuminate\Support\Facades\Route::getRoutes()->getByName('admin.login.store')->middleware());
+        $this->assertContains('throttle:10,1', \Illuminate\Support\Facades\Route::getRoutes()->getByName('client.login.store')->middleware());
+        $this->assertContains('throttle:5,1', \Illuminate\Support\Facades\Route::getRoutes()->getByName('client.register.store')->middleware());
+    }
+
     private function createDemoProduct(): Product
     {
         $group = ProductGroup::query()->firstOrCreate(

@@ -54,6 +54,11 @@ class HostMonitoringTest extends TestCase
             'host_id' => $failedHost->id,
             'error' => 'Server module unavailable',
         ]);
+        $this->assertDatabaseHas('host_action_logs', [
+            'host_id' => $failedHost->id,
+            'action' => 'usage_sync_failed',
+            'message' => 'Server module unavailable',
+        ]);
         $this->assertDatabaseHas('host_usage_snapshots', [
             'host_id' => $plainHost->id,
             'error' => 'MockServer 模拟用量采集失败',

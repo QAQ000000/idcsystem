@@ -60,6 +60,10 @@ class MockServerPlugin extends AbstractPlugin implements ServerModuleInterface
 
     public function unsuspendAccount(array $params): bool
     {
+        if (($this->getConfig()['fail_unsuspend'] ?? false) === true) {
+            return false;
+        }
+
         return true;
     }
 

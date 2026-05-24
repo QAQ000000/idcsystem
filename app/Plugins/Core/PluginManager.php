@@ -3,6 +3,7 @@
 namespace App\Plugins\Core;
 
 use App\Models\Plugin;
+use App\Models\Setting;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\File;
 
@@ -34,18 +35,23 @@ class PluginManager
 
     public function get(string $name): ?object
     {
-        if (isset($this->plugins[$name])) {
-            return $this->plugins[$name];
-        }
-
-        $plugin = Plugin::where('name', $name)->first();
+        $plugin = Plugin::query()
+            ->when($this->currentType, fn ($query, string $type) => $query->where('type', $type))
+            ->where('name', $name)
+            ->where('status', 1)
+            ->first();
         if (!$plugin) {
             return null;
         }
 
+        $cacheKey = $plugin->type . ':' . $plugin->name;
+        if (isset($this->plugins[$cacheKey])) {
+            return $this->plugins[$cacheKey];
+        }
+
         $instance = $this->loadPlugin($plugin);
         if ($instance) {
-            $this->plugins[$name] = $instance;
+            $this->plugins[$cacheKey] = $instance;
         }
 
         return $instance;
@@ -72,6 +78,13 @@ class PluginManager
         }
 
         return new $fullClass();
+    }
+
+    public function routeFile(Plugin $plugin): ?string
+    {
+        $routeFile = $this->pluginPath($plugin->type, $plugin->name) . '/routes/web.php';
+
+        return File::exists($routeFile) ? $routeFile : null;
     }
 
     public function scan(string $type): array
@@ -108,6 +121,16 @@ class PluginManager
         }
 
         $pluginJson = json_decode(File::get($pluginJsonPath), true) ?: [];
+        $pluginName = $pluginJson['name'] ?? $name;
+        $pluginType = $pluginJson['type'] ?? $type;
+        $existingDifferentType = Plugin::query()
+            ->where('name', $pluginName)
+            ->where('type', '!=', $pluginType)
+            ->exists();
+        if ($existingDifferentType) {
+            return false;
+        }
+
         $fullClass = $this->pluginClass($type, $name, $pluginJson);
 
         if (!$fullClass || !class_exists($fullClass)) {
@@ -120,17 +143,18 @@ class PluginManager
         }
 
         Plugin::query()->updateOrCreate(
-            ['name' => $pluginJson['name'] ?? $name],
+            ['name' => $pluginName],
             [
                 'title' => $pluginJson['title'] ?? $name,
-                'type' => $pluginJson['type'] ?? $type,
+                'type' => $pluginType,
                 'version' => $pluginJson['version'] ?? '1.0.0',
                 'author' => $pluginJson['author'] ?? null,
                 'description' => $pluginJson['description'] ?? '',
                 'status' => 0,
-                'config' => Plugin::query()->where('name', $pluginJson['name'] ?? $name)->value('config') ?? [],
+                'config' => Plugin::query()->where('name', $pluginName)->value('config') ?? [],
             ]
         );
+        $this->forget($pluginName, $pluginType);
 
         return true;
     }
@@ -143,10 +167,19 @@ class PluginManager
             return false;
         }
 
+        if ($this->hasBusinessReferences($plugin)) {
+            return false;
+        }
+
         $instance = $this->loadPlugin($plugin);
 
         if ($instance) {
-            return $instance->uninstall();
+            $uninstalled = $instance->uninstall();
+            if ($uninstalled) {
+                $this->forget($plugin->name, $plugin->type);
+            }
+
+            return $uninstalled;
         }
 
         return false;
@@ -154,12 +187,47 @@ class PluginManager
 
     public function enable(string $name): bool
     {
-        return Plugin::where('name', $name)->update(['status' => 1]) > 0;
+        $plugin = Plugin::query()->where('name', $name)->first();
+        if (!$plugin) {
+            return false;
+        }
+
+        $enabled = $plugin->update(['status' => 1]);
+        $this->forget($plugin->name, $plugin->type);
+
+        return $enabled;
     }
 
     public function disable(string $name): bool
     {
-        return Plugin::where('name', $name)->update(['status' => 0]) > 0;
+        $plugin = Plugin::query()->where('name', $name)->first();
+        if (!$plugin) {
+            return false;
+        }
+
+        if ($this->hasBusinessReferences($plugin)) {
+            return false;
+        }
+
+        $disabled = $plugin->update(['status' => 0]);
+        $this->forget($plugin->name, $plugin->type);
+
+        return $disabled;
+    }
+
+    public function forget(string $name, ?string $type = null): void
+    {
+        if ($type !== null) {
+            unset($this->plugins[$type . ':' . $name]);
+
+            return;
+        }
+
+        foreach (array_keys($this->plugins) as $key) {
+            if (str_ends_with($key, ':' . $name)) {
+                unset($this->plugins[$key]);
+            }
+        }
     }
 
     private function pluginClass(string $type, string $name, array $pluginJson): ?string
@@ -205,5 +273,26 @@ class PluginManager
         }
 
         return $typePath . DIRECTORY_SEPARATOR . $name;
+    }
+
+    private function hasBusinessReferences(Plugin $plugin): bool
+    {
+        return match ($plugin->type) {
+            'server' => \App\Modules\Product\Models\Product::query()
+                ->where('server_type', $plugin->name)
+                ->exists(),
+            'gateway' => \App\Modules\Finance\Models\Account::query()
+                ->where('payment_method', $plugin->name)
+                ->exists(),
+            'email' => Setting::query()
+                ->where('key', 'default_email_provider')
+                ->where('value', $plugin->name)
+                ->exists(),
+            'sms' => Setting::query()
+                ->where('key', 'default_sms_provider')
+                ->where('value', $plugin->name)
+                ->exists(),
+            default => false,
+        };
     }
 }

@@ -7,6 +7,7 @@ use App\Models\EmailLog;
 use App\Models\SmsLog;
 use App\Modules\Admin\Models\AdminUser;
 use App\Modules\Finance\Models\Currency;
+use App\Modules\User\Services\ClientService;
 use App\Modules\User\Models\Client;
 use App\Plugins\Core\PluginManager;
 use App\Services\SettingsService;
@@ -105,6 +106,35 @@ class ClientTest extends TestCase
         $this->actingAs($admin, 'admin')
             ->get(route('admin.clients.show', $client))
             ->assertOk();
+    }
+
+    public function test_credit_adjustments_reject_non_positive_amounts(): void
+    {
+        $client = $this->client();
+        $client->update(['credit' => 100]);
+        $service = app(ClientService::class);
+
+        $this->assertFalse($service->addCredit($client, 0, 'zero add'));
+        $this->assertFalse($service->addCredit($client, -10, 'negative add'));
+        $this->assertFalse($service->deductCredit($client, 0, 'zero deduct'));
+        $this->assertFalse($service->deductCredit($client, -10, 'negative deduct'));
+
+        $this->assertSame('100.00', (string) $client->fresh()->credit);
+        $this->assertDatabaseCount('credits', 0);
+    }
+
+    public function test_admin_client_update_rejects_invalid_status_values(): void
+    {
+        $admin = $this->admin();
+        $client = $this->client();
+
+        $this->actingAs($admin, 'admin')
+            ->put(route('admin.clients.update', $client), [
+                'status' => 999,
+            ])
+            ->assertSessionHasErrors('status');
+
+        $this->assertSame(1, $client->fresh()->status);
     }
 
     private function client(): Client

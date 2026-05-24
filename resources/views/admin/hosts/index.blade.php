@@ -59,8 +59,8 @@
                         <td class="px-4 py-3">
                             <div class="font-medium">#{{ $host->id }} {{ $host->domain ?: '未绑定域名' }}</div>
                             <div class="text-slate-500">{{ $host->billing_cycle }} / {{ $host->recurring_amount }}</div>
-                            @if ($host->status === 'Pending' && $host->actionLogs->firstWhere('action', 'provision_failed'))
-                                <div class="mt-1 inline-flex rounded bg-red-100 px-2 py-0.5 text-xs text-red-800">开通失败</div>
+                            @if ($host->actionLogs->first(fn ($log) => str_ends_with((string) $log->action, '_failed')))
+                                <div class="mt-1 inline-flex rounded bg-red-100 px-2 py-0.5 text-xs text-red-800">有失败</div>
                             @elseif ($host->status === 'Pending')
                                 <div class="mt-1 inline-flex rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800">待开通</div>
                             @elseif ($host->status === 'Active')

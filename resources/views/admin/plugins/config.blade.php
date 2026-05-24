@@ -15,10 +15,19 @@
         @csrf
 
         @php($config = $plugin->config ?? [])
+        @php($sensitivePattern = '/(secret|password|passwd|token|key)$/i')
         @foreach (['app_id' => '应用 ID', 'app_secret' => '应用密钥', 'endpoint' => '接口地址', 'callback_url' => '回调地址'] as $key => $label)
+            @php($isSensitive = preg_match($sensitivePattern, $key) === 1)
             <label class="mb-4 block text-sm">
                 {{ $label }}
-                <input class="mt-1 w-full rounded border px-3 py-2" name="config[{{ $key }}]" value="{{ old('config.' . $key, $config[$key] ?? '') }}">
+                <input
+                    class="mt-1 w-full rounded border px-3 py-2"
+                    name="config[{{ $key }}]"
+                    type="{{ $isSensitive ? 'password' : 'text' }}"
+                    value="{{ old('config.' . $key, $isSensitive ? '' : ($config[$key] ?? '')) }}"
+                    placeholder="{{ $isSensitive && !empty($config[$key] ?? '') ? '已保存，留空则不修改' : '' }}"
+                    autocomplete="off"
+                >
             </label>
         @endforeach
 

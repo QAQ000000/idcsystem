@@ -2,7 +2,9 @@
 
 namespace App\Providers;
 
+use App\Models\Plugin;
 use App\Plugins\Core\PluginManager;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\ServiceProvider;
 
 class PluginServiceProvider extends ServiceProvider
@@ -23,16 +25,25 @@ class PluginServiceProvider extends ServiceProvider
 
     protected function loadPluginRoutes(): void
     {
-        if (!$this->app->routesAreCached()) {
-            $pluginsPath = base_path('plugins');
+        if ($this->app->routesAreCached()) {
+            return;
+        }
 
-            if (!is_dir($pluginsPath)) {
-                return;
-            }
+        if (!is_dir(base_path('plugins'))) {
+            return;
+        }
 
-            foreach (glob($pluginsPath . '/*/*/routes/web.php') as $routeFile) {
-                $this->loadRoutesFrom($routeFile);
+        try {
+            $manager = $this->app->make(PluginManager::class);
+
+            foreach (Plugin::query()->where('status', 1)->get() as $plugin) {
+                $routeFile = $manager->routeFile($plugin);
+                if ($routeFile) {
+                    $this->loadRoutesFrom($routeFile);
+                }
             }
+        } catch (QueryException) {
+            return;
         }
     }
 }

@@ -21,13 +21,14 @@ class SystemTaskService
         try {
             $result = $callback();
             $output = $this->stringify($result);
+            $failedCount = is_array($result) ? (int) ($result['failed'] ?? 0) : 0;
 
             $log->update([
-                'status' => 'success',
+                'status' => $failedCount > 0 ? 'failed' : 'success',
                 'finished_at' => now(),
                 'duration_ms' => (int) round((microtime(true) - $startedAtFloat) * 1000),
                 'output' => $output,
-                'error' => null,
+                'error' => $failedCount > 0 ? "{$failedCount} 个子任务失败" : null,
             ]);
         } catch (Throwable $exception) {
             $log->update([

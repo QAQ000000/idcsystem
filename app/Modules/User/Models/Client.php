@@ -77,6 +77,10 @@ class Client extends Authenticatable
 
     public function hasEnoughCredit(float $amount): bool
     {
+        if ($amount <= 0) {
+            return false;
+        }
+
         return $this->credit >= $amount;
     }
 }

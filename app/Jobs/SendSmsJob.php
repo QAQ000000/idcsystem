@@ -6,6 +6,7 @@ use App\Models\SmsLog;
 use App\Services\SmsService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use RuntimeException;
 
 class SendSmsJob implements ShouldQueue
 {
@@ -20,12 +21,21 @@ class SendSmsJob implements ShouldQueue
 
     public function handle(SmsService $sms): void
     {
-        $log = SmsLog::query()->find($this->smsLogId);
-
-        if (!$log || $log->status === 'sent') {
+        $claimed = SmsLog::query()
+            ->whereKey($this->smsLogId)
+            ->whereIn('status', ['pending', 'failed'])
+            ->update(['status' => 'processing']);
+        if ($claimed !== 1) {
             return;
         }
 
-        $sms->sendLog($log);
+        $log = SmsLog::query()->find($this->smsLogId);
+        if (!$log) {
+            return;
+        }
+
+        if (!$sms->sendLog($log)) {
+            throw new RuntimeException('SMS notification failed for log #' . $log->id);
+        }
     }
 }

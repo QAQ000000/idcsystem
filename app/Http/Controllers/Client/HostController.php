@@ -57,10 +57,16 @@ class HostController extends Controller
 
         abort_unless((int) $host->client_id === (int) $client->id, 403);
         $data = $request->validate([
-            'billing_cycle' => ['nullable', 'string', 'max:50'],
+            'billing_cycle' => ['nullable', 'string', 'max:50', 'in:' . implode(',', $hosts->availableCycles())],
         ]);
 
-        $invoice = $hosts->renew($host, $data['billing_cycle'] ?? $host->billing_cycle ?? 'monthly');
+        try {
+            $invoice = $hosts->renew($host, $data['billing_cycle'] ?? $host->billing_cycle ?? 'monthly');
+        } catch (\RuntimeException $exception) {
+            return redirect()->route('client.hosts.show', $host)->withErrors([
+                'billing_cycle' => $exception->getMessage(),
+            ]);
+        }
 
         return redirect()->route('client.invoices.show', $invoice)->with('status', '续费账单已生成');
     }
@@ -74,7 +80,12 @@ class HostController extends Controller
             'product_id' => ['required', 'integer', 'exists:products,id'],
         ]);
 
-        $invoice = $hosts->createUpgradeInvoice($host->load('product', 'client'), Product::query()->findOrFail((int) $data['product_id']));
+        $targetProduct = Product::query()
+            ->where('hidden', false)
+            ->where('retired', false)
+            ->findOrFail((int) $data['product_id']);
+
+        $invoice = $hosts->createUpgradeInvoice($host->load('product', 'client'), $targetProduct);
 
         return redirect()->route('client.invoices.show', $invoice)->with('status', '升级/降配账单已生成');
     }
@@ -87,9 +98,9 @@ class HostController extends Controller
         ]);
 
         $ok = match ($data['action']) {
-            'provision' => $host->status === 'Pending' && $hosts->provision($host),
-            'suspend' => $host->status === 'Active' && $hosts->suspend($host, '客户自助暂停'),
-            'unsuspend' => $host->status === 'Suspended' && $hosts->unsuspend($host),
+            'provision' => $this->canSelfProvision($host) ? $hosts->provision($host) : false,
+            'suspend' => $hosts->suspend($host, '客户自助暂停'),
+            'unsuspend' => $hosts->unsuspend($host),
             'reboot' => $hosts->reboot($host),
             'reset_password' => $hosts->resetPassword($host),
             'cancel_auto_renew' => $hosts->cancelAutoRenew($host),
@@ -107,5 +118,18 @@ class HostController extends Controller
         $client = Auth::guard('client')->user();
 
         abort_unless($client && (int) $host->client_id === (int) $client->id, 403);
+    }
+
+    private function canSelfProvision(Host $host): bool
+    {
+        if ($host->status !== 'Pending') {
+            return false;
+        }
+
+        $host->loadMissing('order.invoice');
+
+        // 客户侧只能重试已付款服务的开通，避免未支付订单直接绕过账单流程。
+        return $host->order?->status === 'Paid'
+            || $host->order?->invoice?->status === 'Paid';
     }
 }

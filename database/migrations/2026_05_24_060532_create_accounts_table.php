@@ -18,6 +18,7 @@ return new class extends Migration {
             $table->timestamps();
             $table->index('client_id');
             $table->index('invoice_id');
+            $table->unique('gateway_trans_id');
             $table->foreign('client_id')->references('id')->on('clients');
         });
     }

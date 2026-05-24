@@ -35,6 +35,16 @@ class ManualPayPlugin extends AbstractPlugin implements PaymentGatewayInterface
     public function pay(array $order): array
     {
         $config = $this->getConfig();
+        if (($config['pay_should_fail'] ?? false) === true) {
+            return [
+                'success' => false,
+                'gateway' => $this->getName(),
+                'invoice_id' => $order['invoice_id'] ?? null,
+                'amount' => (float) ($order['amount'] ?? 0),
+                'status' => 'failed',
+                'message' => '线下转账支付发起失败。',
+            ];
+        }
 
         return [
             'success' => true,
@@ -58,6 +68,10 @@ class ManualPayPlugin extends AbstractPlugin implements PaymentGatewayInterface
 
     public function refund(string $transId, float $amount): bool
     {
+        if (($this->getConfig()['refund_should_fail'] ?? false) === true) {
+            return false;
+        }
+
         return $transId !== '' && $amount > 0;
     }
 

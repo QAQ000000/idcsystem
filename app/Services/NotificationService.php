@@ -17,23 +17,35 @@ class NotificationService
         $this->sms ??= app(SmsService::class);
     }
 
-    public function notifyClient(Client $client, string $event, array $variables = []): void
+    public function notifyClient(Client $client, string $event, array $variables = []): array
     {
+        $result = [
+            'mail' => null,
+            'sms' => null,
+            'errors' => [],
+        ];
+
         if ($this->enabled($event, 'mail') && !empty($client->email)) {
             try {
-                $this->mail->sendTemplate($event, (string) $client->email, $variables);
+                $result['mail'] = $this->mail->sendTemplate($event, (string) $client->email, $variables);
             } catch (Throwable $exception) {
+                $result['mail'] = false;
+                $result['errors']['mail'] = $exception->getMessage();
                 report($exception);
             }
         }
 
         if ($this->enabled($event, 'sms') && !empty($client->phone)) {
             try {
-                $this->sms->send((string) $client->phone, $event, $variables);
+                $result['sms'] = $this->sms->send((string) $client->phone, $event, $variables);
             } catch (Throwable $exception) {
+                $result['sms'] = false;
+                $result['errors']['sms'] = $exception->getMessage();
                 report($exception);
             }
         }
+
+        return $result;
     }
 
     public function enabled(string $event, string $channel): bool

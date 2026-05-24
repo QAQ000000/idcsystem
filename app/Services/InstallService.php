@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Setting;
 use App\Modules\Admin\Models\AdminUser;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Config;
@@ -10,12 +11,36 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Hash;
 use RuntimeException;
+use Throwable;
 
 class InstallService
 {
+    private const INSTALLED_MARKER_KEY = 'system.installed_at';
+    private const REQUIRED_INSTALL_TABLES = [
+        'migrations',
+        'users',
+        'jobs',
+        'job_batches',
+        'failed_jobs',
+        'admin_users',
+        'settings',
+        'plugins',
+        'clients',
+        'products',
+        'orders',
+        'hosts',
+        'invoices',
+        'invoice_items',
+        'accounts',
+        'tickets',
+        'ticket_replies',
+        'email_templates',
+        'sms_templates',
+    ];
+
     public function isInstalled(): bool
     {
-        return File::exists($this->lockPath());
+        return File::exists($this->lockPath()) || $this->hasDatabaseInstallMarker();
     }
 
     public function lockPath(): string
@@ -26,6 +51,11 @@ class InstallService
     public function statePath(): string
     {
         return storage_path('app/install.state.json');
+    }
+
+    public function runningLockPath(): string
+    {
+        return storage_path('app/install.running.lock');
     }
 
     public function status(): array
@@ -116,6 +146,31 @@ class InstallService
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
     }
 
+    public function runWithInstallationLock(callable $callback): mixed
+    {
+        File::ensureDirectoryExists(dirname($this->runningLockPath()));
+        $handle = fopen($this->runningLockPath(), 'c');
+
+        if ($handle === false) {
+            throw new RuntimeException('无法创建安装互斥锁。');
+        }
+
+        if (!flock($handle, LOCK_EX | LOCK_NB)) {
+            fclose($handle);
+
+            throw new RuntimeException('安装正在进行，请稍后再试。');
+        }
+
+        try {
+            return $callback();
+        } catch (Throwable $exception) {
+            throw $exception;
+        } finally {
+            flock($handle, LOCK_UN);
+            fclose($handle);
+        }
+    }
+
     public function storedDatabaseConfig(): ?array
     {
         if (!File::exists($this->statePath())) {
@@ -144,6 +199,11 @@ class InstallService
         app()->terminating(function (): void {
             $this->applyStoredDatabaseConfig(true);
         });
+    }
+
+    public function persistStoredDatabaseConfig(): bool
+    {
+        return $this->applyStoredDatabaseConfig(true);
     }
 
     private function applyDatabaseConfig(array $data, bool $persist): void
@@ -182,6 +242,9 @@ class InstallService
     {
         $this->ensureNotInstalled();
         $this->ensureMigrationRepository();
+        if ($this->hasPartialInstallSchema()) {
+            throw new RuntimeException('数据库已存在部分安装数据，请清空后重新安装。');
+        }
         $this->repairMigrationRepository();
         Artisan::call('migrate', ['--force' => true, '--database' => 'mysql']);
         Artisan::call('db:seed', ['--force' => true]);
@@ -190,13 +253,25 @@ class InstallService
     public function databaseInitialized(): bool
     {
         try {
-            return Schema::connection('mysql')->hasTable('migrations')
-                && Schema::connection('mysql')->hasTable('admin_users')
-                && Schema::connection('mysql')->hasTable('settings')
-                && Schema::connection('mysql')->hasTable('plugins');
+            foreach (self::REQUIRED_INSTALL_TABLES as $table) {
+                if (!Schema::connection('mysql')->hasTable($table)) {
+                    return false;
+                }
+            }
+
+            return true;
         } catch (\Throwable) {
             return false;
         }
+    }
+
+    public function installationDatabaseReady(): bool
+    {
+        if (!$this->applyStoredDatabaseConfig()) {
+            return false;
+        }
+
+        return $this->databaseInitialized();
     }
 
     public function createAdmin(array $data): AdminUser
@@ -217,12 +292,20 @@ class InstallService
 
     public function markInstalled(array $context = []): void
     {
+        $installedAt = now()->toIso8601String();
+
         File::ensureDirectoryExists(dirname($this->lockPath()));
-        File::put($this->lockPath(), json_encode([
-            'installed_at' => now()->toIso8601String(),
+        $written = File::put($this->lockPath(), json_encode([
+            'installed_at' => $installedAt,
             'app' => config('app.name'),
             'context' => $context,
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+
+        if ($written === false) {
+            throw new RuntimeException('安装锁写入失败。');
+        }
+
+        $this->writeDatabaseInstallMarker($installedAt);
         File::delete($this->statePath());
     }
 
@@ -252,7 +335,9 @@ class InstallService
             }
         }
 
-        File::put($path, ltrim($content));
+        if (File::put($path, ltrim($content)) === false) {
+            throw new RuntimeException('.env 配置写入失败。');
+        }
     }
 
     private function encodeEnvValue(string $value): string
@@ -279,8 +364,8 @@ class InstallService
                 continue;
             }
 
-            $table = $this->tableNameFromMigration($file->getRealPath());
-            if ($table && Schema::connection('mysql')->hasTable($table)) {
+            $tables = $this->tableNamesFromMigration($file->getRealPath());
+            if ($tables !== [] && $this->allTablesExist($tables)) {
                 $repairs[] = [
                     'migration' => $migration,
                     'batch' => $batch,
@@ -293,19 +378,80 @@ class InstallService
         }
     }
 
-    private function tableNameFromMigration(string $path): ?string
+    private function hasPartialInstallSchema(): bool
+    {
+        $existing = [];
+
+        foreach (self::REQUIRED_INSTALL_TABLES as $table) {
+            if (Schema::connection('mysql')->hasTable($table)) {
+                $existing[] = $table;
+            }
+        }
+
+        if ($existing === []) {
+            return false;
+        }
+
+        return count($existing) !== count(self::REQUIRED_INSTALL_TABLES);
+    }
+
+    private function tableNamesFromMigration(string $path): array
     {
         $content = File::get($path);
 
-        return preg_match("/Schema::create\\(['\"]([^'\"]+)['\"]/", $content, $matches)
-            ? $matches[1]
-            : null;
+        preg_match_all("/Schema::create\\(['\"]([^'\"]+)['\"]/", $content, $matches);
+
+        return array_values(array_unique($matches[1] ?? []));
+    }
+
+    private function allTablesExist(array $tables): bool
+    {
+        foreach ($tables as $table) {
+            if (!Schema::connection('mysql')->hasTable($table)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function ensureMigrationRepository(): void
     {
         if (!Schema::connection('mysql')->hasTable('migrations')) {
             Artisan::call('migrate:install', ['--database' => 'mysql']);
+        }
+    }
+
+    private function hasDatabaseInstallMarker(): bool
+    {
+        try {
+            if (!Schema::hasTable('settings')) {
+                return false;
+            }
+
+            return Setting::query()
+                ->where('key', self::INSTALLED_MARKER_KEY)
+                ->whereNotNull('value')
+                ->exists();
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    private function writeDatabaseInstallMarker(string $installedAt): void
+    {
+        try {
+            if (!Schema::hasTable('settings')) {
+                return;
+            }
+
+            Setting::query()->updateOrCreate(
+                ['key' => self::INSTALLED_MARKER_KEY],
+                ['value' => $installedAt, 'group' => 'system']
+            );
+            app(SettingsService::class)->clearCache();
+        } catch (Throwable) {
+            // 安装锁仍是最终兜底标记；数据库标记失败不能让完成页卡死在半安装状态。
         }
     }
 }

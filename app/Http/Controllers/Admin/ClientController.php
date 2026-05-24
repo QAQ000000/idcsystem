@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Modules\User\Models\Client;
 use App\Modules\User\Services\ClientService;
+use App\Services\AdminAuditService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class ClientController extends Controller
 {
@@ -29,7 +31,7 @@ class ClientController extends Controller
         return view('admin.clients.show', compact('client'));
     }
 
-    public function store(Request $request, ClientService $clients)
+    public function store(Request $request, ClientService $clients, AdminAuditService $audit)
     {
         $data = $request->validate([
             'username' => ['required', 'string', 'max:50', 'unique:clients,username'],
@@ -39,33 +41,38 @@ class ClientController extends Controller
         ]);
 
         $client = $clients->create($data);
+        $audit->record($request, 'client.create', $client, 'success', $data);
 
         return redirect()->route('admin.clients.show', $client)->with('status', '客户已创建');
     }
 
-    public function update(Request $request, Client $client, ClientService $clients)
+    public function update(Request $request, Client $client, ClientService $clients, AdminAuditService $audit)
     {
         $data = $request->validate([
             'username' => ['sometimes', 'required', 'string', 'max:50', 'unique:clients,username,' . $client->id],
             'email' => ['sometimes', 'required', 'email', 'max:100', 'unique:clients,email,' . $client->id],
             'password' => ['nullable', 'string', 'min:8'],
             'phone' => ['nullable', 'string', 'max:50'],
-            'status' => ['nullable', 'integer'],
+            'status' => ['nullable', 'integer', Rule::in([0, 1, 2])],
         ]);
 
-        $clients->update($client, array_filter($data, fn ($value) => $value !== null && $value !== ''));
+        $filtered = array_filter($data, fn ($value) => $value !== null && $value !== '');
+        $clients->update($client, $filtered);
+        $audit->record($request, 'client.update', $client, 'success', $filtered);
 
         return redirect()->route('admin.clients.show', $client)->with('status', '客户已更新');
     }
 
-    public function destroy(Client $client)
+    public function destroy(Request $request, Client $client, AdminAuditService $audit)
     {
+        $clientId = $client->id;
         $client->delete();
+        $audit->record($request, 'client.delete', $client, 'success', ['client_id' => $clientId]);
 
         return redirect()->route('admin.clients.index')->with('status', '客户已删除');
     }
 
-    public function addCredit(Request $request, Client $client, ClientService $clients)
+    public function addCredit(Request $request, Client $client, ClientService $clients, AdminAuditService $audit)
     {
         $data = $request->validate([
             'amount' => ['required', 'numeric', 'min:0.01'],
@@ -73,6 +80,10 @@ class ClientController extends Controller
         ]);
 
         $clients->addCredit($client, (float) $data['amount'], $data['description'] ?? '后台充值');
+        $audit->record($request, 'client.add_credit', $client, 'success', [
+            'amount' => (float) $data['amount'],
+            'description' => $data['description'] ?? '后台充值',
+        ]);
 
         return redirect()->route('admin.clients.show', $client)->with('status', '余额已充值');
     }

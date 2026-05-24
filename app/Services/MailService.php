@@ -25,7 +25,13 @@ class MailService
             : $this->mailQueueEnabled();
 
         if ($async) {
-            SendEmailJob::dispatch($log->id);
+            try {
+                SendEmailJob::dispatch($log->id);
+            } catch (Throwable) {
+                $this->markFailed($log->fresh(), 'Email dispatch failed');
+
+                return false;
+            }
 
             return true;
         }
@@ -67,6 +73,15 @@ class MailService
 
     public function retry(EmailLog $log, bool $async = true): bool
     {
+        if ($log->status !== 'failed') {
+            return false;
+        }
+
+        $log = $this->refreshTemplateLog($log);
+        if (!$log) {
+            return false;
+        }
+
         $log->update([
             'status' => 'pending',
             'success' => false,
@@ -75,12 +90,50 @@ class MailService
         ]);
 
         if ($async) {
-            SendEmailJob::dispatch($log->id);
+            try {
+                SendEmailJob::dispatch($log->id);
+            } catch (Throwable) {
+                $this->markFailed($log->fresh(), 'Email retry dispatch failed');
+
+                return false;
+            }
 
             return true;
         }
 
         return $this->sendLog($log->fresh());
+    }
+
+    private function refreshTemplateLog(EmailLog $log): ?EmailLog
+    {
+        if (!$log->template) {
+            return $log;
+        }
+
+        $template = EmailTemplate::query()
+            ->where('name', $log->template)
+            ->where('enabled', true)
+            ->first();
+
+        if (!$template) {
+            $this->markFailed($log, 'Email template unavailable');
+
+            return null;
+        }
+
+        $variables = $this->templateVariables($log->payload ?? []);
+        $log->update([
+            'subject' => $this->render($template->subject, $variables),
+            'body' => $this->render($template->body, $variables),
+            'payload' => array_merge($log->payload ?? [], ['payload' => $variables]),
+        ]);
+
+        return $log->fresh();
+    }
+
+    private function templateVariables(array $payload): array
+    {
+        return is_array($payload['payload'] ?? null) ? $payload['payload'] : $payload;
     }
 
     public function sendTemplate(string $templateName, string $to, array $variables = [], array $options = []): bool
@@ -93,6 +146,7 @@ class MailService
         if (!$template) {
             $this->createLog($to, $templateName, '', $options + [
                 'template' => $templateName,
+                'payload' => $variables,
                 'status' => 'failed',
                 'error' => 'Email template unavailable',
             ]);

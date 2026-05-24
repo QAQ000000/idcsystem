@@ -14,18 +14,18 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('install')->name('install.')->group(function (): void {
     Route::get('/', [InstallController::class, 'index'])->name('index');
     Route::get('/database', [InstallController::class, 'database'])->name('database');
-    Route::post('/database', [InstallController::class, 'saveDatabase'])->name('database.save');
+    Route::post('/database', [InstallController::class, 'saveDatabase'])->middleware('throttle:5,1')->name('database.save');
     Route::get('/admin', [InstallController::class, 'admin'])->name('admin');
-    Route::post('/admin', [InstallController::class, 'saveAdmin'])->name('admin.save');
+    Route::post('/admin', [InstallController::class, 'saveAdmin'])->middleware('throttle:5,1')->name('admin.save');
     Route::get('/finish', [InstallController::class, 'finish'])->name('finish');
 });
 
 Route::get('/', fn () => redirect()->route('client.products.index'))->name('home');
 
 Route::get('/login', [AuthController::class, 'showLoginForm'])->name('client.login');
-Route::post('/login', [AuthController::class, 'login'])->name('client.login.store');
+Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1')->name('client.login.store');
 Route::get('/register', [AuthController::class, 'showRegisterForm'])->name('client.register');
-Route::post('/register', [AuthController::class, 'register'])->name('client.register.store');
+Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:5,1')->name('client.register.store');
 Route::post('/logout', [AuthController::class, 'logout'])->name('client.logout');
 
 Route::get('/products', [ProductController::class, 'index'])->name('client.products.index');

@@ -9,6 +9,7 @@ use App\Modules\Product\Models\Product;
 use App\Modules\User\Models\Client;
 use App\Plugins\Contracts\ServerModuleInterface;
 use App\Plugins\Facades\Plugin;
+use App\Services\AdminAuditService;
 use Illuminate\Http\Request;
 
 class HostController extends Controller
@@ -19,7 +20,7 @@ class HostController extends Controller
             ->with([
                 'client',
                 'product',
-                'actionLogs' => fn ($query) => $query->where('action', 'provision_failed')->latest(),
+                'actionLogs' => fn ($query) => $query->where('action', 'like', '%\_failed')->latest(),
             ])
             ->when($request->filled('client_id'), fn ($query) => $query->where('client_id', $request->integer('client_id')))
             ->when($request->filled('product_id'), fn ($query) => $query->where('product_id', $request->integer('product_id')))
@@ -50,12 +51,12 @@ class HostController extends Controller
 
         $serverPlugin = $this->serverPlugin($host);
         $usageStats = $serverPlugin ? $serverPlugin->getUsageStats($this->serverParams($host)) : [];
-        $failureLog = $host->actionLogs->firstWhere('action', 'provision_failed');
+        $failureLog = $host->actionLogs->first(fn ($log) => str_ends_with((string) $log->action, '_failed'));
 
         return view('admin.hosts.show', compact('host', 'usageStats', 'failureLog'));
     }
 
-    public function action(Request $request, Host $host, HostService $hosts)
+    public function action(Request $request, Host $host, HostService $hosts, AdminAuditService $audit)
     {
         $data = $request->validate([
             'action' => ['required', 'string', 'in:provision,suspend,unsuspend,terminate,reset_password'],
@@ -64,11 +65,15 @@ class HostController extends Controller
 
         $success = match ($data['action']) {
             'provision' => $hosts->provision($host),
-            'suspend' => $hosts->suspend($host, $data['reason'] ?: '后台手动暂停'),
+            'suspend' => $hosts->suspend($host, ($data['reason'] ?? null) ?: '后台手动暂停'),
             'unsuspend' => $hosts->unsuspend($host),
             'terminate' => $hosts->terminate($host),
             'reset_password' => $hosts->resetPassword($host),
         };
+        $audit->record($request, 'host.' . $data['action'], $host, $success ? 'success' : 'failed', [
+            'reason' => $data['reason'] ?? null,
+            'host_status' => $host->fresh()->status,
+        ], $success ? null : '服务操作失败');
 
         return redirect()
             ->route('admin.hosts.show', $host)

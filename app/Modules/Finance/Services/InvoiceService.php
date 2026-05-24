@@ -10,6 +10,7 @@ use App\Modules\User\Models\Client;
 use App\Services\NotificationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 
 class InvoiceService
 {
@@ -19,6 +20,7 @@ class InvoiceService
     public function generate(Client $client, array $items): Invoice
     {
         $invoice = DB::transaction(function () use ($client, $items) {
+            $this->validateInvoiceItems($items);
             $subtotal = round(array_sum(array_map(
                 fn (array $item) => (float) ($item['amount'] ?? 0),
                 $items
@@ -61,6 +63,42 @@ class InvoiceService
     }
 
     /**
+     * 生成无需付款的 0 元账单，用于降配等已经即时生效的调整记录。
+     */
+    public function generateNoPaymentRequired(Client $client, array $items): Invoice
+    {
+        return DB::transaction(function () use ($client, $items) {
+            $this->validateNoPaymentItems($items);
+
+            $invoice = Invoice::create([
+                'client_id' => $client->id,
+                'invoice_number' => $this->nextInvoiceNumber(),
+                'subtotal' => 0,
+                'tax' => 0,
+                'tax_rate' => (float) config('billing.tax_rate', 0),
+                'credit_used' => 0,
+                'total' => 0,
+                'status' => 'Paid',
+                'payment_method' => 'no_payment_required',
+                'paid_at' => now(),
+                'due_date' => now(),
+            ]);
+
+            foreach ($items as $item) {
+                $this->addItem(
+                    $invoice,
+                    (string) ($item['type'] ?? 'adjustment'),
+                    (string) ($item['description'] ?? ''),
+                    0,
+                    (int) ($item['rel_id'] ?? 0)
+                );
+            }
+
+            return $invoice->fresh(['items']);
+        });
+    }
+
+    /**
      * 添加账单项目并同步账单金额。
      */
     public function addItem(
@@ -99,32 +137,52 @@ class InvoiceService
     public function markAsPaid(Invoice $invoice, string $paymentMethod, string $transId): bool
     {
         $paid = DB::transaction(function () use ($invoice, $paymentMethod, $transId) {
-            if ($invoice->status === 'Paid') {
-                return true;
+            $orderId = Invoice::query()->whereKey($invoice->id)->value('order_id');
+            if ($orderId) {
+                \App\Modules\Order\Models\Order::query()->whereKey($orderId)->lockForUpdate()->first();
             }
 
-            $invoice->update([
+            $lockedInvoice = Invoice::query()->whereKey($invoice->id)->with('order')->lockForUpdate()->first();
+            if (!$lockedInvoice) {
+                return false;
+            }
+
+            if ($lockedInvoice->status === 'Paid') {
+                return false;
+            }
+
+            if ($lockedInvoice->status !== 'Unpaid') {
+                return false;
+            }
+
+            if ($lockedInvoice->order && $lockedInvoice->order->status !== 'Pending') {
+                return false;
+            }
+
+            if (Account::query()->where('gateway_trans_id', $transId)->exists()) {
+                return false;
+            }
+
+            $lockedInvoice->update([
                 'status' => 'Paid',
                 'payment_method' => $paymentMethod,
                 'paid_at' => now(),
             ]);
 
-            Account::firstOrCreate(
-                ['gateway_trans_id' => $transId],
-                [
-                    'client_id' => $invoice->client_id,
-                    'invoice_id' => $invoice->id,
-                    'type' => 'credit',
-                    'amount' => $invoice->total,
-                    'fee' => 0,
-                    'payment_method' => $paymentMethod,
-                    'description' => 'Invoice payment ' . $invoice->invoice_number,
-                    'refunded' => 0,
-                ]
-            );
+            Account::query()->create([
+                'client_id' => $lockedInvoice->client_id,
+                'invoice_id' => $lockedInvoice->id,
+                'type' => 'credit',
+                'amount' => $lockedInvoice->total,
+                'fee' => 0,
+                'payment_method' => $paymentMethod,
+                'gateway_trans_id' => $transId,
+                'description' => 'Invoice payment ' . $lockedInvoice->invoice_number,
+                'refunded' => 0,
+            ]);
 
-            if ($invoice->order && $invoice->order->status !== 'Paid') {
-                $invoice->order->update([
+            if ($lockedInvoice->order && $lockedInvoice->order->status !== 'Paid') {
+                $lockedInvoice->order->update([
                     'status' => 'Paid',
                     'payment_method' => $paymentMethod,
                     'paid_at' => now(),
@@ -135,13 +193,14 @@ class InvoiceService
         });
 
         if ($paid) {
-            app(HostService::class)->applyPaidInvoice($invoice->fresh(['items']));
-            $invoice->loadMissing('client');
-            if ($invoice->client) {
-                app(NotificationService::class)->notifyClient($invoice->client, 'invoice_paid', [
-                    'client_name' => $invoice->client->username,
-                    'invoice_number' => $invoice->invoice_number,
-                    'amount' => $invoice->total,
+            $freshInvoice = $invoice->fresh(['order.hosts.product', 'items', 'client']);
+            $this->provisionPendingOrderHosts($freshInvoice);
+            app(HostService::class)->applyPaidInvoice($freshInvoice);
+            if ($freshInvoice->client) {
+                app(NotificationService::class)->notifyClient($freshInvoice->client, 'invoice_paid', [
+                    'client_name' => $freshInvoice->client->username,
+                    'invoice_number' => $freshInvoice->invoice_number,
+                    'amount' => $freshInvoice->total,
                 ]);
             }
         }
@@ -149,28 +208,58 @@ class InvoiceService
         return $paid;
     }
 
+    private function provisionPendingOrderHosts(Invoice $invoice): void
+    {
+        if (!$invoice->order) {
+            return;
+        }
+
+        $hosts = $invoice->order->hosts->where('status', 'Pending');
+        if ($hosts->isEmpty()) {
+            return;
+        }
+
+        $hostService = app(HostService::class);
+        foreach ($hosts as $host) {
+            $hostService->provision($host);
+        }
+    }
+
     /**
      * 账单退款。
      */
     public function refund(Invoice $invoice, float $amount): bool
     {
-        if ($amount <= 0 || $amount > (float) $invoice->total) {
-            return false;
-        }
-
         return DB::transaction(function () use ($invoice, $amount) {
-            $invoice->accounts()->where('refunded', 0)->update(['refunded' => 1]);
-            $invoice->update(['status' => $amount >= (float) $invoice->total ? 'Refunded' : 'Paid']);
+            $orderId = Invoice::query()->whereKey($invoice->id)->value('order_id');
+            if ($orderId) {
+                \App\Modules\Order\Models\Order::query()->whereKey($orderId)->lockForUpdate()->first();
+            }
+
+            $lockedInvoice = Invoice::query()->whereKey($invoice->id)->with('order')->lockForUpdate()->first();
+            if (!$this->isRefundable($lockedInvoice, $amount)) {
+                return false;
+            }
+
+            $lockedInvoice->update([
+                'status' => $amount >= (float) $lockedInvoice->total ? 'Refunded' : 'Partially Refunded',
+            ]);
+
+            if ($lockedInvoice->order) {
+                $lockedInvoice->order->update([
+                    'status' => $amount >= (float) $lockedInvoice->total ? 'Refunded' : 'Partially Refunded',
+                ]);
+            }
 
             Account::create([
-                'client_id' => $invoice->client_id,
-                'invoice_id' => $invoice->id,
+                'client_id' => $lockedInvoice->client_id,
+                'invoice_id' => $lockedInvoice->id,
                 'type' => 'debit',
                 'amount' => $amount,
                 'fee' => 0,
-                'payment_method' => $invoice->payment_method,
+                'payment_method' => $lockedInvoice->payment_method,
                 'gateway_trans_id' => 'REFUND-' . Str::upper(Str::random(12)),
-                'description' => 'Invoice refund ' . $invoice->invoice_number,
+                'description' => 'Invoice refund ' . $lockedInvoice->invoice_number,
                 'refunded' => 0,
             ]);
 
@@ -178,10 +267,21 @@ class InvoiceService
         });
     }
 
+    public function canRefund(Invoice $invoice, float $amount): bool
+    {
+        $freshInvoice = Invoice::query()->whereKey($invoice->id)->first();
+
+        return $this->isRefundable($freshInvoice, $amount);
+    }
+
     private function recalculateTotals(Invoice $invoice): void
     {
         $invoice->refresh();
         $subtotal = round((float) $invoice->items()->sum('amount'), 2);
+        if ($subtotal < 0) {
+            throw new InvalidArgumentException('账单金额不能为负数。');
+        }
+
         $tax = round($subtotal * ((float) $invoice->tax_rate / 100), 2);
         $invoice->update([
             'subtotal' => $subtotal,
@@ -193,5 +293,39 @@ class InvoiceService
     private function nextInvoiceNumber(): string
     {
         return 'INV' . now()->format('YmdHis') . Str::upper(Str::random(4));
+    }
+
+    private function isRefundable(?Invoice $invoice, float $amount): bool
+    {
+        return $invoice !== null
+            && $invoice->status === 'Paid'
+            && $amount > 0
+            && $amount <= (float) $invoice->total;
+    }
+
+    private function validateInvoiceItems(array $items): void
+    {
+        if ($items === []) {
+            throw new InvalidArgumentException('账单明细不能为空。');
+        }
+
+        foreach ($items as $item) {
+            if ((float) ($item['amount'] ?? 0) <= 0) {
+                throw new InvalidArgumentException('账单明细金额必须大于 0。');
+            }
+        }
+    }
+
+    private function validateNoPaymentItems(array $items): void
+    {
+        if ($items === []) {
+            throw new InvalidArgumentException('账单明细不能为空。');
+        }
+
+        foreach ($items as $item) {
+            if (round((float) ($item['amount'] ?? 0), 2) !== 0.0) {
+                throw new InvalidArgumentException('无需付款账单明细金额必须为 0。');
+            }
+        }
     }
 }

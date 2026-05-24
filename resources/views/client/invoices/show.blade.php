@@ -22,7 +22,7 @@
         @endif
 
         @if ($invoice->status !== 'Paid')
-            <form method="post" action="{{ route('client.invoices.pay', $invoice) }}" class="mt-5 flex flex-wrap items-end gap-3">
+            <form method="post" action="{{ route('client.invoices.pay', $invoice) }}" class="mt-5 flex flex-wrap items-end gap-3" onsubmit="const button = this.querySelector('[data-pay-submit]'); if (button) { button.disabled = true; button.textContent = '处理中'; }">
                 @csrf
                 <label class="block text-sm">
                     支付方式
@@ -34,7 +34,7 @@
                         @endforelse
                     </select>
                 </label>
-                <button class="rounded bg-zinc-900 px-4 py-2 text-white" @disabled($gateways->isEmpty())>发起支付</button>
+                <button data-pay-submit class="rounded bg-zinc-900 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-60" @disabled($gateways->isEmpty())>发起支付</button>
             </form>
         @endif
     </div>

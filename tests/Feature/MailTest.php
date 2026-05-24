@@ -20,6 +20,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Mail;
+use RuntimeException;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class MailTest extends TestCase
@@ -97,7 +99,32 @@ class MailTest extends TestCase
         ]);
     }
 
-    public function test_send_email_job_marks_log_failed_when_provider_missing(): void
+    public function test_send_email_job_claims_log_once_when_dispatched_more_than_once(): void
+    {
+        Mail::fake();
+        $this->installSmtp();
+        $log = EmailLog::query()->create([
+            'to' => 'job-once@example.com',
+            'subject' => 'Job Once',
+            'body' => '<p>Job</p>',
+            'provider' => 'smtp',
+            'status' => 'pending',
+            'success' => false,
+            'payload' => [],
+            'attempts' => 0,
+        ]);
+        $job = app(\App\Jobs\SendEmailJob::class, ['emailLogId' => $log->id]);
+
+        $job->handle(app(MailService::class));
+        $job->handle(app(MailService::class));
+
+        $log->refresh();
+        $this->assertSame('sent', $log->status);
+        $this->assertTrue($log->success);
+        $this->assertSame(1, $log->attempts);
+    }
+
+    public function test_send_email_job_marks_log_failed_and_throws_when_provider_missing(): void
     {
         $log = EmailLog::query()->create([
             'to' => 'fail@example.com',
@@ -110,7 +137,12 @@ class MailTest extends TestCase
             'attempts' => 0,
         ]);
 
-        app(\App\Jobs\SendEmailJob::class, ['emailLogId' => $log->id])->handle(app(MailService::class));
+        try {
+            app(\App\Jobs\SendEmailJob::class, ['emailLogId' => $log->id])->handle(app(MailService::class));
+            $this->fail('Expected email job to throw when delivery fails.');
+        } catch (RuntimeException $exception) {
+            $this->assertStringContainsString('Email notification failed', $exception->getMessage());
+        }
 
         $this->assertDatabaseHas('email_logs', [
             'id' => $log->id,
@@ -203,6 +235,132 @@ class MailTest extends TestCase
             ->assertRedirect(route('admin.email-logs.show', $log));
     }
 
+    public function test_non_super_admin_cannot_retry_email_logs(): void
+    {
+        $admin = AdminUser::query()->create([
+            'username' => 'mail-reader',
+            'email' => 'mail-reader@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 1,
+        ]);
+        Role::query()->firstOrCreate(['name' => 'mail-reader', 'guard_name' => 'web']);
+        $admin->syncRoles(['mail-reader']);
+
+        $log = EmailLog::query()->create([
+            'to' => 'admin-view@example.com',
+            'subject' => 'Admin View',
+            'body' => '<p>View</p>',
+            'provider' => 'smtp',
+            'status' => 'failed',
+            'success' => false,
+            'error' => 'test error',
+            'payload' => [],
+            'attempts' => 1,
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.email-logs.retry', $log))
+            ->assertForbidden();
+    }
+
+    public function test_retry_failed_template_email_rerenders_current_template(): void
+    {
+        Mail::fake();
+        $this->installSmtp();
+        EmailTemplate::query()->create([
+            'name' => 'invoice_created',
+            'subject' => '旧主题 {{invoice_number}}',
+            'body' => '旧内容 {{amount}}',
+            'enabled' => false,
+        ]);
+
+        $this->assertFalse(app(MailService::class)->sendTemplate('invoice_created', 'retry@example.com', [
+            'invoice_number' => 'INV-RETRY',
+            'amount' => '99.00',
+        ], ['async' => false]));
+
+        $log = EmailLog::query()->where('to', 'retry@example.com')->firstOrFail();
+        $this->assertSame('failed', $log->status);
+        $this->assertSame('', $log->body);
+
+        EmailTemplate::query()->where('name', 'invoice_created')->update([
+            'subject' => '新主题 {{invoice_number}}',
+            'body' => '新内容 {{amount}}',
+            'enabled' => true,
+        ]);
+
+        $this->assertTrue(app(MailService::class)->retry($log->fresh(), false));
+
+        $log->refresh();
+        $this->assertSame('sent', $log->status);
+        $this->assertSame('新主题 INV-RETRY', $log->subject);
+        $this->assertSame('新内容 99.00', $log->body);
+    }
+
+    public function test_sent_email_log_cannot_be_retried(): void
+    {
+        $log = EmailLog::query()->create([
+            'to' => 'already-sent@example.com',
+            'subject' => 'Already Sent',
+            'body' => '<p>Sent</p>',
+            'provider' => 'smtp',
+            'status' => 'sent',
+            'success' => true,
+            'payload' => [],
+            'attempts' => 1,
+            'sent_at' => now(),
+        ]);
+
+        $this->assertFalse(app(MailService::class)->retry($log, false));
+        $this->assertSame('sent', $log->fresh()->status);
+        $this->assertSame(1, $log->fresh()->attempts);
+    }
+
+    public function test_admin_cannot_retry_sent_email_log_by_posting_directly(): void
+    {
+        $admin = $this->admin();
+        $log = EmailLog::query()->create([
+            'to' => 'already-sent-post@example.com',
+            'subject' => 'Already Sent',
+            'body' => '<p>Sent</p>',
+            'provider' => 'smtp',
+            'status' => 'sent',
+            'success' => true,
+            'payload' => [],
+            'attempts' => 1,
+            'sent_at' => now(),
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.email-logs.retry', $log))
+            ->assertRedirect(route('admin.email-logs.show', $log))
+            ->assertSessionHas('error');
+
+        $this->assertSame('sent', $log->fresh()->status);
+        $this->assertSame(1, $log->fresh()->attempts);
+    }
+
+    public function test_email_retry_stays_failed_when_template_is_unavailable(): void
+    {
+        $log = EmailLog::query()->create([
+            'to' => 'missing-template@example.com',
+            'subject' => 'Missing Template',
+            'body' => '',
+            'template' => 'missing_template',
+            'provider' => 'smtp',
+            'status' => 'failed',
+            'success' => false,
+            'payload' => ['payload' => ['invoice_number' => 'INV-MISSING']],
+            'error' => 'test error',
+            'attempts' => 1,
+        ]);
+
+        $this->assertFalse(app(MailService::class)->retry($log, false));
+        $log->refresh();
+        $this->assertSame('failed', $log->status);
+        $this->assertSame('Email template unavailable', $log->error);
+    }
+
     private function installSmtp(): void
     {
         $manager = app(PluginManager::class);
@@ -254,13 +412,18 @@ class MailTest extends TestCase
 
     private function admin(): AdminUser
     {
-        return AdminUser::query()->create([
+        $admin = AdminUser::query()->create([
             'username' => 'admin-mail',
             'email' => 'admin-mail@example.com',
             'password' => Hash::make('admin123456'),
             'real_name' => '邮件管理员',
             'status' => 1,
         ]);
+
+        Role::query()->firstOrCreate(['name' => 'super-admin', 'guard_name' => 'web']);
+        $admin->syncRoles(['super-admin']);
+
+        return $admin;
     }
 
     private function setMailQueueEnabled(bool $enabled): void

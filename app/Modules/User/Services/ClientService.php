@@ -18,6 +18,10 @@ class ClientService
 
     public function update(Client $client, array $data): bool
     {
+        if (array_key_exists('status', $data) && !in_array((int) $data['status'], [0, 1, 2], true)) {
+            return false;
+        }
+
         if (isset($data['password'])) {
             $data['password'] = Hash::make($data['password']);
         }
@@ -37,6 +41,10 @@ class ClientService
 
     public function addCredit(Client $client, float $amount, string $description = ''): bool
     {
+        if ($amount <= 0) {
+            return false;
+        }
+
         return DB::transaction(function () use ($client, $amount, $description) {
             $client->increment('credit', $amount);
 
@@ -54,7 +62,7 @@ class ClientService
 
     public function deductCredit(Client $client, float $amount, string $description = ''): bool
     {
-        if (!$client->hasEnoughCredit($amount)) {
+        if ($amount <= 0 || !$client->hasEnoughCredit($amount)) {
             return false;
         }
 

@@ -23,8 +23,8 @@
                     <dt class="text-slate-500">状态</dt>
                     <dd>
                         {{ $host->status }}
-                        @if ($failureLog && $host->status === 'Pending')
-                            <span class="ml-2 inline-flex rounded bg-red-100 px-2 py-0.5 text-xs text-red-800">开通失败</span>
+                        @if ($failureLog)
+                            <span class="ml-2 inline-flex rounded bg-red-100 px-2 py-0.5 text-xs text-red-800">存在失败操作</span>
                         @endif
                     </dd>
                 </div>
@@ -128,8 +128,9 @@
 
     @if ($failureLog)
         <section class="mt-6 rounded border border-amber-200 bg-amber-50 p-5">
-            <h2 class="mb-4 font-semibold text-amber-900">开通失败原因</h2>
-            <p class="text-sm text-amber-900">{{ $failureLog->message ?: '服务开通失败' }}</p>
+            <h2 class="mb-4 font-semibold text-amber-900">最近失败原因</h2>
+            <p class="text-sm text-amber-900">{{ $failureLog->message ?: '服务操作失败' }}</p>
+            <p class="mt-2 text-xs text-amber-700">失败动作：{{ $failureLog->action }}</p>
             <p class="mt-2 text-xs text-amber-700">最近一次失败时间：{{ $failureLog->created_at?->format('Y-m-d H:i:s') }}</p>
         </section>
     @endif

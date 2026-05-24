@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Modules\Ticket\Models\Ticket;
 use App\Modules\Ticket\Services\TicketService;
+use App\Services\AdminAuditService;
 use Illuminate\Http\Request;
 
 class TicketController extends Controller
@@ -23,31 +24,42 @@ class TicketController extends Controller
         return view('admin.tickets.show', compact('ticket'));
     }
 
-    public function reply(Request $request, Ticket $ticket, TicketService $tickets)
+    public function reply(Request $request, Ticket $ticket, TicketService $tickets, AdminAuditService $audit)
     {
         $data = $request->validate([
             'message' => ['required', 'string'],
         ]);
 
-        $tickets->reply($ticket, 'admin', 0, $data['message']);
+        $reply = $tickets->reply($ticket, 'admin', (int) $request->user('admin')->id, $data['message']);
+        $audit->record($request, 'ticket.reply', $ticket, $reply ? 'success' : 'failed', [
+            'reply_id' => $reply?->id,
+        ], $reply ? null : '已关闭工单不允许继续回复');
+
+        if (!$reply) {
+            return redirect()->route('admin.tickets.show', $ticket)->with('error', '已关闭工单不允许继续回复');
+        }
 
         return redirect()->route('admin.tickets.show', $ticket)->with('status', '工单已回复');
     }
 
-    public function assign(Request $request, Ticket $ticket, TicketService $tickets)
+    public function assign(Request $request, Ticket $ticket, TicketService $tickets, AdminAuditService $audit)
     {
         $data = $request->validate([
             'admin_id' => ['required', 'integer', 'min:1'],
         ]);
 
-        $tickets->assign($ticket, (int) $data['admin_id']);
+        $success = $tickets->assign($ticket, (int) $data['admin_id']);
+        $audit->record($request, 'ticket.assign', $ticket, $success ? 'success' : 'failed', [
+            'admin_id' => (int) $data['admin_id'],
+        ], $success ? null : '工单分配失败');
 
         return redirect()->route('admin.tickets.show', $ticket)->with('status', '工单已分配');
     }
 
-    public function close(Ticket $ticket, TicketService $tickets)
+    public function close(Request $request, Ticket $ticket, TicketService $tickets, AdminAuditService $audit)
     {
-        $tickets->close($ticket);
+        $success = $tickets->close($ticket);
+        $audit->record($request, 'ticket.close', $ticket, $success ? 'success' : 'failed', [], $success ? null : '工单关闭失败');
 
         return redirect()->route('admin.tickets.show', $ticket)->with('status', '工单已关闭');
     }

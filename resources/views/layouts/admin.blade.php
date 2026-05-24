@@ -20,6 +20,7 @@
                     <a href="{{ route('admin.tickets.index') }}">工单</a>
                     <a href="{{ route('admin.notifications.index') }}">通知中心</a>
                     <a href="{{ route('admin.system-tasks.index') }}">系统任务</a>
+                    <a href="{{ route('admin.admin-action-logs.index') }}">后台审计</a>
                     <a href="{{ route('admin.email-logs.index') }}">邮件日志</a>
                     <a href="{{ route('admin.sms-logs.index') }}">短信日志</a>
                     <a href="{{ route('admin.email-templates.index') }}">邮件模板</a>

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\EmailLog;
+use App\Services\AdminAuditService;
 use App\Services\MailService;
 use Illuminate\Http\Request;
 
@@ -24,10 +25,17 @@ class EmailLogController extends Controller
         return view('admin.email-logs.show', compact('emailLog'));
     }
 
-    public function retry(EmailLog $emailLog, MailService $mail)
+    public function retry(Request $request, EmailLog $emailLog, MailService $mail, AdminAuditService $audit)
     {
-        $mail->retry($emailLog);
+        $success = $mail->retry($emailLog);
+        $audit->record($request, 'email_log.retry', $emailLog, $success ? 'success' : 'failed', [
+            'status' => $emailLog->fresh()->status,
+        ], $success ? null : '邮件重新提交失败');
 
-        return redirect()->route('admin.email-logs.show', $emailLog)->with('status', '邮件已重新加入发送队列');
+        if (!$success) {
+            return redirect()->route('admin.email-logs.show', $emailLog)->with('error', '邮件重新提交失败');
+        }
+
+        return redirect()->route('admin.email-logs.show', $emailLog)->with('status', '邮件已重新提交处理');
     }
 }

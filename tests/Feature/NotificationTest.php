@@ -14,8 +14,10 @@ use App\Modules\User\Models\Client;
 use App\Plugins\Core\PluginManager;
 use App\Services\SettingsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class NotificationTest extends TestCase
@@ -131,6 +133,20 @@ class NotificationTest extends TestCase
             ->assertOk();
     }
 
+    public function test_notification_center_recovers_from_legacy_collection_settings_cache(): void
+    {
+        $admin = $this->admin();
+        app(SettingsService::class)->set('notify_invoice_created_mail', false, 'notification');
+        Cache::forever('system:settings', collect(['notify_invoice_created_mail' => true]));
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.notifications.index'))
+            ->assertOk()
+            ->assertSee('关闭');
+
+        $this->assertIsArray(Cache::get('system:settings'));
+    }
+
     private function installSmtp(): void
     {
         $manager = app(PluginManager::class);
@@ -167,12 +183,17 @@ class NotificationTest extends TestCase
 
     private function admin(): AdminUser
     {
-        return AdminUser::query()->create([
+        $admin = AdminUser::query()->create([
             'username' => 'admin-notify',
             'email' => 'admin-notify@example.com',
             'password' => Hash::make('admin123456'),
             'real_name' => '通知管理员',
             'status' => 1,
         ]);
+
+        Role::query()->firstOrCreate(['name' => 'super-admin', 'guard_name' => 'web']);
+        $admin->syncRoles(['super-admin']);
+
+        return $admin;
     }
 }

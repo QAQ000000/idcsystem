@@ -19,6 +19,8 @@ class ProductController extends Controller
 
     public function show(Product $product, PricingService $pricing)
     {
+        abort_unless(app(ProductService::class)->isPurchasable($product), 404);
+
         $product->load(['group', 'pricings']);
 
         $currencyId = $pricing->defaultCurrencyId();
