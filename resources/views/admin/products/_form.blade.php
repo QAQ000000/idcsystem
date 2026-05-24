@@ -39,6 +39,18 @@
     </label>
 
     <label class="block text-sm">
+        服务器模块
+        <select class="mt-1 w-full rounded border px-3 py-2" name="server_type">
+            <option value="">不绑定服务器模块</option>
+            @foreach (($serverPlugins ?? collect()) as $plugin)
+                <option value="{{ $plugin->name }}" @selected(old('server_type', $product?->server_type) === $plugin->name)>
+                    {{ $plugin->title ?: $plugin->name }}
+                </option>
+            @endforeach
+        </select>
+    </label>
+
+    <label class="block text-sm">
         库存数量
         <input class="mt-1 w-full rounded border px-3 py-2" name="stock_qty" type="number" min="0" value="{{ old('stock_qty', $product?->stock_qty ?? 0) }}">
     </label>

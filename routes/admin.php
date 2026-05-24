@@ -5,11 +5,13 @@ use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\EmailLogController;
 use App\Http\Controllers\Admin\EmailTemplateController;
+use App\Http\Controllers\Admin\HostController;
 use App\Http\Controllers\Admin\InvoiceController;
 use App\Http\Controllers\Admin\OrderController;
 use App\Http\Controllers\Admin\NotificationCenterController;
 use App\Http\Controllers\Admin\PluginController;
 use App\Http\Controllers\Admin\ProductController;
+use App\Http\Controllers\Admin\SystemTaskController;
 use App\Http\Controllers\Admin\SettingController;
 use App\Http\Controllers\Admin\SmsLogController;
 use App\Http\Controllers\Admin\SmsTemplateController;
@@ -25,6 +27,7 @@ Route::prefix('admin')->name('admin.')->group(function (): void {
 Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'])->group(function (): void {
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/notifications', [NotificationCenterController::class, 'index'])->name('notifications.index');
+    Route::get('/system-tasks', [SystemTaskController::class, 'index'])->name('system-tasks.index');
     Route::get('/settings', [SettingController::class, 'index'])->name('settings.index');
     Route::post('/settings', [SettingController::class, 'update'])->name('settings.update');
 
@@ -38,6 +41,9 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::post('/orders/{order}/approve', [OrderController::class, 'approve'])->name('orders.approve');
     Route::post('/orders/{order}/cancel', [OrderController::class, 'cancel'])->name('orders.cancel');
     Route::resource('orders', OrderController::class)->only(['index', 'show']);
+
+    Route::post('/hosts/{host}/action', [HostController::class, 'action'])->name('hosts.action');
+    Route::resource('hosts', HostController::class)->only(['index', 'show']);
 
     Route::post('/invoices/{invoice}/paid', [InvoiceController::class, 'markPaid'])->name('invoices.mark-paid');
     Route::post('/invoices/{invoice}/refund', [InvoiceController::class, 'refund'])->name('invoices.refund');

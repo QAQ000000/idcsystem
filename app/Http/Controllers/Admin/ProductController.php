@@ -8,6 +8,7 @@ use App\Modules\Product\Models\Product;
 use App\Modules\Product\Models\ProductGroup;
 use App\Modules\Product\Services\PricingService;
 use App\Modules\Product\Services\ProductService;
+use App\Models\Plugin;
 use Illuminate\Http\Request;
 
 class ProductController extends Controller
@@ -23,6 +24,7 @@ class ProductController extends Controller
     {
         return view('admin.products.create', [
             'groups' => ProductGroup::query()->orderBy('sort_order')->get(),
+            'serverPlugins' => $this->serverPlugins(),
         ]);
     }
 
@@ -45,6 +47,7 @@ class ProductController extends Controller
         return view('admin.products.edit', [
             'product' => $product,
             'groups' => ProductGroup::query()->orderBy('sort_order')->get(),
+            'serverPlugins' => $this->serverPlugins(),
         ]);
     }
 
@@ -111,6 +114,7 @@ class ProductController extends Controller
             'pay_type' => ['nullable', 'string', 'max:50'],
             'pay_method' => ['nullable', 'string', 'max:20'],
             'auto_setup' => ['nullable', 'string', 'max:20'],
+            'server_type' => ['nullable', 'string', 'max:100'],
             'stock_control' => ['nullable', 'boolean'],
             'stock_qty' => ['nullable', 'integer', 'min:0'],
             'hidden' => ['nullable', 'boolean'],
@@ -126,9 +130,19 @@ class ProductController extends Controller
         $data['pay_type'] ??= 'recurring';
         $data['pay_method'] ??= 'prepaid';
         $data['auto_setup'] ??= 'manual';
+        $data['server_type'] = $data['server_type'] ?: null;
         $data['stock_qty'] ??= 0;
         $data['sort_order'] ??= 0;
 
         return $data;
+    }
+
+    private function serverPlugins()
+    {
+        return Plugin::query()
+            ->where('type', 'server')
+            ->where('status', 1)
+            ->orderBy('title')
+            ->get();
     }
 }

@@ -46,7 +46,11 @@ class InstallController extends Controller
 
         try {
             $installer->testDatabase($data);
-            $installer->runMigrationsAndSeeders();
+            $installer->storeDatabaseConfig($data);
+            if (!$installer->databaseInitialized()) {
+                $installer->runMigrationsAndSeeders();
+            }
+            $installer->persistStoredDatabaseConfigAfterResponse();
         } catch (Throwable $exception) {
             return back()->withInput()->withErrors([
                 'database' => '数据库初始化失败：' . $exception->getMessage(),
@@ -61,6 +65,8 @@ class InstallController extends Controller
         if ($installer->isInstalled()) {
             return redirect()->route('admin.login');
         }
+
+        $installer->applyStoredDatabaseConfig();
 
         return view('install.admin');
     }
@@ -79,7 +85,9 @@ class InstallController extends Controller
         ]);
 
         try {
+            $installer->applyStoredDatabaseConfig();
             $installer->createAdmin($data);
+            $installer->persistStoredDatabaseConfigAfterResponse();
             $installer->markInstalled(['admin' => $data['username']]);
         } catch (RuntimeException $exception) {
             return redirect()->route('admin.login');

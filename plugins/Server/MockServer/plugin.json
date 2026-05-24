@@ -1,0 +1,9 @@
+{
+    "name": "mock_server",
+    "title": "Mock Server",
+    "type": "server",
+    "version": "1.0.0",
+    "author": "IDC System",
+    "description": "内置模拟服务器模块，用于本地开通、暂停、解除暂停、终止和重置密码流程验证。",
+    "entry": "MockServerPlugin"
+}

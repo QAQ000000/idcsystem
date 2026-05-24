@@ -6,7 +6,7 @@
     <h1 class="mb-6 text-2xl font-semibold">插件管理</h1>
     @foreach ($pluginScans as $type => $scan)
         <section class="mb-6 rounded bg-white p-5 shadow-sm">
-            <h2 class="mb-4 font-semibold">可安装{{ ['gateway' => '支付', 'email' => '邮件', 'sms' => '短信'][$type] ?? $type }}插件</h2>
+            <h2 class="mb-4 font-semibold">可安装{{ ['gateway' => '支付', 'email' => '邮件', 'sms' => '短信', 'server' => '服务器模块'][$type] ?? $type }}插件</h2>
             <div class="flex flex-wrap gap-3">
                 @forelse ($scan as $plugin)
                     <form method="post" action="{{ route('admin.plugins.install') }}" class="rounded border px-4 py-3 text-sm">

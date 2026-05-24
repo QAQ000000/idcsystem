@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Hash;
 use RuntimeException;
 
@@ -20,6 +21,11 @@ class InstallService
     public function lockPath(): string
     {
         return (string) config('installer.lock_path', storage_path('app/install.lock'));
+    }
+
+    public function statePath(): string
+    {
+        return storage_path('app/install.state.json');
     }
 
     public function status(): array
@@ -92,27 +98,81 @@ class InstallService
     public function saveDatabaseConfig(array $data): void
     {
         $this->ensureNotInstalled();
-        $this->writeEnv([
+        $this->applyDatabaseConfig($data, true);
+    }
+
+    public function storeDatabaseConfig(array $data): void
+    {
+        $this->ensureNotInstalled();
+        File::ensureDirectoryExists(dirname($this->statePath()));
+        File::put($this->statePath(), json_encode([
+            'database' => [
+                'host' => $data['host'],
+                'port' => (string) $data['port'],
+                'database' => $data['database'],
+                'username' => $data['username'],
+                'password' => $data['password'] ?? '',
+            ],
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+    }
+
+    public function storedDatabaseConfig(): ?array
+    {
+        if (!File::exists($this->statePath())) {
+            return null;
+        }
+
+        $state = json_decode(File::get($this->statePath()), true) ?: [];
+
+        return is_array($state['database'] ?? null) ? $state['database'] : null;
+    }
+
+    public function applyStoredDatabaseConfig(bool $persist = false): bool
+    {
+        $data = $this->storedDatabaseConfig();
+        if (!$data) {
+            return false;
+        }
+
+        $this->applyDatabaseConfig($data, $persist);
+
+        return true;
+    }
+
+    public function persistStoredDatabaseConfigAfterResponse(): void
+    {
+        app()->terminating(function (): void {
+            $this->applyStoredDatabaseConfig(true);
+        });
+    }
+
+    private function applyDatabaseConfig(array $data, bool $persist): void
+    {
+        if ($persist) {
+            $this->writeEnv([
             'DB_CONNECTION' => 'mysql',
             'DB_HOST' => $data['host'],
             'DB_PORT' => (string) $data['port'],
             'DB_DATABASE' => $data['database'],
             'DB_USERNAME' => $data['username'],
             'DB_PASSWORD' => $data['password'] ?? '',
-        ]);
+            ]);
+        }
 
         Config::set('database.connections.mysql.host', $data['host']);
         Config::set('database.connections.mysql.port', (string) $data['port']);
         Config::set('database.connections.mysql.database', $data['database']);
         Config::set('database.connections.mysql.username', $data['username']);
         Config::set('database.connections.mysql.password', $data['password'] ?? '');
+        Config::set('database.default', 'mysql');
         DB::purge('mysql');
         DB::reconnect('mysql');
     }
 
     public function testDatabase(array $data): bool
     {
-        $this->saveDatabaseConfig($data);
+        $this->ensureNotInstalled();
+        $this->applyDatabaseConfig($data, false);
         DB::connection('mysql')->select('select 1');
 
         return true;
@@ -121,13 +181,28 @@ class InstallService
     public function runMigrationsAndSeeders(): void
     {
         $this->ensureNotInstalled();
-        Artisan::call('migrate', ['--force' => true]);
+        $this->ensureMigrationRepository();
+        $this->repairMigrationRepository();
+        Artisan::call('migrate', ['--force' => true, '--database' => 'mysql']);
         Artisan::call('db:seed', ['--force' => true]);
+    }
+
+    public function databaseInitialized(): bool
+    {
+        try {
+            return Schema::connection('mysql')->hasTable('migrations')
+                && Schema::connection('mysql')->hasTable('admin_users')
+                && Schema::connection('mysql')->hasTable('settings')
+                && Schema::connection('mysql')->hasTable('plugins');
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     public function createAdmin(array $data): AdminUser
     {
         $this->ensureNotInstalled();
+        $this->applyStoredDatabaseConfig();
 
         return AdminUser::query()->updateOrCreate(
             ['username' => $data['username']],
@@ -148,6 +223,7 @@ class InstallService
             'app' => config('app.name'),
             'context' => $context,
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+        File::delete($this->statePath());
     }
 
     public function canDevRerun(): bool
@@ -188,5 +264,48 @@ class InstallService
         return preg_match('/\s|#|"|\'/', $value)
             ? '"' . str_replace('"', '\"', $value) . '"'
             : $value;
+    }
+
+    private function repairMigrationRepository(): void
+    {
+        $logged = DB::connection('mysql')->table('migrations')->pluck('migration')->all();
+        $logged = array_flip($logged);
+        $batch = ((int) DB::connection('mysql')->table('migrations')->max('batch')) ?: 1;
+        $repairs = [];
+
+        foreach (File::files(database_path('migrations')) as $file) {
+            $migration = pathinfo($file->getFilename(), PATHINFO_FILENAME);
+            if (isset($logged[$migration])) {
+                continue;
+            }
+
+            $table = $this->tableNameFromMigration($file->getRealPath());
+            if ($table && Schema::connection('mysql')->hasTable($table)) {
+                $repairs[] = [
+                    'migration' => $migration,
+                    'batch' => $batch,
+                ];
+            }
+        }
+
+        if ($repairs !== []) {
+            DB::connection('mysql')->table('migrations')->insert($repairs);
+        }
+    }
+
+    private function tableNameFromMigration(string $path): ?string
+    {
+        $content = File::get($path);
+
+        return preg_match("/Schema::create\\(['\"]([^'\"]+)['\"]/", $content, $matches)
+            ? $matches[1]
+            : null;
+    }
+
+    private function ensureMigrationRepository(): void
+    {
+        if (!Schema::connection('mysql')->hasTable('migrations')) {
+            Artisan::call('migrate:install', ['--database' => 'mysql']);
+        }
     }
 }

@@ -34,7 +34,7 @@
 
         <div class="mt-6 flex justify-between">
             <a class="rounded border px-4 py-2" href="{{ route('install.index') }}">返回检查</a>
-            <button class="rounded bg-slate-900 px-4 py-2 text-white">测试连接并初始化数据库</button>
+            <button class="rounded bg-slate-900 px-4 py-2 text-white">测试连接并继续安装</button>
         </div>
     </form>
 @endsection

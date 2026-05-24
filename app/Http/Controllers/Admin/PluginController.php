@@ -18,6 +18,7 @@ class PluginController extends Controller
                 'gateway' => app(PluginManager::class)->scan('gateway'),
                 'email' => app(PluginManager::class)->scan('email'),
                 'sms' => app(PluginManager::class)->scan('sms'),
+                'server' => app(PluginManager::class)->scan('server'),
             ],
         ]);
     }

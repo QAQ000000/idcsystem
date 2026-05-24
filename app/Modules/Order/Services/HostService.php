@@ -74,6 +74,10 @@ class HostService
             if ($plugin) {
                 $result = $plugin->createAccount($this->serverParams($host));
                 if (($result['success'] ?? false) !== true) {
+                    $this->log($host, 'provision_failed', $result['message'] ?? '服务开通失败', [
+                        'result' => $result,
+                    ]);
+
                     return false;
                 }
 
@@ -323,7 +327,8 @@ class HostService
             'username' => $host->username,
             'password' => $host->password,
             'billing_cycle' => $host->billing_cycle,
-            'config' => $host->notes,
+            'server_id' => $host->server_id,
+            'config' => is_array($host->notes) ? $host->notes : [],
         ];
     }
 
