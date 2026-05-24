@@ -18,6 +18,10 @@
                 <a href="{{ route('client.invoices.index') }}">账单</a>
                 <a href="{{ route('client.tickets.index') }}">工单</a>
                 @auth('client')
+                    <a href="{{ route('client.account.profile') }}">资料</a>
+                    <a href="{{ route('client.account.security') }}">安全</a>
+                @endauth
+                @auth('client')
                     <form method="post" action="{{ route('client.logout') }}">
                         @csrf
                         <button>退出</button>
@@ -32,6 +36,9 @@
     <main class="mx-auto max-w-6xl px-6 py-8">
         @if (session('status'))
             <div class="mb-6 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{{ session('status') }}</div>
+        @endif
+        @if (session('error'))
+            <div class="mb-6 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ session('error') }}</div>
         @endif
 
         @yield('content')

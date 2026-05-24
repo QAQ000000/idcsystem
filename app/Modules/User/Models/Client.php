@@ -65,6 +65,11 @@ class Client extends Authenticatable
         return $this->hasMany(\App\Modules\Ticket\Models\Ticket::class);
     }
 
+    public function loginLogs()
+    {
+        return $this->hasMany(\App\Models\ClientLoginLog::class);
+    }
+
     public function isActive(): bool
     {
         return $this->status === 1;

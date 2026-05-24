@@ -38,6 +38,30 @@ class EmailTemplateSeeder extends Seeder
                 'body' => '您好 {{client_name}}，您的工单 {{ticket_number}} 有新回复：{{reply_message}}',
                 'enabled' => true,
             ],
+            [
+                'name' => 'password_changed',
+                'subject' => '您的账户密码已修改',
+                'body' => '您好 {{client_name}}，您的账户密码已修改。如非本人操作，请立即联系管理员。',
+                'enabled' => true,
+            ],
+            [
+                'name' => 'host_renewal_invoice_created',
+                'subject' => '{{product_name}} 续费账单已生成',
+                'body' => '您好 {{client_name}}，您的 {{product_name}} 续费账单 {{invoice_number}} 已生成，金额 {{amount}}。',
+                'enabled' => true,
+            ],
+            [
+                'name' => 'host_due_reminder',
+                'subject' => '{{product_name}} 即将到期',
+                'body' => '您好 {{client_name}}，您的 {{product_name}} 将于 {{due_date}} 到期，请及时续费。',
+                'enabled' => true,
+            ],
+            [
+                'name' => 'host_upgrade_completed',
+                'subject' => '{{product_name}} 调整已完成',
+                'body' => '您好 {{client_name}}，您的 {{product_name}} 升级/降配已完成。',
+                'enabled' => true,
+            ],
         ];
     }
 }

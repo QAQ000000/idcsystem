@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Client\AuthController;
+use App\Http\Controllers\Client\AccountController;
 use App\Http\Controllers\Client\CartController;
 use App\Http\Controllers\Client\DashboardController;
 use App\Http\Controllers\Client\HostController;
@@ -32,6 +33,10 @@ Route::get('/products/{product}', [ProductController::class, 'show'])->name('cli
 
 Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.status'])->group(function (): void {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/account/profile', [AccountController::class, 'profile'])->name('account.profile');
+    Route::put('/account/profile', [AccountController::class, 'updateProfile'])->name('account.profile.update');
+    Route::get('/account/security', [AccountController::class, 'security'])->name('account.security');
+    Route::put('/account/password', [AccountController::class, 'updatePassword'])->name('account.password.update');
 
     Route::get('/cart', [CartController::class, 'index'])->name('cart.index');
     Route::post('/cart', [CartController::class, 'add'])->name('cart.add');
@@ -41,6 +46,8 @@ Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.sta
     Route::get('/hosts', [HostController::class, 'index'])->name('hosts.index');
     Route::get('/hosts/{host}', [HostController::class, 'show'])->name('hosts.show');
     Route::post('/hosts/{host}/renew', [HostController::class, 'renew'])->name('hosts.renew');
+    Route::post('/hosts/{host}/upgrade', [HostController::class, 'upgrade'])->name('hosts.upgrade');
+    Route::post('/hosts/{host}/action', [HostController::class, 'action'])->name('hosts.action');
 
     Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
     Route::get('/invoices/{invoice}', [InvoiceController::class, 'show'])->name('invoices.show');

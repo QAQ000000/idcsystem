@@ -5,6 +5,7 @@ namespace App\Modules\Finance\Services;
 use App\Modules\Finance\Models\Account;
 use App\Modules\Finance\Models\Invoice;
 use App\Modules\Finance\Models\InvoiceItem;
+use App\Modules\Order\Services\HostService;
 use App\Modules\User\Models\Client;
 use App\Services\NotificationService;
 use Illuminate\Support\Facades\DB;
@@ -134,6 +135,7 @@ class InvoiceService
         });
 
         if ($paid) {
+            app(HostService::class)->applyPaidInvoice($invoice->fresh(['items']));
             $invoice->loadMissing('client');
             if ($invoice->client) {
                 app(NotificationService::class)->notifyClient($invoice->client, 'invoice_paid', [

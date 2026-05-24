@@ -2,6 +2,7 @@
 
 namespace App\Modules\User\Services;
 
+use App\Models\ClientLoginLog;
 use App\Modules\User\Models\Client;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
@@ -29,6 +30,13 @@ class AuthService
         $client->update([
             'last_login_at' => now(),
             'last_login_ip' => request()->ip(),
+        ]);
+
+        ClientLoginLog::query()->create([
+            'client_id' => $client->id,
+            'ip' => request()->ip(),
+            'user_agent' => substr((string) request()->userAgent(), 0, 500),
+            'logged_in_at' => now(),
         ]);
 
         return $client;

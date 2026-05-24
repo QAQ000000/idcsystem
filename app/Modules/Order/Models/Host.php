@@ -38,4 +38,20 @@ class Host extends Model
     {
         return $this->belongsTo(\App\Modules\Product\Models\Product::class);
     }
+
+    public function actionLogs()
+    {
+        return $this->hasMany(\App\Models\HostActionLog::class);
+    }
+
+    public function upgrades()
+    {
+        return $this->hasMany(Upgrade::class);
+    }
+
+    public function invoices()
+    {
+        return $this->hasMany(\App\Modules\Finance\Models\InvoiceItem::class, 'rel_id')
+            ->whereIn('type', ['product', 'renewal', 'upgrade']);
+    }
 }

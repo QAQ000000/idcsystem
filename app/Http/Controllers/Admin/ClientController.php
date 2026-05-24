@@ -24,7 +24,7 @@ class ClientController extends Controller
 
     public function show(Client $client)
     {
-        $client->load(['orders', 'hosts.product', 'invoices', 'tickets.status']);
+        $client->load(['orders', 'hosts.product', 'invoices', 'tickets.status', 'loginLogs']);
 
         return view('admin.clients.show', compact('client'));
     }

@@ -63,6 +63,22 @@ class NotificationService
                 'label' => '工单回复',
                 'variables' => ['client_name', 'ticket_number', 'reply_message'],
             ],
+            'password_changed' => [
+                'label' => '密码修改',
+                'variables' => ['client_name'],
+            ],
+            'host_renewal_invoice_created' => [
+                'label' => '续费账单生成',
+                'variables' => ['client_name', 'product_name', 'invoice_number', 'amount'],
+            ],
+            'host_due_reminder' => [
+                'label' => '服务到期提醒',
+                'variables' => ['client_name', 'product_name', 'due_date'],
+            ],
+            'host_upgrade_completed' => [
+                'label' => '升级/降配完成',
+                'variables' => ['client_name', 'product_name'],
+            ],
         ];
     }
 }
