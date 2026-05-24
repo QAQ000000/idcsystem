@@ -17,17 +17,24 @@
             @endforeach
         </div>
 
+        @if ($errors->any())
+            <div class="mt-5 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ $errors->first() }}</div>
+        @endif
+
         @if ($invoice->status !== 'Paid')
-            <form method="post" action="{{ route('client.invoices.pay', $invoice) }}" class="mt-5 flex items-end gap-3">
+            <form method="post" action="{{ route('client.invoices.pay', $invoice) }}" class="mt-5 flex flex-wrap items-end gap-3">
                 @csrf
                 <label class="block text-sm">
                     支付方式
-                    <select class="mt-1 rounded border px-3 py-2" name="payment_method">
-                        <option value="manual">线下转账</option>
-                        <option value="balance">余额支付</option>
+                    <select class="mt-1 rounded border px-3 py-2" name="payment_method" required>
+                        @forelse ($gateways as $gateway)
+                            <option value="{{ $gateway->name }}">{{ $gateway->title }}</option>
+                        @empty
+                            <option value="">暂无可用支付方式</option>
+                        @endforelse
                     </select>
                 </label>
-                <button class="rounded bg-zinc-900 px-4 py-2 text-white">标记支付</button>
+                <button class="rounded bg-zinc-900 px-4 py-2 text-white" @disabled($gateways->isEmpty())>发起支付</button>
             </form>
         @endif
     </div>

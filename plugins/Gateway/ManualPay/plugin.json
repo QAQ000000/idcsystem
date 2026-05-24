@@ -1,0 +1,9 @@
+{
+  "name": "manual_pay",
+  "title": "线下转账",
+  "type": "gateway",
+  "version": "1.0.0",
+  "author": "IDC System",
+  "description": "内置线下转账支付插件，用于人工确认收款。",
+  "entry": "ManualPayPlugin"
+}

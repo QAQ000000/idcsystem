@@ -60,6 +60,14 @@
             <h2 class="mb-4 font-semibold">邮件设置</h2>
             <div class="grid gap-4 md:grid-cols-2">
                 <label class="block text-sm">
+                    默认邮件插件
+                    <input class="mt-1 w-full rounded border px-3 py-2" name="default_email_provider" value="{{ old('default_email_provider', $settings->get('default_email_provider', 'smtp')) }}">
+                </label>
+                <label class="mt-7 inline-flex items-center gap-2 text-sm">
+                    <input type="checkbox" name="mail_queue_enabled" value="1" @checked((bool) old('mail_queue_enabled', $settings->get('mail_queue_enabled', false)))>
+                    邮件异步发送
+                </label>
+                <label class="block text-sm">
                     发件人名称
                     <input class="mt-1 w-full rounded border px-3 py-2" name="mail_from_name" value="{{ old('mail_from_name', $settings->get('mail_from_name', 'IDC System')) }}">
                 </label>
@@ -74,6 +82,14 @@
                 <label class="block text-sm">
                     SMTP 端口
                     <input class="mt-1 w-full rounded border px-3 py-2" name="smtp_port" type="number" value="{{ old('smtp_port', $settings->get('smtp_port', '')) }}">
+                </label>
+                <label class="block text-sm">
+                    SMTP 加密方式
+                    <select class="mt-1 w-full rounded border px-3 py-2" name="smtp_encryption">
+                        @foreach (['' => '无', 'tls' => 'TLS', 'ssl' => 'SSL'] as $value => $label)
+                            <option value="{{ $value }}" @selected(old('smtp_encryption', $settings->get('smtp_encryption', '')) === $value)>{{ $label }}</option>
+                        @endforeach
+                    </select>
                 </label>
                 <label class="block text-sm">
                     SMTP 用户名
@@ -91,7 +107,11 @@
             <div class="grid gap-4 md:grid-cols-2">
                 <label class="block text-sm">
                     默认短信接口
-                    <input class="mt-1 w-full rounded border px-3 py-2" name="sms_provider" value="{{ old('sms_provider', $settings->get('sms_provider', '')) }}">
+                    <input class="mt-1 w-full rounded border px-3 py-2" name="default_sms_provider" value="{{ old('default_sms_provider', $settings->get('default_sms_provider', 'aliyun')) }}">
+                </label>
+                <label class="mt-7 inline-flex items-center gap-2 text-sm">
+                    <input type="checkbox" name="sms_queue_enabled" value="1" @checked((bool) old('sms_queue_enabled', $settings->get('sms_queue_enabled', false)))>
+                    短信异步发送
                 </label>
                 <label class="block text-sm">
                     短信签名

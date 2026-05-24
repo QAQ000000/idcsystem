@@ -1,0 +1,9 @@
+{
+  "name": "smtp",
+  "title": "SMTP 邮件",
+  "type": "email",
+  "version": "1.0.0",
+  "author": "IDC System",
+  "description": "内置 SMTP 邮件发送插件。",
+  "entry": "SmtpPlugin"
+}

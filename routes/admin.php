@@ -3,11 +3,13 @@
 use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\EmailLogController;
 use App\Http\Controllers\Admin\InvoiceController;
 use App\Http\Controllers\Admin\OrderController;
 use App\Http\Controllers\Admin\PluginController;
 use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\SettingController;
+use App\Http\Controllers\Admin\SmsLogController;
 use App\Http\Controllers\Admin\TicketController;
 use Illuminate\Support\Facades\Route;
 
@@ -49,4 +51,10 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::get('/plugins/{name}/config', [PluginController::class, 'config'])->name('plugins.config');
     Route::post('/plugins/{name}/config', [PluginController::class, 'saveConfig'])->name('plugins.config.save');
     Route::resource('plugins', PluginController::class)->only(['index']);
+
+    Route::post('/email-logs/{emailLog}/retry', [EmailLogController::class, 'retry'])->name('email-logs.retry');
+    Route::resource('email-logs', EmailLogController::class)->only(['index', 'show']);
+
+    Route::post('/sms-logs/{smsLog}/retry', [SmsLogController::class, 'retry'])->name('sms-logs.retry');
+    Route::resource('sms-logs', SmsLogController::class)->only(['index', 'show']);
 });

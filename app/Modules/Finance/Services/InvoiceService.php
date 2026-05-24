@@ -6,6 +6,8 @@ use App\Modules\Finance\Models\Account;
 use App\Modules\Finance\Models\Invoice;
 use App\Modules\Finance\Models\InvoiceItem;
 use App\Modules\User\Models\Client;
+use App\Services\MailService;
+use App\Services\SmsService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -16,7 +18,7 @@ class InvoiceService
      */
     public function generate(Client $client, array $items): Invoice
     {
-        return DB::transaction(function () use ($client, $items) {
+        $invoice = DB::transaction(function () use ($client, $items) {
             $subtotal = round(array_sum(array_map(
                 fn (array $item) => (float) ($item['amount'] ?? 0),
                 $items
@@ -48,6 +50,24 @@ class InvoiceService
 
             return $invoice->fresh(['items']);
         });
+
+        try {
+            app(MailService::class)->sendTemplate('invoice_created', (string) $client->email, [
+                'client_name' => $client->username,
+                'invoice_number' => $invoice->invoice_number,
+                'amount' => $invoice->total,
+            ]);
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
+
+        $this->sendSms($client, 'invoice_created', [
+            'client_name' => $client->username,
+            'invoice_number' => $invoice->invoice_number,
+            'amount' => $invoice->total,
+        ]);
+
+        return $invoice;
     }
 
     /**
@@ -88,7 +108,7 @@ class InvoiceService
      */
     public function markAsPaid(Invoice $invoice, string $paymentMethod, string $transId): bool
     {
-        return DB::transaction(function () use ($invoice, $paymentMethod, $transId) {
+        $paid = DB::transaction(function () use ($invoice, $paymentMethod, $transId) {
             if ($invoice->status === 'Paid') {
                 return true;
             }
@@ -123,6 +143,29 @@ class InvoiceService
 
             return true;
         });
+
+        if ($paid) {
+            $invoice->loadMissing('client');
+            if ($invoice->client) {
+                try {
+                    app(MailService::class)->sendTemplate('invoice_paid', (string) $invoice->client->email, [
+                        'client_name' => $invoice->client->username,
+                        'invoice_number' => $invoice->invoice_number,
+                        'amount' => $invoice->total,
+                    ]);
+                } catch (\Throwable $exception) {
+                    report($exception);
+                }
+
+                $this->sendSms($invoice->client, 'invoice_paid', [
+                    'client_name' => $invoice->client->username,
+                    'invoice_number' => $invoice->invoice_number,
+                    'amount' => $invoice->total,
+                ]);
+            }
+        }
+
+        return $paid;
     }
 
     /**
@@ -169,5 +212,18 @@ class InvoiceService
     private function nextInvoiceNumber(): string
     {
         return 'INV' . now()->format('YmdHis') . Str::upper(Str::random(4));
+    }
+
+    private function sendSms(Client $client, string $template, array $variables): void
+    {
+        if (empty($client->phone)) {
+            return;
+        }
+
+        try {
+            app(SmsService::class)->send((string) $client->phone, $template, $variables);
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
     }
 }

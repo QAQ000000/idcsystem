@@ -17,6 +17,8 @@ class DatabaseSeeder extends Seeder
             TicketDepartmentSeeder::class,
             AdminUserSeeder::class,
             ClientGroupSeeder::class,
+            EmailTemplateSeeder::class,
+            SmsTemplateSeeder::class,
             DemoDataSeeder::class,
         ]);
     }

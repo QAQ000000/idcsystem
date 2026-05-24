@@ -14,6 +14,11 @@ class PluginController extends Controller
     {
         return view('admin.plugins.index', [
             'plugins' => PluginModel::query()->orderBy('type')->orderBy('name')->paginate(20),
+            'pluginScans' => [
+                'gateway' => app(PluginManager::class)->scan('gateway'),
+                'email' => app(PluginManager::class)->scan('email'),
+                'sms' => app(PluginManager::class)->scan('sms'),
+            ],
         ]);
     }
 

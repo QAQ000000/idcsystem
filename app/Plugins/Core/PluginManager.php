@@ -44,14 +44,16 @@ class PluginManager
         }
 
         $instance = $this->loadPlugin($plugin);
-        $this->plugins[$name] = $instance;
+        if ($instance) {
+            $this->plugins[$name] = $instance;
+        }
 
         return $instance;
     }
 
     public function loadPlugin(Plugin $plugin): ?object
     {
-        $pluginPath = base_path("plugins/{$plugin->type}/{$plugin->name}");
+        $pluginPath = $this->pluginPath($plugin->type, $plugin->name);
 
         if (!File::exists($pluginPath)) {
             return null;
@@ -63,15 +65,9 @@ class PluginManager
         }
 
         $pluginJson = json_decode(File::get($pluginJsonPath), true);
-        $entryClass = $pluginJson['entry'] ?? null;
+        $fullClass = $this->pluginClass($plugin->type, $plugin->name, $pluginJson);
 
-        if (!$entryClass) {
-            return null;
-        }
-
-        $fullClass = "Plugins\\" . ucfirst($plugin->type) . "\\" . ucfirst($plugin->name) . "\\src\\" . $entryClass;
-
-        if (!class_exists($fullClass)) {
+        if (!$fullClass || !class_exists($fullClass)) {
             return null;
         }
 
@@ -80,7 +76,7 @@ class PluginManager
 
     public function scan(string $type): array
     {
-        $pluginsPath = base_path("plugins/{$type}");
+        $pluginsPath = $this->typePath($type);
 
         if (!File::exists($pluginsPath)) {
             return [];
@@ -93,7 +89,8 @@ class PluginManager
             $pluginJsonPath = $dir . '/plugin.json';
 
             if (File::exists($pluginJsonPath)) {
-                $pluginJson = json_decode(File::get($pluginJsonPath), true);
+                $pluginJson = json_decode(File::get($pluginJsonPath), true) ?: [];
+                $pluginJson['installed'] = Plugin::query()->where('name', $pluginJson['name'] ?? basename($dir))->exists();
                 $plugins[] = $pluginJson;
             }
         }
@@ -103,28 +100,39 @@ class PluginManager
 
     public function install(string $type, string $name): bool
     {
-        $pluginPath = base_path("plugins/{$type}/{$name}");
+        $pluginPath = $this->pluginPath($type, $name);
         $pluginJsonPath = $pluginPath . '/plugin.json';
 
         if (!File::exists($pluginJsonPath)) {
             return false;
         }
 
-        $pluginJson = json_decode(File::get($pluginJsonPath), true);
-        $entryClass = $pluginJson['entry'] ?? null;
+        $pluginJson = json_decode(File::get($pluginJsonPath), true) ?: [];
+        $fullClass = $this->pluginClass($type, $name, $pluginJson);
 
-        if (!$entryClass) {
-            return false;
-        }
-
-        $fullClass = "Plugins\\" . ucfirst($type) . "\\" . ucfirst($name) . "\\src\\" . $entryClass;
-
-        if (!class_exists($fullClass)) {
+        if (!$fullClass || !class_exists($fullClass)) {
             return false;
         }
 
         $instance = new $fullClass();
-        return $instance->install();
+        if (method_exists($instance, 'install')) {
+            $instance->install();
+        }
+
+        Plugin::query()->updateOrCreate(
+            ['name' => $pluginJson['name'] ?? $name],
+            [
+                'title' => $pluginJson['title'] ?? $name,
+                'type' => $pluginJson['type'] ?? $type,
+                'version' => $pluginJson['version'] ?? '1.0.0',
+                'author' => $pluginJson['author'] ?? null,
+                'description' => $pluginJson['description'] ?? '',
+                'status' => 0,
+                'config' => Plugin::query()->where('name', $pluginJson['name'] ?? $name)->value('config') ?? [],
+            ]
+        );
+
+        return true;
     }
 
     public function uninstall(string $name): bool
@@ -152,5 +160,50 @@ class PluginManager
     public function disable(string $name): bool
     {
         return Plugin::where('name', $name)->update(['status' => 0]) > 0;
+    }
+
+    private function pluginClass(string $type, string $name, array $pluginJson): ?string
+    {
+        $entryClass = $pluginJson['entry'] ?? null;
+        if (!$entryClass) {
+            return null;
+        }
+
+        if (str_contains($entryClass, '\\')) {
+            return $entryClass;
+        }
+
+        return 'Plugins\\'
+            . $this->studly($type)
+            . '\\'
+            . $this->studly($name)
+            . '\\src\\'
+            . $entryClass;
+    }
+
+    private function studly(string $value): string
+    {
+        return str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $value)));
+    }
+
+    private function typePath(string $type): string
+    {
+        $studlyPath = base_path('plugins/' . $this->studly($type));
+        if (File::exists($studlyPath)) {
+            return $studlyPath;
+        }
+
+        return base_path("plugins/{$type}");
+    }
+
+    private function pluginPath(string $type, string $name): string
+    {
+        $typePath = $this->typePath($type);
+        $studlyPath = $typePath . DIRECTORY_SEPARATOR . $this->studly($name);
+        if (File::exists($studlyPath)) {
+            return $studlyPath;
+        }
+
+        return $typePath . DIRECTORY_SEPARATOR . $name;
     }
 }

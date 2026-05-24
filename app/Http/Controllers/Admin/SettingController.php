@@ -33,8 +33,12 @@ class SettingController extends Controller
             'smtp_port' => ['nullable', 'integer', 'min:1', 'max:65535'],
             'smtp_username' => ['nullable', 'string', 'max:255'],
             'smtp_password' => ['nullable', 'string', 'max:255'],
-            'sms_provider' => ['nullable', 'string', 'max:100'],
+            'smtp_encryption' => ['nullable', 'string', 'max:20'],
+            'default_email_provider' => ['nullable', 'string', 'max:100'],
+            'mail_queue_enabled' => ['nullable', 'boolean'],
+            'default_sms_provider' => ['nullable', 'string', 'max:100'],
             'sms_signature' => ['nullable', 'string', 'max:100'],
+            'sms_queue_enabled' => ['nullable', 'boolean'],
         ]);
 
         $settings->setMany([
@@ -57,11 +61,15 @@ class SettingController extends Controller
             'smtp_port' => $data['smtp_port'] ?? '',
             'smtp_username' => $data['smtp_username'] ?? '',
             'smtp_password' => $data['smtp_password'] ?? '',
+            'smtp_encryption' => $data['smtp_encryption'] ?? '',
+            'default_email_provider' => $data['default_email_provider'] ?? 'smtp',
+            'mail_queue_enabled' => $request->boolean('mail_queue_enabled'),
         ], 'mail');
 
         $settings->setMany([
-            'sms_provider' => $data['sms_provider'] ?? '',
+            'default_sms_provider' => $data['default_sms_provider'] ?? 'aliyun',
             'sms_signature' => $data['sms_signature'] ?? '',
+            'sms_queue_enabled' => $request->boolean('sms_queue_enabled'),
         ], 'sms');
 
         return redirect()->route('admin.settings.index')->with('status', '系统设置已保存');

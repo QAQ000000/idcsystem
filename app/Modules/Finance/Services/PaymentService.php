@@ -22,6 +22,10 @@ class PaymentService
      */
     public function processPayment(Invoice $invoice, string $gateway, array $params): array
     {
+        if ($invoice->status === 'Paid') {
+            return ['success' => false, 'message' => 'Invoice already paid'];
+        }
+
         $plugin = $this->gateway($gateway);
         if (!$plugin) {
             return ['success' => false, 'message' => 'Payment gateway unavailable'];
@@ -48,12 +52,12 @@ class PaymentService
 
         $invoiceId = (int) ($data['invoice_id'] ?? $data['out_trade_no'] ?? 0);
         $invoice = Invoice::query()->find($invoiceId);
-        if (!$invoice) {
+        if (!$invoice || $invoice->status === 'Paid') {
             return false;
         }
 
-        $paidAmount = (float) ($data['amount'] ?? $data['total_amount'] ?? $invoice->total);
-        if (round($paidAmount, 2) < round((float) $invoice->total, 2)) {
+        $paidAmount = round((float) ($data['amount'] ?? $data['total_amount'] ?? 0), 2);
+        if ($paidAmount !== round((float) $invoice->total, 2)) {
             return false;
         }
 

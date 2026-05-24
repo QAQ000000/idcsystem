@@ -6,6 +6,8 @@ use App\Modules\Ticket\Models\Ticket;
 use App\Modules\Ticket\Models\TicketReply;
 use App\Modules\Ticket\Models\TicketStatus;
 use App\Modules\User\Models\Client;
+use App\Services\MailService;
+use App\Services\SmsService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -34,7 +36,7 @@ class TicketService
      */
     public function reply(Ticket $ticket, string $authorType, int $authorId, string $message): TicketReply
     {
-        return DB::transaction(function () use ($ticket, $authorType, $authorId, $message) {
+        $reply = DB::transaction(function () use ($ticket, $authorType, $authorId, $message) {
             $reply = TicketReply::create([
                 'ticket_id' => $ticket->id,
                 'author_type' => $authorType,
@@ -50,6 +52,32 @@ class TicketService
 
             return $reply;
         });
+
+        $ticket->loadMissing('client');
+        if ($ticket->client) {
+            try {
+                app(MailService::class)->sendTemplate('ticket_replied', (string) $ticket->client->email, [
+                    'client_name' => $ticket->client->username,
+                    'ticket_number' => $ticket->ticket_number,
+                    'reply_message' => $message,
+                ]);
+            } catch (\Throwable $exception) {
+                report($exception);
+            }
+
+            if (!empty($ticket->client->phone)) {
+                try {
+                    app(SmsService::class)->send((string) $ticket->client->phone, 'ticket_replied', [
+                        'client_name' => $ticket->client->username,
+                        'ticket_number' => $ticket->ticket_number,
+                    ]);
+                } catch (\Throwable $exception) {
+                    report($exception);
+                }
+            }
+        }
+
+        return $reply;
     }
 
     /**

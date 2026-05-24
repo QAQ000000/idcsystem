@@ -1,0 +1,9 @@
+{
+  "name": "aliyun",
+  "title": "阿里云短信",
+  "type": "sms",
+  "version": "1.0.0",
+  "author": "IDC System",
+  "description": "内置阿里云短信发送插件。",
+  "entry": "AliyunSmsPlugin"
+}
