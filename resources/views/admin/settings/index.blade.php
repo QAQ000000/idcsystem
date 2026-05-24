@@ -120,6 +120,29 @@
             </div>
         </section>
 
+        <section class="rounded bg-white p-6 shadow-sm">
+            <h2 class="mb-4 font-semibold">通知设置</h2>
+            <div class="grid gap-4 md:grid-cols-2 text-sm">
+                @foreach ([
+                    'invoice_created' => '账单生成',
+                    'invoice_paid' => '支付成功',
+                    'ticket_replied' => '工单回复',
+                ] as $key => $label)
+                    <div class="rounded border p-4">
+                        <div class="mb-3 font-medium">{{ $label }}</div>
+                        <label class="mr-4 inline-flex items-center gap-2">
+                            <input type="checkbox" name="notify_{{ $key }}_mail" value="1" @checked((bool) old('notify_' . $key . '_mail', $settings->get('notify_' . $key . '_mail', true)))>
+                            邮件
+                        </label>
+                        <label class="inline-flex items-center gap-2">
+                            <input type="checkbox" name="notify_{{ $key }}_sms" value="1" @checked((bool) old('notify_' . $key . '_sms', $settings->get('notify_' . $key . '_sms', true)))>
+                            短信
+                        </label>
+                    </div>
+                @endforeach
+            </div>
+        </section>
+
         @if ($errors->any())
             <div class="rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ $errors->first() }}</div>
         @endif

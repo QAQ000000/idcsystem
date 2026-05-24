@@ -17,8 +17,11 @@
                     <a href="{{ route('admin.orders.index') }}">订单</a>
                     <a href="{{ route('admin.invoices.index') }}">账单</a>
                     <a href="{{ route('admin.tickets.index') }}">工单</a>
+                    <a href="{{ route('admin.notifications.index') }}">通知中心</a>
                     <a href="{{ route('admin.email-logs.index') }}">邮件日志</a>
                     <a href="{{ route('admin.sms-logs.index') }}">短信日志</a>
+                    <a href="{{ route('admin.email-templates.index') }}">邮件模板</a>
+                    <a href="{{ route('admin.sms-templates.index') }}">短信模板</a>
                     <a href="{{ route('admin.plugins.index') }}">插件</a>
                     <a href="{{ route('admin.settings.index') }}">设置</a>
                     <form method="post" action="{{ route('admin.logout') }}">

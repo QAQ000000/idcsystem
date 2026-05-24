@@ -6,8 +6,7 @@ use App\Modules\Ticket\Models\Ticket;
 use App\Modules\Ticket\Models\TicketReply;
 use App\Modules\Ticket\Models\TicketStatus;
 use App\Modules\User\Models\Client;
-use App\Services\MailService;
-use App\Services\SmsService;
+use App\Services\NotificationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -55,26 +54,11 @@ class TicketService
 
         $ticket->loadMissing('client');
         if ($ticket->client) {
-            try {
-                app(MailService::class)->sendTemplate('ticket_replied', (string) $ticket->client->email, [
-                    'client_name' => $ticket->client->username,
-                    'ticket_number' => $ticket->ticket_number,
-                    'reply_message' => $message,
-                ]);
-            } catch (\Throwable $exception) {
-                report($exception);
-            }
-
-            if (!empty($ticket->client->phone)) {
-                try {
-                    app(SmsService::class)->send((string) $ticket->client->phone, 'ticket_replied', [
-                        'client_name' => $ticket->client->username,
-                        'ticket_number' => $ticket->ticket_number,
-                    ]);
-                } catch (\Throwable $exception) {
-                    report($exception);
-                }
-            }
+            app(NotificationService::class)->notifyClient($ticket->client, 'ticket_replied', [
+                'client_name' => $ticket->client->username,
+                'ticket_number' => $ticket->ticket_number,
+                'reply_message' => $message,
+            ]);
         }
 
         return $reply;

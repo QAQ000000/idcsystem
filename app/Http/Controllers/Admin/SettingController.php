@@ -36,6 +36,12 @@ class SettingController extends Controller
             'smtp_encryption' => ['nullable', 'string', 'max:20'],
             'default_email_provider' => ['nullable', 'string', 'max:100'],
             'mail_queue_enabled' => ['nullable', 'boolean'],
+            'notify_invoice_created_mail' => ['nullable', 'boolean'],
+            'notify_invoice_created_sms' => ['nullable', 'boolean'],
+            'notify_invoice_paid_mail' => ['nullable', 'boolean'],
+            'notify_invoice_paid_sms' => ['nullable', 'boolean'],
+            'notify_ticket_replied_mail' => ['nullable', 'boolean'],
+            'notify_ticket_replied_sms' => ['nullable', 'boolean'],
             'default_sms_provider' => ['nullable', 'string', 'max:100'],
             'sms_signature' => ['nullable', 'string', 'max:100'],
             'sms_queue_enabled' => ['nullable', 'boolean'],
@@ -71,6 +77,15 @@ class SettingController extends Controller
             'sms_signature' => $data['sms_signature'] ?? '',
             'sms_queue_enabled' => $request->boolean('sms_queue_enabled'),
         ], 'sms');
+
+        $settings->setMany([
+            'notify_invoice_created_mail' => $request->boolean('notify_invoice_created_mail', true),
+            'notify_invoice_created_sms' => $request->boolean('notify_invoice_created_sms', true),
+            'notify_invoice_paid_mail' => $request->boolean('notify_invoice_paid_mail', true),
+            'notify_invoice_paid_sms' => $request->boolean('notify_invoice_paid_sms', true),
+            'notify_ticket_replied_mail' => $request->boolean('notify_ticket_replied_mail', true),
+            'notify_ticket_replied_sms' => $request->boolean('notify_ticket_replied_sms', true),
+        ], 'notification');
 
         return redirect()->route('admin.settings.index')->with('status', '系统设置已保存');
     }

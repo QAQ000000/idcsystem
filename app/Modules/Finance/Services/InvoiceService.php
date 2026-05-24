@@ -6,8 +6,7 @@ use App\Modules\Finance\Models\Account;
 use App\Modules\Finance\Models\Invoice;
 use App\Modules\Finance\Models\InvoiceItem;
 use App\Modules\User\Models\Client;
-use App\Services\MailService;
-use App\Services\SmsService;
+use App\Services\NotificationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -51,17 +50,7 @@ class InvoiceService
             return $invoice->fresh(['items']);
         });
 
-        try {
-            app(MailService::class)->sendTemplate('invoice_created', (string) $client->email, [
-                'client_name' => $client->username,
-                'invoice_number' => $invoice->invoice_number,
-                'amount' => $invoice->total,
-            ]);
-        } catch (\Throwable $exception) {
-            report($exception);
-        }
-
-        $this->sendSms($client, 'invoice_created', [
+        app(NotificationService::class)->notifyClient($client, 'invoice_created', [
             'client_name' => $client->username,
             'invoice_number' => $invoice->invoice_number,
             'amount' => $invoice->total,
@@ -147,17 +136,7 @@ class InvoiceService
         if ($paid) {
             $invoice->loadMissing('client');
             if ($invoice->client) {
-                try {
-                    app(MailService::class)->sendTemplate('invoice_paid', (string) $invoice->client->email, [
-                        'client_name' => $invoice->client->username,
-                        'invoice_number' => $invoice->invoice_number,
-                        'amount' => $invoice->total,
-                    ]);
-                } catch (\Throwable $exception) {
-                    report($exception);
-                }
-
-                $this->sendSms($invoice->client, 'invoice_paid', [
+                app(NotificationService::class)->notifyClient($invoice->client, 'invoice_paid', [
                     'client_name' => $invoice->client->username,
                     'invoice_number' => $invoice->invoice_number,
                     'amount' => $invoice->total,
@@ -212,18 +191,5 @@ class InvoiceService
     private function nextInvoiceNumber(): string
     {
         return 'INV' . now()->format('YmdHis') . Str::upper(Str::random(4));
-    }
-
-    private function sendSms(Client $client, string $template, array $variables): void
-    {
-        if (empty($client->phone)) {
-            return;
-        }
-
-        try {
-            app(SmsService::class)->send((string) $client->phone, $template, $variables);
-        } catch (\Throwable $exception) {
-            report($exception);
-        }
     }
 }
