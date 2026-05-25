@@ -22,6 +22,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Hash;
 use Plugins\Gateway\EpayAlipay\src\EpayClient;
+use Plugins\Gateway\AlipaySdk\src\AlipayClient;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -80,6 +81,93 @@ class PaymentTest extends TestCase
             $this->assertTrue($manager->enable($name), $name . ' should enable');
             $this->assertDatabaseHas('plugins', ['name' => $name, 'type' => 'gateway', 'status' => 1]);
         }
+    }
+
+    public function test_alipay_sdk_plugin_can_be_scanned_installed_and_enabled(): void
+    {
+        $manager = app(PluginManager::class);
+        $scan = collect($manager->scan('gateway'));
+
+        $this->assertTrue($scan->contains(fn (array $plugin) => $plugin['name'] === 'alipay_sdk'));
+        $this->assertTrue($manager->install('gateway', 'alipay_sdk'));
+        $this->assertDatabaseHas('plugins', ['name' => 'alipay_sdk', 'type' => 'gateway', 'status' => 0]);
+        $this->assertTrue($manager->enable('alipay_sdk'));
+        $this->assertDatabaseHas('plugins', ['name' => 'alipay_sdk', 'status' => 1]);
+    }
+
+    public function test_alipay_sdk_plugin_pay_returns_signed_redirect_url(): void
+    {
+        $this->installAlipaySdk();
+        $invoice = $this->invoice($this->client(), 88.00);
+
+        $result = app(PaymentService::class)->processPayment($invoice, 'alipay_sdk', [
+            'return_url' => route('client.invoices.show', $invoice),
+        ]);
+
+        $this->assertTrue($result['success'], json_encode($result, JSON_UNESCAPED_UNICODE));
+        $this->assertSame('redirect', $result['pay_type']);
+        $this->assertStringStartsWith('https://openapi-sandbox.dl.alipaydev.com/gateway.do?', $result['payment_url']);
+        $this->assertStringContainsString('method=alipay.trade.page.pay', $result['payment_url']);
+        $this->assertStringContainsString('app_id=2021000000000000', $result['payment_url']);
+        $this->assertStringContainsString('sign=', $result['payment_url']);
+    }
+
+    public function test_alipay_sdk_plugin_pay_fails_when_config_missing(): void
+    {
+        app(PluginManager::class)->install('gateway', 'alipay_sdk');
+        app(PluginManager::class)->enable('alipay_sdk');
+        $invoice = $this->invoice($this->client(), 88.00);
+
+        $result = app(PaymentService::class)->processPayment($invoice, 'alipay_sdk', []);
+
+        $this->assertFalse($result['success']);
+        $this->assertSame('支付宝官方未配置', $result['message']);
+    }
+
+    public function test_alipay_sdk_notify_verifies_rsa2_signature(): void
+    {
+        [$privateKey, $publicKey] = $this->alipayKeyPair();
+        $this->installAlipaySdk([
+            'private_key' => $privateKey,
+            'alipay_public_key' => $publicKey,
+        ]);
+
+        $payload = $this->signedAlipayPayload($privateKey);
+
+        $this->assertTrue(plugin('gateway')->get('alipay_sdk')->notify($payload));
+        $payload['total_amount'] = '188.00';
+        $this->assertFalse(plugin('gateway')->get('alipay_sdk')->notify($payload));
+    }
+
+    public function test_alipay_sdk_callback_marks_invoice_paid(): void
+    {
+        [$privateKey, $publicKey] = $this->alipayKeyPair();
+        $this->installAlipaySdk([
+            'private_key' => $privateKey,
+            'alipay_public_key' => $publicKey,
+        ]);
+        $invoice = $this->invoice($this->client(), 88.00);
+        app(PaymentService::class)->processPayment($invoice, 'alipay_sdk', []);
+
+        $payload = $this->signedAlipayPayload($privateKey, [
+            'out_trade_no' => (string) $invoice->id,
+            'total_amount' => '88.00',
+            'trade_no' => 'ALIPAY-CALLBACK-001',
+        ]);
+
+        $this->assertTrue(app(PaymentService::class)->handleCallback('alipay_sdk', [
+            'invoice_id' => $payload['out_trade_no'],
+            'trans_id' => $payload['trade_no'],
+            'amount' => $payload['total_amount'],
+            'status' => strtolower($payload['trade_status']),
+        ] + $payload));
+
+        $this->assertSame('Paid', $invoice->fresh()->status);
+        $this->assertDatabaseHas('accounts', [
+            'invoice_id' => $invoice->id,
+            'payment_method' => 'alipay_sdk',
+            'gateway_trans_id' => 'ALIPAY-CALLBACK-001',
+        ]);
     }
 
     public function test_epay_client_sign_matches_reference_vector(): void
@@ -2025,6 +2113,93 @@ class PaymentTest extends TestCase
                 'return_url' => '',
             ],
         ]);
+    }
+
+    private function installAlipaySdk(array $config = []): void
+    {
+        [$privateKey, $publicKey] = $this->alipayKeyPair();
+        $manager = app(PluginManager::class);
+        $manager->install('gateway', 'alipay_sdk');
+        $manager->enable('alipay_sdk');
+        Plugin::query()->where('name', 'alipay_sdk')->update([
+            'config' => $config + [
+                'app_id' => '2021000000000000',
+                'private_key' => $privateKey,
+                'alipay_public_key' => $publicKey,
+                'sandbox' => true,
+                'return_url' => '',
+            ],
+        ]);
+    }
+
+    private function signedAlipayPayload(string $privateKey, array $overrides = []): array
+    {
+        $payload = $overrides + [
+            'app_id' => '2021000000000000',
+            'trade_no' => 'ALIPAY-TRADE-001',
+            'out_trade_no' => '1',
+            'total_amount' => '88.00',
+            'trade_status' => 'TRADE_SUCCESS',
+            'seller_id' => '2088000000000000',
+            'timestamp' => '2026-05-25 12:00:00',
+        ];
+        $client = new AlipayClient([
+            'app_id' => '2021000000000000',
+            'private_key' => $privateKey,
+            'alipay_public_key' => $this->alipayKeyPair()[1],
+            'sandbox' => true,
+        ]);
+        $payload['sign_type'] = 'RSA2';
+        $payload['sign'] = $client->sign($payload);
+
+        return $payload;
+    }
+
+    private function alipayKeyPair(): array
+    {
+        return [
+            <<<'PEM'
+-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC4FdhaZVPlvxY3
+X6r+7JKgOcYsgOo5ytoM4CdW+ysY2n2OJExrfDTOoY6kyW+MIy3rTobP15j8mWch
+FfR8YncbZSmpWEhzhvPhqLi6GfWIiGOGDj9jCnLnjqC0r4fVa+wH0M7Mkrlg5Q5m
+xUOFYge4dKqyeuyy9Nz1RZZyp4NOZ/OqxFL0muJgijAY+TOsiUBUsk0PZhSiLguT
+unFXfGC/W6cgzP0htZPuw+XbDwG2eKNezpvQb+VwQg0J26AIEARjPRdV+4BinEwt
+LZnf9nuN3WuqNLEKBoHdyOLx6OUa009y77bljuJM4A4alM3W/8CrNnW1gZVo4iv6
+EnU6KDkvAgMBAAECggEAJp+avditwjIWILcnYwZS+2Az1smTm12W44Wya1sWn0fU
+eRrfl9u/Hq2iBqwnBeGptEnNGlWziShMjZIUMnbcY7iVhaz6wpaJnAqw+4cPz75C
+F3Hs1cRu+GuiB1ce6mYS507l3OFaGNzmaSSxdo5rbUW5POpyuFeM9r9LgjHoaG4m
+o5mCnl0ZJxXwDQO2TdG3Alu+R0uJ/zgscbLdemCWhOjw3rsScDoa3UPwTPnoA+8M
+XQ9d12cw5evXzVc6upOZxLKDWmZTcxiyWIgynBuEmgj3YhGd4jKAfw8gSnrR/wqZ
+GIRvwRIiSxd+514ceN/t6oivblH4LUNnpkJ7TIby9QKBgQDuEEesU8eXsSdV0Jrv
+x0zWt26xnEdDiDCGC9QlBGuXRYcdq7vD57klzuz5BLEIvNaoQrGdZq8zU/HND9pn
+qNSY4rcIM7+08wotwkTls0glfp1m9xEwELF/TJOXpd4wWbNHo4Pdf2R3+zauoMvN
+ZEhJ33Dp6uxUxEx2cx69vLwHBQKBgQDF9HGk1X/ikDM8YRP8GLHFbNg1qGNx3kC8
+sAYctwpUI50BSSGMRgyk8i8MxJok/WkxJSXUY2wS1fQUbUPg/o35C55+X/wIU2i5
+T51r2WJHnubG4TLKJ00CnNUg0bkFr/B899IXbFSFdYg7305fCNv+2BXTTRMw0E52
+Jm1YBOqNowKBgQCL8xgfb3UTcPp90U90DEbYpyc01Hl0ctiLxOJnDI0vdZkz0SRl
+y5ClcFsRHTfxugm7CtIdhSMT2pJ4iYxMigzI/+a3tKxLdOET+3PDUTzlheSEhlQd
+XILsIhlV+hV/eQwS3kaD7QMkIZOI31BQI1b3zpozeX6LaobEz3JP+mbS/QKBgGeV
+0FoG9pKiDo2L5x9F9NBwcnsxkEgnmwyht7ES/y6kLCZeFFYI2dj+eixePKMakA8N
+d0w6cnUwzDZcLubvjW9C6z8KDyJ0Mxq1VJT4/fqoZe6wLRmnkx7I3qX72KvnMxrR
+u3hSUbA8nntmEOaeBjDG9jTJ4j7q4gPle9ZRTEOtAoGAe5I2JjQLSeCtvRMavNuc
+RIWVa4+GRmblaRiEr0G+gz7jc9pyoemE60oah6W+7xh2Y7BIWM7p/TgWtoSjA9R5
+0ZE5fNsy3dLUnO1zUY1AvzT1wHufHpQuwWk6HzhlEjTF4I3osAP01778cE3p1Gee
+8dt/kZjIKLxIW3W91ZRtBWo=
+-----END PRIVATE KEY-----
+PEM,
+            <<<'PEM'
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuBXYWmVT5b8WN1+q/uyS
+oDnGLIDqOcraDOAnVvsrGNp9jiRMa3w0zqGOpMlvjCMt606Gz9eY/JlnIRX0fGJ3
+G2UpqVhIc4bz4ai4uhn1iIhjhg4/Ywpy546gtK+H1WvsB9DOzJK5YOUOZsVDhWIH
+uHSqsnrssvTc9UWWcqeDTmfzqsRS9JriYIowGPkzrIlAVLJND2YUoi4Lk7pxV3xg
+v1unIMz9IbWT7sPl2w8BtnijXs6b0G/lcEINCdugCBAEYz0XVfuAYpxMLS2Z3/Z7
+jd1rqjSxCgaB3cji8ejlGtNPcu+25Y7iTOAOGpTN1v/AqzZ1tYGVaOIr+hJ1Oig5
+LwIDAQAB
+-----END PUBLIC KEY-----
+PEM,
+        ];
     }
 
     private function signedEpayPayload(array $overrides = []): array

@@ -1,0 +1,17 @@
+{
+  "name": "alipay_sdk",
+  "title": "支付宝官方",
+  "type": "gateway",
+  "version": "1.0.0",
+  "author": "系统内置",
+  "description": "通过支付宝官方接口收取网页付款",
+  "entry": "AlipaySdkPlugin",
+  "config_schema": [
+    {"key": "app_id", "label": "应用 AppID", "type": "text"},
+    {"key": "private_key", "label": "应用私钥", "type": "textarea"},
+    {"key": "alipay_public_key", "label": "支付宝公钥", "type": "textarea"},
+    {"key": "sandbox", "label": "沙箱模式", "type": "boolean"},
+    {"key": "return_url", "label": "同步跳转地址", "type": "text", "placeholder": "留空则使用系统默认"},
+    {"key": "notes", "label": "备注", "type": "textarea"}
+  ]
+}
