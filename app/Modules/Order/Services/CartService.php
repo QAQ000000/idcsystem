@@ -52,7 +52,7 @@ class CartService
 
         $cart = $this->getCart($freshClient);
         $billingCycle = (string) ($config['billing_cycle'] ?? 'monthly');
-        $config['currency_id'] = (int) ($config['currency_id'] ?? $freshClient->currency_id ?? $this->pricingService->defaultCurrencyId());
+        $config['currency_id'] = (int) ($freshClient->currency_id ?: $this->pricingService->defaultCurrencyId());
         $price = $this->pricingService->calculatePrice($freshProduct, $billingCycle, $config);
         if ($price <= 0) {
             return null;

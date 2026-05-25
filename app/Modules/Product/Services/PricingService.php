@@ -63,9 +63,14 @@ class PricingService
     /**
      * 计算产品价格，包含产品价格、安装费和可选配置项价格。
      */
-    public function calculatePrice(Product $product, string $billingCycle, array $configOptions = []): float
+    public function calculatePrice(
+        Product $product,
+        string $billingCycle,
+        array $configOptions = [],
+        ?int $currencyId = null
+    ): float
     {
-        $currencyId = (int) ($configOptions['currency_id'] ?? $this->defaultCurrencyId());
+        $currencyId = (int) ($currencyId ?? $configOptions['currency_id'] ?? $this->defaultCurrencyId());
         $pricing = $this->getPricing('product', (int) $product->id, $currencyId);
 
         if (!$pricing) {

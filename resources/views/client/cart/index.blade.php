@@ -21,7 +21,7 @@
                         <td class="px-4 py-3">{{ $item['product_name'] }}</td>
                         <td class="px-4 py-3">{{ $item['billing_cycle'] }}</td>
                         <td class="px-4 py-3">{{ $item['qty'] }}</td>
-                        <td class="px-4 py-3">{{ number_format((float) $item['price'], 2) }}</td>
+                        <td class="px-4 py-3">{{ $currencies->format((float) $item['price'], $currency) }}</td>
                         <td class="px-4 py-3">
                             <form method="post" action="{{ route('client.cart.remove', $item['id']) }}">
                                 @csrf
@@ -70,15 +70,15 @@
         <div class="rounded bg-white p-5 text-sm shadow-sm">
             <div class="flex justify-between py-1">
                 <span class="text-zinc-500">小计</span>
-                <span>{{ number_format((float) ($cart['totals']['subtotal'] ?? 0), 2) }}</span>
+                <span>{{ $currencies->format((float) ($cart['totals']['subtotal'] ?? 0), $currency) }}</span>
             </div>
             <div class="flex justify-between py-1">
                 <span class="text-zinc-500">优惠</span>
-                <span>-{{ number_format((float) ($cart['totals']['discount'] ?? 0), 2) }}</span>
+                <span>-{{ $currencies->format((float) ($cart['totals']['discount'] ?? 0), $currency) }}</span>
             </div>
             <div class="mt-2 flex justify-between border-t pt-3 font-semibold">
                 <span>合计</span>
-                <span>{{ number_format((float) ($cart['totals']['total'] ?? 0), 2) }}</span>
+                <span>{{ $currencies->format((float) ($cart['totals']['total'] ?? 0), $currency) }}</span>
             </div>
         </div>
     </div>

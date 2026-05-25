@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Finance\Services\CurrencyService;
 use App\Modules\Order\Services\CartService;
 use App\Modules\Order\Services\HostService;
 use App\Modules\Product\Models\Product;
@@ -12,7 +13,7 @@ use Illuminate\Support\Facades\Auth;
 
 class CartController extends Controller
 {
-    public function index(CartService $cart)
+    public function index(CartService $cart, CurrencyService $currencies)
     {
         $client = Auth::guard('client')->user();
 
@@ -20,7 +21,15 @@ class CartController extends Controller
             return redirect()->route('client.login');
         }
 
-        return view('client.cart.index', ['cart' => $cart->getCart($client)]);
+        $currency = $client->currency_id
+            ? $currencies->all()->firstWhere('id', (int) $client->currency_id) ?? $currencies->default()
+            : $currencies->default();
+
+        return view('client.cart.index', [
+            'cart' => $cart->getCart($client),
+            'currency' => $currency,
+            'currencies' => $currencies,
+        ]);
     }
 
     public function add(Request $request, CartService $cart, HostService $hosts, ProductService $products)

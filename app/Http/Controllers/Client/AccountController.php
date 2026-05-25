@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Finance\Models\Currency;
 use App\Modules\Finance\Services\InvoiceService;
 use App\Modules\User\Models\Client;
 use App\Modules\User\Services\AffiliateService;
@@ -11,6 +12,7 @@ use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
 
 class AccountController extends Controller
 {
@@ -18,6 +20,7 @@ class AccountController extends Controller
     {
         return view('client.account.profile', [
             'client' => Auth::guard('client')->user(),
+            'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->get(),
         ]);
     }
 
@@ -32,7 +35,9 @@ class AccountController extends Controller
             'province' => ['nullable', 'string', 'max:100'],
             'city' => ['nullable', 'string', 'max:100'],
             'address' => ['nullable', 'string', 'max:255'],
+            'currency_id' => ['nullable', 'integer', Rule::exists('currencies', 'id')],
         ]);
+        $data['currency_id'] = $data['currency_id'] ?? $client->currency_id;
 
         $client->update($data);
 

@@ -27,6 +27,14 @@
                 <input class="mt-1 w-full rounded border bg-zinc-100 px-3 py-2" value="{{ $client->email }}" disabled>
             </label>
             <label class="block text-sm">
+                价格显示货币
+                <select class="mt-1 w-full rounded border px-3 py-2" name="currency_id" required>
+                    @foreach ($currencies as $currency)
+                        <option value="{{ $currency->id }}" @selected((int) old('currency_id', $client->currency_id) === (int) $currency->id)>{{ $currency->code }}</option>
+                    @endforeach
+                </select>
+            </label>
+            <label class="block text-sm">
                 公司名称
                 <input class="mt-1 w-full rounded border px-3 py-2" name="company_name" value="{{ old('company_name', $client->company_name) }}">
             </label>

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Modules\Finance\Models\Currency;
+use App\Modules\Finance\Services\CurrencyService;
 use App\Modules\Order\Models\PromoCode;
 use App\Modules\Product\Models\Pricing;
 use App\Modules\Product\Models\Product;
@@ -381,7 +382,7 @@ class CartBoundaryTest extends TestCase
             ->get(route('client.cart.index'))
             ->assertOk()
             ->assertSee('HTTP5')
-            ->assertSee('-5.00');
+            ->assertSee('-¥ 5.00');
 
         $this->actingAs($client, 'client')
             ->delete(route('client.cart.promo.remove'))
@@ -408,8 +409,94 @@ class CartBoundaryTest extends TestCase
         $this->actingAs($client->fresh(), 'client')
             ->get(route('client.products.show', $product))
             ->assertOk()
-            ->assertSee('$9.00')
-            ->assertDontSee('¥50.00');
+            ->assertSee('$ 9.00')
+            ->assertDontSee('¥ 50.00');
+    }
+
+    public function test_product_detail_converts_default_price_when_client_currency_has_no_direct_pricing(): void
+    {
+        $cny = Currency::query()->firstOrCreate(
+            ['code' => 'CNY'],
+            ['prefix' => '¥', 'suffix' => '', 'exchange_rate' => 1, 'is_default' => true]
+        );
+        $usd = Currency::query()->firstOrCreate(
+            ['code' => 'USD'],
+            ['prefix' => '$', 'suffix' => '', 'exchange_rate' => 7, 'is_default' => false]
+        );
+        $client = $this->client();
+        $client->update(['currency_id' => $usd->id]);
+        $product = $this->product();
+        Pricing::query()
+            ->where('type', 'product')
+            ->where('rel_id', $product->id)
+            ->where('currency_id', $cny->id)
+            ->update(['monthly' => 70]);
+
+        $this->actingAs($client->fresh(), 'client')
+            ->get(route('client.products.show', $product))
+            ->assertOk()
+            ->assertSee('约 $ 10.00');
+    }
+
+    public function test_client_can_update_currency_preference(): void
+    {
+        $usd = Currency::query()->firstOrCreate(
+            ['code' => 'USD'],
+            ['prefix' => '$', 'suffix' => '', 'exchange_rate' => 7, 'is_default' => false]
+        );
+        $client = $this->client();
+
+        $this->actingAs($client, 'client')
+            ->put(route('client.account.profile.update'), [
+                'company_name' => 'Currency Co',
+                'phone_code' => '86',
+                'phone' => '13800138000',
+                'country' => '中国',
+                'province' => '广东',
+                'city' => '深圳',
+                'address' => '科技园',
+                'currency_id' => $usd->id,
+            ])
+            ->assertRedirect(route('client.account.profile'));
+
+        $this->assertSame($usd->id, (int) $client->fresh()->currency_id);
+    }
+
+    public function test_cart_ignores_spoofed_currency_and_requires_client_currency_pricing(): void
+    {
+        $cny = Currency::query()->firstOrCreate(
+            ['code' => 'CNY'],
+            ['prefix' => '¥', 'suffix' => '', 'exchange_rate' => 1, 'is_default' => true]
+        );
+        $usd = Currency::query()->firstOrCreate(
+            ['code' => 'USD'],
+            ['prefix' => '$', 'suffix' => '', 'exchange_rate' => 7, 'is_default' => false]
+        );
+        $client = $this->client();
+        $client->update(['currency_id' => $usd->id]);
+        $product = $this->product();
+        Pricing::query()->where('type', 'product')->where('rel_id', $product->id)->where('currency_id', $usd->id)->delete();
+
+        $this->assertNull(app(CartService::class)->add($client->fresh(), $product, [
+            'billing_cycle' => 'monthly',
+            'currency_id' => $cny->id,
+        ]));
+    }
+
+    public function test_currency_service_formats_and_converts_amounts(): void
+    {
+        $cny = Currency::query()->firstOrCreate(
+            ['code' => 'CNY'],
+            ['prefix' => '¥', 'suffix' => '', 'exchange_rate' => 1, 'is_default' => true]
+        );
+        $usd = Currency::query()->firstOrCreate(
+            ['code' => 'USD'],
+            ['prefix' => '$', 'suffix' => '', 'exchange_rate' => 7, 'is_default' => false]
+        );
+        $service = app(CurrencyService::class);
+
+        $this->assertSame(10.0, $service->convert(70, $cny, $usd));
+        $this->assertSame('$ 10.00', $service->format(10, $usd));
     }
 
     public function test_checkout_rejects_cart_when_product_price_becomes_invalid_after_add(): void

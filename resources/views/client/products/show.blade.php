@@ -10,10 +10,10 @@
             <p class="mt-4 whitespace-pre-line">{{ $product->description }}</p>
 
             <div class="mt-6 grid gap-3 sm:grid-cols-2">
-                @foreach ($prices as $cycle => $amount)
+                @foreach ($prices as $cycle => $price)
                     <div class="rounded border p-4">
                         <div class="text-sm text-zinc-500">{{ ['monthly' => '月付', 'quarterly' => '季付', 'semiannually' => '半年付', 'annually' => '年付'][$cycle] }}</div>
-                        <div class="mt-1 text-xl font-semibold">{{ $currency?->prefix }}{{ number_format($amount, 2) }}</div>
+                        <div class="mt-1 text-xl font-semibold">{{ $price['formatted'] }}</div>
                     </div>
                 @endforeach
             </div>
