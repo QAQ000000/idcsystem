@@ -8,12 +8,18 @@ use Illuminate\Http\JsonResponse;
 
 abstract class ApiController extends Controller
 {
-    protected function success(array $data = [], int $status = 200): JsonResponse
+    protected function success(array $data = [], int $status = 200, array $meta = []): JsonResponse
     {
-        return response()->json([
+        $response = [
             'success' => true,
             'data' => $data,
-        ], $status);
+        ];
+
+        if ($meta !== []) {
+            $response['meta'] = $meta;
+        }
+
+        return response()->json($response, $status);
     }
 
     protected function list(LengthAwarePaginator $paginator, callable $mapper): JsonResponse

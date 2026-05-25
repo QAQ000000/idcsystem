@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Modules\Finance\Models\Invoice;
 use App\Modules\Finance\Models\InvoiceItem;
+use App\Modules\Finance\Services\InvoiceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -13,6 +14,9 @@ class InvoiceController extends ApiController
     {
         $invoices = Invoice::query()
             ->where('client_id', $request->user()->id)
+            ->when($status = $this->queryString($request, 'status'), fn ($query) => $query->where('status', $status))
+            ->when($from = $this->queryString($request, 'from'), fn ($query) => $query->whereDate('created_at', '>=', $from))
+            ->when($to = $this->queryString($request, 'to'), fn ($query) => $query->whereDate('created_at', '<=', $to))
             ->latest()
             ->paginate($this->perPage($request));
 
@@ -28,6 +32,25 @@ class InvoiceController extends ApiController
         $invoice->load('items');
 
         return $this->success($this->invoicePayload($invoice, true));
+    }
+
+    public function payWithCredit(Request $request, Invoice $invoice, InvoiceService $invoices): JsonResponse
+    {
+        if ((int) $invoice->client_id !== (int) $request->user()->id) {
+            return $this->error('账单不存在。', 404);
+        }
+
+        if ($invoice->status !== 'Unpaid') {
+            return $this->error('账单状态不可支付。', 422);
+        }
+
+        if (!$invoices->payWithCredit($invoice)) {
+            return $this->error('余额或信用额度不足。', 422);
+        }
+
+        return $this->success([
+            'invoice' => $this->invoicePayload($invoice->fresh(['items', 'client'])),
+        ]);
     }
 
     private function invoicePayload(Invoice $invoice, bool $withItems = false): array
@@ -65,5 +88,18 @@ class InvoiceController extends ApiController
     private function perPage(Request $request): int
     {
         return min(max((int) $request->query('per_page', 15), 1), 100);
+    }
+
+    private function queryString(Request $request, string $key): ?string
+    {
+        $value = $request->query($key);
+
+        if (!is_scalar($value)) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
     }
 }

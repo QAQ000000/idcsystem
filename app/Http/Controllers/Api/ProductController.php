@@ -7,13 +7,20 @@ use App\Modules\Product\Models\Product;
 use App\Modules\Product\Services\PricingService;
 use App\Modules\Product\Services\ProductService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class ProductController extends ApiController
 {
-    public function index(ProductService $products, PricingService $pricing, CurrencyService $currencies): JsonResponse
+    public function index(Request $request, ProductService $products, PricingService $pricing, CurrencyService $currencies): JsonResponse
     {
         $currency = $currencies->default();
-        $items = $products->getAvailableProducts()
+        $items = $products->getAvailableProducts();
+
+        if ($type = $this->queryString($request, 'type')) {
+            $items = $items->where('type', $type);
+        }
+
+        $items = $items
             ->load(['group', 'pricings'])
             ->map(fn (Product $product) => $this->productPayload($product, $pricing, (int) $currency->id))
             ->values()
@@ -52,5 +59,18 @@ class ProductController extends ApiController
                 ->mapWithKeys(fn (string $cycle) => [$cycle => $pricing->calculatePrice($product, $cycle, [], $currencyId)])
                 ->all(),
         ];
+    }
+
+    private function queryString(Request $request, string $key): ?string
+    {
+        $value = $request->query($key);
+
+        if (!is_scalar($value)) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
     }
 }

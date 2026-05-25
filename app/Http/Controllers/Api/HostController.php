@@ -15,6 +15,7 @@ class HostController extends ApiController
         $hosts = Host::query()
             ->with('product')
             ->where('client_id', $request->user()->id)
+            ->when($status = $this->queryString($request, 'status'), fn ($query) => $query->where('status', $status))
             ->latest()
             ->paginate($this->perPage($request));
 
@@ -82,5 +83,18 @@ class HostController extends ApiController
     private function perPage(Request $request): int
     {
         return min(max((int) $request->query('per_page', 15), 1), 100);
+    }
+
+    private function queryString(Request $request, string $key): ?string
+    {
+        $value = $request->query($key);
+
+        if (!is_scalar($value)) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
     }
 }
