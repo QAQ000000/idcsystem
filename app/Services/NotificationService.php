@@ -77,6 +77,14 @@ class NotificationService
                 'label' => '支付成功',
                 'variables' => ['client_name', 'invoice_number', 'amount'],
             ],
+            'invoice_receipt_submitted' => [
+                'label' => '发票申请提交',
+                'variables' => ['client_name', 'invoice_number', 'receipt_title'],
+            ],
+            'invoice_receipt_issued' => [
+                'label' => '发票已开具',
+                'variables' => ['client_name', 'invoice_number', 'receipt_title'],
+            ],
             'ticket_replied' => [
                 'label' => '工单回复',
                 'variables' => ['client_name', 'ticket_number', 'reply_message'],

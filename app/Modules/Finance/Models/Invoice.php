@@ -40,6 +40,11 @@ class Invoice extends Model
         return $this->hasMany(Account::class);
     }
 
+    public function receipts()
+    {
+        return $this->hasMany(InvoiceReceipt::class);
+    }
+
     public function order()
     {
         return $this->hasOne(\App\Modules\Order\Models\Order::class);

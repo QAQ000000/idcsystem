@@ -34,7 +34,7 @@ class InvoiceController extends Controller
         }
 
         abort_unless((int) $invoice->client_id === (int) $client->id, 403);
-        $invoice->load(['items', 'accounts']);
+        $invoice->load(['items', 'accounts', 'receipts']);
 
         return view('client.invoices.show', [
             'invoice' => $invoice,

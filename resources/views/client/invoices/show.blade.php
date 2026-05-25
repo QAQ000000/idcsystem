@@ -50,5 +50,17 @@
                 <button data-pay-submit class="rounded bg-zinc-900 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-60" @disabled($gateways->isEmpty())>发起支付</button>
             </form>
         @endif
+
+        @if ($invoice->status === 'Paid')
+            @php($receipt = $invoice->receipts->sortByDesc('id')->first())
+            <div class="mt-5 rounded border border-zinc-200 bg-zinc-50 p-4 text-sm">
+                <div class="font-medium text-zinc-900">发票申请</div>
+                @if ($receipt)
+                    <div class="mt-2 text-zinc-600">当前状态：{{ $receipt->status }}，抬头：{{ $receipt->title }}</div>
+                @else
+                    <a class="mt-3 inline-block rounded bg-zinc-900 px-4 py-2 text-white" href="{{ route('client.invoices.receipt.create', $invoice) }}">申请发票</a>
+                @endif
+            </div>
+        @endif
     </div>
 @endsection

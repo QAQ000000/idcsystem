@@ -9,6 +9,7 @@ use App\Http\Controllers\Admin\EmailLogController;
 use App\Http\Controllers\Admin\EmailTemplateController;
 use App\Http\Controllers\Admin\HostController;
 use App\Http\Controllers\Admin\InvoiceController;
+use App\Http\Controllers\Admin\InvoiceReceiptController;
 use App\Http\Controllers\Admin\OrderController;
 use App\Http\Controllers\Admin\NotificationCenterController;
 use App\Http\Controllers\Admin\PluginController;
@@ -129,6 +130,12 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::resource('invoices', InvoiceController::class)
         ->only(['index', 'show'])
         ->middleware('admin.permission:invoice.view');
+    Route::get('/invoice-receipts', [InvoiceReceiptController::class, 'index'])
+        ->middleware('admin.permission:invoice.view')
+        ->name('invoice-receipts.index');
+    Route::put('/invoice-receipts/{receipt}', [InvoiceReceiptController::class, 'update'])
+        ->middleware('admin.permission:invoice.manage')
+        ->name('invoice-receipts.update');
 
     Route::post('/tickets/{ticket}/reply', [TicketController::class, 'reply'])
         ->middleware('admin.permission:ticket.manage')

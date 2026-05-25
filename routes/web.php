@@ -6,6 +6,7 @@ use App\Http\Controllers\Client\CartController;
 use App\Http\Controllers\Client\DashboardController;
 use App\Http\Controllers\Client\HostController;
 use App\Http\Controllers\Client\InvoiceController;
+use App\Http\Controllers\Client\InvoiceReceiptController;
 use App\Http\Controllers\Client\ProductController;
 use App\Http\Controllers\Client\TicketController;
 use App\Http\Controllers\Install\InstallController;
@@ -82,6 +83,8 @@ Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.sta
     Route::get('/invoices/{invoice}', [InvoiceController::class, 'show'])->name('invoices.show');
     Route::post('/invoices/{invoice}/pay', [InvoiceController::class, 'pay'])->name('invoices.pay');
     Route::post('/invoices/{invoice}/pay-with-credit', [InvoiceController::class, 'payWithCredit'])->name('invoices.pay-with-credit');
+    Route::get('/invoices/{invoice}/receipt', [InvoiceReceiptController::class, 'create'])->name('invoices.receipt.create');
+    Route::post('/invoices/{invoice}/receipt', [InvoiceReceiptController::class, 'store'])->name('invoices.receipt.store');
 
     Route::get('/tickets', [TicketController::class, 'index'])->name('tickets.index');
     Route::get('/tickets/create', [TicketController::class, 'create'])->name('tickets.create');
