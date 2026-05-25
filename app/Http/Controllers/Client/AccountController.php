@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Client;
 use App\Http\Controllers\Controller;
 use App\Modules\Finance\Services\InvoiceService;
 use App\Modules\User\Models\Client;
+use App\Modules\User\Services\TwoFactorService;
 use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -37,13 +38,27 @@ class AccountController extends Controller
         return redirect()->route('client.account.profile')->with('status', '资料已更新');
     }
 
-    public function security()
+    public function security(TwoFactorService $twoFactor)
     {
         $client = Auth::guard('client')->user();
+        $secret = null;
+        $qrCodeUrl = null;
+
+        if (!$client->two_factor_enabled) {
+            $secret = session('two_factor_setup_secret');
+            if (!$secret) {
+                $secret = $twoFactor->generateSecret();
+                session(['two_factor_setup_secret' => $secret]);
+            }
+
+            $qrCodeUrl = $twoFactor->qrCodeUrl($client, $secret);
+        }
 
         return view('client.account.security', [
             'client' => $client,
             'loginLogs' => $client->loginLogs()->latest('logged_in_at')->limit(10)->get(),
+            'twoFactorSecret' => $secret,
+            'twoFactorQrCodeUrl' => $qrCodeUrl,
         ]);
     }
 
@@ -86,5 +101,46 @@ class AccountController extends Controller
         ]);
 
         return redirect()->route('client.account.security')->with('status', '密码已修改，当前会话保持登录');
+    }
+
+    public function enableTwoFactor(Request $request, TwoFactorService $twoFactor)
+    {
+        $client = Auth::guard('client')->user();
+        $data = $request->validate([
+            'code' => ['required', 'string', 'regex:/^\d{6}$/'],
+        ]);
+
+        $secret = (string) session('two_factor_setup_secret');
+        if ($secret === '' || !$twoFactor->verify($secret, $data['code'])) {
+            return back()->withErrors(['code' => '验证码不正确，无法启用两步验证。']);
+        }
+
+        $client->update([
+            'two_factor_enabled' => true,
+            'two_factor_secret' => $secret,
+        ]);
+        $request->session()->forget('two_factor_setup_secret');
+
+        return redirect()->route('client.account.security')->with('status', '两步验证已启用。');
+    }
+
+    public function disableTwoFactor(Request $request)
+    {
+        $client = Auth::guard('client')->user();
+        $data = $request->validate([
+            'password' => ['required', 'string'],
+        ]);
+
+        $freshClient = Client::query()->whereKey($client->id)->first();
+        if (!$freshClient || !Hash::check($data['password'], $freshClient->password)) {
+            return back()->withErrors(['password' => '密码不正确，无法关闭两步验证。']);
+        }
+
+        $freshClient->update([
+            'two_factor_enabled' => false,
+            'two_factor_secret' => null,
+        ]);
+
+        return redirect()->route('client.account.security')->with('status', '两步验证已关闭。');
     }
 }

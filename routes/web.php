@@ -24,6 +24,8 @@ Route::get('/', fn () => redirect()->route('client.products.index'))->name('home
 
 Route::get('/login', [AuthController::class, 'showLoginForm'])->name('client.login');
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1')->name('client.login.store');
+Route::get('/login/2fa', [AuthController::class, 'showTwoFactorForm'])->name('client.login.2fa');
+Route::post('/login/2fa/verify', [AuthController::class, 'verifyTwoFactor'])->middleware('throttle:10,1')->name('client.login.2fa.verify');
 Route::get('/register', [AuthController::class, 'showRegisterForm'])->name('client.register');
 Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:5,1')->name('client.register.store');
 Route::post('/logout', [AuthController::class, 'logout'])->name('client.logout');
@@ -49,6 +51,8 @@ Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.sta
     Route::put('/account/profile', [AccountController::class, 'updateProfile'])->name('account.profile.update');
     Route::get('/account/security', [AccountController::class, 'security'])->name('account.security');
     Route::put('/account/password', [AccountController::class, 'updatePassword'])->name('account.password.update');
+    Route::post('/account/2fa/enable', [AccountController::class, 'enableTwoFactor'])->name('account.2fa.enable');
+    Route::post('/account/2fa/disable', [AccountController::class, 'disableTwoFactor'])->name('account.2fa.disable');
     Route::get('/account/recharge', [AccountController::class, 'recharge'])->name('account.recharge');
     Route::post('/account/recharge', [AccountController::class, 'recharge'])->name('account.recharge.store');
 

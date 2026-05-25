@@ -17,6 +17,7 @@ use App\Modules\Ticket\Models\TicketDepartment;
 use App\Modules\Ticket\Models\TicketStatus;
 use App\Modules\User\Services\ClientService;
 use App\Modules\User\Models\Client;
+use App\Modules\User\Services\TwoFactorService;
 use App\Plugins\Core\PluginManager;
 use App\Services\SettingsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -123,6 +124,78 @@ class ClientTest extends TestCase
         ])->assertRedirect(route('client.dashboard'));
 
         $this->assertDatabaseHas('client_login_logs', ['client_id' => $client->id]);
+    }
+
+    public function test_client_can_enable_two_factor_and_must_complete_otp_on_login(): void
+    {
+        $client = $this->client();
+        $twoFactor = app(TwoFactorService::class);
+
+        $this->actingAs($client, 'client')
+            ->get(route('client.account.security'))
+            ->assertOk()
+            ->assertSee('启用两步验证');
+
+        $secret = session('two_factor_setup_secret');
+        $this->assertIsString($secret);
+        $this->assertNotSame('', $secret);
+
+        $this->actingAs($client, 'client')
+            ->post(route('client.account.2fa.enable'), [
+                'code' => $twoFactor->currentCode($secret),
+            ])
+            ->assertRedirect(route('client.account.security'))
+            ->assertSessionHas('status', '两步验证已启用。');
+
+        $client->refresh();
+        $this->assertTrue($client->two_factor_enabled);
+        $this->assertSame($secret, $client->two_factor_secret);
+
+        $this->post(route('client.logout'));
+        $this->assertGuest('client');
+
+        $this->post(route('client.login.store'), [
+            'email' => $client->email,
+            'password' => 'client123456',
+        ])->assertRedirect(route('client.login.2fa'));
+
+        $this->assertGuest('client');
+        $this->assertSame($client->id, session(\App\Modules\User\Services\AuthService::TWO_FACTOR_SESSION_KEY));
+
+        $this->post(route('client.login.2fa.verify'), ['code' => '000000'])
+            ->assertSessionHasErrors('code');
+        $this->assertGuest('client');
+
+        $this->post(route('client.login.2fa.verify'), [
+            'code' => $twoFactor->currentCode($secret),
+        ])->assertRedirect(route('client.dashboard'));
+
+        $this->assertAuthenticatedAs($client->fresh(), 'client');
+        $this->assertDatabaseHas('client_login_logs', ['client_id' => $client->id]);
+    }
+
+    public function test_client_can_disable_two_factor_with_password(): void
+    {
+        $client = $this->client();
+        $client->update([
+            'two_factor_enabled' => true,
+            'two_factor_secret' => app(TwoFactorService::class)->generateSecret(),
+        ]);
+
+        $this->actingAs($client, 'client')
+            ->post(route('client.account.2fa.disable'), ['password' => 'wrong-password'])
+            ->assertSessionHasErrors('password');
+
+        $this->assertTrue($client->fresh()->two_factor_enabled);
+
+        $this->actingAs($client, 'client')
+            ->post(route('client.account.2fa.disable'), ['password' => 'client123456'])
+            ->assertRedirect(route('client.account.security'))
+            ->assertSessionHas('status', '两步验证已关闭。');
+
+        $client->refresh();
+        $this->assertFalse($client->two_factor_enabled);
+        $this->assertNull($client->two_factor_secret);
     }
 
     public function test_admin_client_show_page_displays_enhanced_information(): void

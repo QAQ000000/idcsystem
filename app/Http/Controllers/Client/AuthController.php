@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Client;
 use App\Http\Controllers\Controller;
 use App\Modules\User\Models\Client;
 use App\Modules\User\Services\AuthService;
+use App\Modules\User\Services\TwoFactorService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -32,8 +33,51 @@ class AuthController extends Controller
             return back()->withErrors(['email' => '账号或密码错误，或账号未启用。'])->onlyInput('email');
         }
 
+        if ($client->two_factor_enabled) {
+            $request->session()->put(AuthService::TWO_FACTOR_SESSION_KEY, $client->id);
+
+            return redirect()->route('client.login.2fa');
+        }
+
         Auth::guard('client')->login($client);
         $request->session()->regenerate();
+        $auth->recordLogin($client);
+
+        return redirect()->route('client.dashboard');
+    }
+
+    public function showTwoFactorForm(Request $request)
+    {
+        if (!$request->session()->has(AuthService::TWO_FACTOR_SESSION_KEY)) {
+            return redirect()->route('client.login');
+        }
+
+        return view('client.auth.two-factor');
+    }
+
+    public function verifyTwoFactor(Request $request, AuthService $auth, TwoFactorService $twoFactor)
+    {
+        $data = $request->validate([
+            'code' => ['required', 'string', 'regex:/^\d{6}$/'],
+        ]);
+
+        $clientId = (int) $request->session()->get(AuthService::TWO_FACTOR_SESSION_KEY);
+        $client = Client::query()->find($clientId);
+
+        if (!$client || !$client->isActive() || !$client->two_factor_enabled || !$client->two_factor_secret) {
+            $request->session()->forget(AuthService::TWO_FACTOR_SESSION_KEY);
+
+            return redirect()->route('client.login')->withErrors(['email' => '两步验证会话已失效，请重新登录。']);
+        }
+
+        if (!$twoFactor->verify((string) $client->two_factor_secret, $data['code'])) {
+            return back()->withErrors(['code' => '验证码不正确。']);
+        }
+
+        $request->session()->forget(AuthService::TWO_FACTOR_SESSION_KEY);
+        Auth::guard('client')->login($client);
+        $request->session()->regenerate();
+        $auth->recordLogin($client);
 
         return redirect()->route('client.dashboard');
     }
@@ -88,6 +132,7 @@ class AuthController extends Controller
 
         Auth::guard('client')->login($client->fresh());
         $request->session()->regenerate();
+        $auth->recordLogin($client->fresh());
 
         return redirect()->route('client.dashboard')->with('status', '邮箱验证成功，账号已激活。');
     }
@@ -114,6 +159,7 @@ class AuthController extends Controller
         Auth::guard('client')->logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
+        $request->session()->forget(AuthService::TWO_FACTOR_SESSION_KEY);
 
         return redirect()->route('client.login');
     }

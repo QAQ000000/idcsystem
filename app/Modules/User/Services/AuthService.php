@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\URL;
 
 class AuthService
 {
+    public const TWO_FACTOR_SESSION_KEY = 'client_2fa_pending_id';
+
     public function register(array $data): Client
     {
         $clientService = new ClientService();
@@ -31,6 +33,11 @@ class AuthService
             return null;
         }
 
+        return $client;
+    }
+
+    public function recordLogin(Client $client): void
+    {
         $client->update([
             'last_login_at' => now(),
             'last_login_ip' => request()->ip(),
@@ -42,8 +49,6 @@ class AuthService
             'user_agent' => substr((string) request()->userAgent(), 0, 500),
             'logged_in_at' => now(),
         ]);
-
-        return $client;
     }
 
     public function createToken(Client $client, string $deviceName = 'web'): string
