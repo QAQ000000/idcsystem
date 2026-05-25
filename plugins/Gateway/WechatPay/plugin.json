@@ -1,0 +1,18 @@
+{
+  "name": "wechat_pay",
+  "title": "微信支付官方",
+  "type": "gateway",
+  "version": "1.0.0",
+  "author": "系统内置",
+  "description": "通过微信支付 API v3 H5 收款",
+  "entry": "WechatPayPlugin",
+  "config_schema": [
+    {"key": "mch_id", "label": "商户号", "type": "text"},
+    {"key": "api_v3_key", "label": "APIv3 密钥", "type": "password"},
+    {"key": "cert_serial", "label": "证书序列号", "type": "text"},
+    {"key": "private_key", "label": "商户私钥 PEM", "type": "textarea"},
+    {"key": "wechatpay_public_key", "label": "微信支付平台公钥 PEM", "type": "textarea"},
+    {"key": "app_id", "label": "公众号/小程序 AppID", "type": "text"},
+    {"key": "notes", "label": "备注", "type": "textarea"}
+  ]
+}

@@ -170,6 +170,85 @@ class PaymentTest extends TestCase
         ]);
     }
 
+    public function test_wechat_pay_plugin_can_be_scanned_installed_and_enabled(): void
+    {
+        $manager = app(PluginManager::class);
+        $scan = collect($manager->scan('gateway'));
+
+        $this->assertTrue($scan->contains(fn (array $plugin) => $plugin['name'] === 'wechat_pay'));
+        $this->assertTrue($manager->install('gateway', 'wechat_pay'));
+        $this->assertDatabaseHas('plugins', ['name' => 'wechat_pay', 'type' => 'gateway', 'status' => 0]);
+        $this->assertTrue($manager->enable('wechat_pay'));
+        $this->assertDatabaseHas('plugins', ['name' => 'wechat_pay', 'status' => 1]);
+    }
+
+    public function test_wechat_pay_plugin_pay_returns_h5_redirect_url(): void
+    {
+        $this->installWechatPay();
+        $invoice = $this->invoice($this->client(), 88.00);
+
+        $result = app(PaymentService::class)->processPayment($invoice, 'wechat_pay', []);
+
+        $this->assertTrue($result['success'], json_encode($result, JSON_UNESCAPED_UNICODE));
+        $this->assertSame('redirect', $result['pay_type']);
+        $this->assertStringStartsWith('https://wx.tenpay.com/cgi-bin/mmpayweb-bin/checkmweb?prepay_id=', $result['payment_url']);
+        $this->assertSame('wechat_pay', $result['gateway']);
+    }
+
+    public function test_wechat_pay_plugin_pay_fails_when_config_missing(): void
+    {
+        app(PluginManager::class)->install('gateway', 'wechat_pay');
+        app(PluginManager::class)->enable('wechat_pay');
+        $invoice = $this->invoice($this->client(), 88.00);
+
+        $result = app(PaymentService::class)->processPayment($invoice, 'wechat_pay', []);
+
+        $this->assertFalse($result['success']);
+        $this->assertSame('微信支付官方未配置', $result['message']);
+    }
+
+    public function test_wechat_pay_notify_verifies_rsa_signature(): void
+    {
+        [$privateKey, $publicKey] = $this->alipayKeyPair();
+        $this->installWechatPay([
+            'private_key' => $privateKey,
+            'wechatpay_public_key' => $publicKey,
+        ]);
+
+        $payload = $this->signedWechatPayPayload($privateKey, $publicKey);
+
+        $this->assertTrue(plugin('gateway')->get('wechat_pay')->notify($payload));
+        $payload['wechatpay_body'] = str_replace('WECHAT-TRADE-001', 'WECHAT-TRADE-TAMPERED', $payload['wechatpay_body']);
+        $this->assertFalse(plugin('gateway')->get('wechat_pay')->notify($payload));
+    }
+
+    public function test_wechat_pay_callback_marks_invoice_paid(): void
+    {
+        [$privateKey, $publicKey] = $this->alipayKeyPair();
+        $this->installWechatPay([
+            'private_key' => $privateKey,
+            'wechatpay_public_key' => $publicKey,
+        ]);
+        $invoice = $this->invoice($this->client(), 88.00);
+        app(PaymentService::class)->processPayment($invoice, 'wechat_pay', []);
+
+        $payload = $this->signedWechatPayPayload($privateKey, $publicKey, [
+            'out_trade_no' => (string) $invoice->id,
+            'transaction_id' => 'WECHAT-CALLBACK-001',
+            'amount' => ['total' => 8800, 'currency' => 'CNY'],
+        ]);
+
+        $normalized = plugin('gateway')->get('wechat_pay')->normalizedCallback($payload);
+
+        $this->assertTrue(app(PaymentService::class)->handleCallback('wechat_pay', $normalized));
+        $this->assertSame('Paid', $invoice->fresh()->status);
+        $this->assertDatabaseHas('accounts', [
+            'invoice_id' => $invoice->id,
+            'payment_method' => 'wechat_pay',
+            'gateway_trans_id' => 'WECHAT-CALLBACK-001',
+        ]);
+    }
+
     public function test_epay_client_sign_matches_reference_vector(): void
     {
         $client = new EpayClient('https://pay.example.com/', '1001', 'secret');
@@ -2132,6 +2211,24 @@ class PaymentTest extends TestCase
         ]);
     }
 
+    private function installWechatPay(array $config = []): void
+    {
+        [$privateKey, $publicKey] = $this->alipayKeyPair();
+        $manager = app(PluginManager::class);
+        $manager->install('gateway', 'wechat_pay');
+        $manager->enable('wechat_pay');
+        Plugin::query()->where('name', 'wechat_pay')->update([
+            'config' => $config + [
+                'mch_id' => '1900000001',
+                'api_v3_key' => '12345678901234567890123456789012',
+                'cert_serial' => 'TESTCERTSERIAL',
+                'private_key' => $privateKey,
+                'wechatpay_public_key' => $publicKey,
+                'app_id' => 'wx1234567890abcdef',
+            ],
+        ]);
+    }
+
     private function signedAlipayPayload(string $privateKey, array $overrides = []): array
     {
         $payload = $overrides + [
@@ -2153,6 +2250,34 @@ class PaymentTest extends TestCase
         $payload['sign'] = $client->sign($payload);
 
         return $payload;
+    }
+
+    private function signedWechatPayPayload(string $privateKey, string $publicKey, array $transactionOverrides = []): array
+    {
+        $transaction = $transactionOverrides + [
+            'out_trade_no' => '1',
+            'transaction_id' => 'WECHAT-TRADE-001',
+            'trade_state' => 'SUCCESS',
+            'amount' => ['total' => 8800, 'currency' => 'CNY'],
+        ];
+        $body = json_encode($transaction, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $timestamp = '1779696000';
+        $nonce = 'wechat-test-nonce';
+        $signature = '';
+        openssl_sign(
+            $timestamp . "\n" . $nonce . "\n" . $body . "\n",
+            $signature,
+            openssl_pkey_get_private($privateKey),
+            OPENSSL_ALGO_SHA256
+        );
+
+        return $transaction + [
+            'wechatpay_timestamp' => $timestamp,
+            'wechatpay_nonce' => $nonce,
+            'wechatpay_signature' => base64_encode($signature),
+            'wechatpay_body' => $body,
+            'wechatpay_public_key' => $publicKey,
+        ];
     }
 
     private function alipayKeyPair(): array

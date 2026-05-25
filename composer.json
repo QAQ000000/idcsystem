@@ -12,7 +12,8 @@
         "laravel/tinker": "^3.0",
         "pragmarx/google2fa": "^8.0",
         "predis/predis": "^3.4",
-        "spatie/laravel-permission": "^7.4"
+        "spatie/laravel-permission": "^7.4",
+        "wechatpay/wechatpay": "^1.0"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
