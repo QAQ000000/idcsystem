@@ -39,6 +39,50 @@
         </table>
     </div>
 
+    <div class="mt-4 grid gap-4 lg:grid-cols-[2fr_1fr]">
+        <div class="rounded bg-white p-5 shadow-sm">
+            <h2 class="mb-3 font-semibold">优惠码</h2>
+            @if ($errors->any())
+                <div class="mb-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ $errors->first() }}</div>
+            @endif
+
+            @if (isset($cart['promo']))
+                <div class="flex flex-wrap items-center gap-3 text-sm">
+                    <span>已应用：{{ $cart['promo']['code'] }}</span>
+                    <form method="post" action="{{ route('client.cart.promo.remove') }}">
+                        @csrf
+                        @method('DELETE')
+                        <button class="text-red-600">移除</button>
+                    </form>
+                </div>
+            @else
+                <form method="post" action="{{ route('client.cart.promo') }}" class="flex flex-wrap items-end gap-3">
+                    @csrf
+                    <label class="block text-sm">
+                        代码
+                        <input class="mt-1 rounded border px-3 py-2" name="code" value="{{ old('code') }}" maxlength="100" required>
+                    </label>
+                    <button class="rounded bg-zinc-900 px-4 py-2 text-white" @disabled(count($cart['items'] ?? []) === 0)>应用优惠码</button>
+                </form>
+            @endif
+        </div>
+
+        <div class="rounded bg-white p-5 text-sm shadow-sm">
+            <div class="flex justify-between py-1">
+                <span class="text-zinc-500">小计</span>
+                <span>{{ number_format((float) ($cart['totals']['subtotal'] ?? 0), 2) }}</span>
+            </div>
+            <div class="flex justify-between py-1">
+                <span class="text-zinc-500">优惠</span>
+                <span>-{{ number_format((float) ($cart['totals']['discount'] ?? 0), 2) }}</span>
+            </div>
+            <div class="mt-2 flex justify-between border-t pt-3 font-semibold">
+                <span>合计</span>
+                <span>{{ number_format((float) ($cart['totals']['total'] ?? 0), 2) }}</span>
+            </div>
+        </div>
+    </div>
+
     <form method="post" action="{{ route('client.cart.checkout') }}" class="mt-4">
         @csrf
         <button class="rounded bg-zinc-900 px-4 py-2 text-white" @disabled(count($cart['items'] ?? []) === 0)>结算并生成账单</button>

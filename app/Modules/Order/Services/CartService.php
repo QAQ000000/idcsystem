@@ -3,6 +3,7 @@
 namespace App\Modules\Order\Services;
 
 use App\Modules\Order\Models\Order;
+use App\Modules\Order\Models\PromoCode;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Services\PricingService;
 use App\Modules\Product\Services\ProductService;
@@ -94,7 +95,10 @@ class CartService
      */
     public function getCart(Client $client): array
     {
-        return Cache::get($this->cacheKey($client), ['items' => []]);
+        $cart = Cache::get($this->cacheKey($client), ['items' => []]);
+        $cart['items'] ??= [];
+
+        return $this->withTotals($cart);
     }
 
     /**
@@ -152,7 +156,8 @@ class CartService
                     throw new RuntimeException('购物车没有可结算的有效商品。');
                 }
 
-                $order = $this->orderService->create($client, $items);
+                $promoCode = is_array($cart['promo'] ?? null) ? (string) ($cart['promo']['code'] ?? '') : null;
+                $order = $this->orderService->create($client, $items, $promoCode ?: null);
                 foreach ($items as $item) {
                     $product = Product::query()->find((int) $item['product_id']);
                     if (!$product || !$this->productService->decrementStock($product, (int) $item['qty'])) {
@@ -166,9 +171,140 @@ class CartService
         });
     }
 
+    public function applyPromoCode(Client $client, string $code): array
+    {
+        $cart = $this->getCart($client);
+        if (($cart['items'] ?? []) === []) {
+            throw new RuntimeException('购物车为空，无法使用优惠码。');
+        }
+
+        $promo = $this->validPromo($code);
+        if (!$promo) {
+            throw new RuntimeException('优惠码不可用或已过期。');
+        }
+
+        $discount = $this->calculateDiscount($cart, $promo);
+        if ($discount <= 0) {
+            throw new RuntimeException('优惠码不适用于当前购物车。');
+        }
+
+        $cart['promo'] = [
+            'code' => $promo->code,
+            'type' => $promo->type,
+            'value' => (float) $promo->value,
+            'discount' => $discount,
+        ];
+        $this->putCart($client, $cart);
+
+        return $this->getCart($client);
+    }
+
+    public function removePromoCode(Client $client): void
+    {
+        $cart = $this->getCart($client);
+        unset($cart['promo']);
+        $this->putCart($client, $cart);
+    }
+
     private function putCart(Client $client, array $cart): void
     {
+        $cart['items'] ??= [];
         Cache::put($this->cacheKey($client), $cart, now()->addDays(7));
+    }
+
+    private function validPromo(string $code): ?PromoCode
+    {
+        $code = trim($code);
+        if ($code === '') {
+            return null;
+        }
+
+        return PromoCode::query()
+            ->where('code', $code)
+            ->where('active', true)
+            ->where(function ($query) {
+                $query->whereNull('starts_at')->orWhere('starts_at', '<=', now());
+            })
+            ->where(function ($query) {
+                $query->whereNull('expires_at')->orWhere('expires_at', '>=', now());
+            })
+            ->where(function ($query) {
+                $query->where('max_uses', '<=', 0)->orWhereColumn('used_count', '<', 'max_uses');
+            })
+            ->first();
+    }
+
+    private function calculateDiscount(array $cart, PromoCode $promo): float
+    {
+        $subtotal = round(array_sum(array_map(
+            fn (array $item) => round((float) ($item['price'] ?? 0) * (int) ($item['qty'] ?? 1), 2),
+            $cart['items'] ?? []
+        )), 2);
+
+        if ($subtotal <= 0) {
+            return 0.0;
+        }
+
+        $eligibleSubtotal = $this->eligibleSubtotal($cart, $promo);
+        if ($eligibleSubtotal <= 0) {
+            return 0.0;
+        }
+
+        $rawDiscount = in_array($promo->type, ['percentage', 'percent'], true)
+            ? $eligibleSubtotal * ((float) $promo->value / 100)
+            : (float) $promo->value;
+
+        return round(min($subtotal, $eligibleSubtotal, max(0, $rawDiscount)), 2);
+    }
+
+    private function eligibleSubtotal(array $cart, PromoCode $promo): float
+    {
+        $productIds = array_map('intval', $promo->product_ids ?? []);
+
+        return round(array_sum(array_map(function (array $item) use ($promo, $productIds) {
+            if ($promo->applies_to === 'products' && !in_array((int) ($item['product_id'] ?? 0), $productIds, true)) {
+                return 0.0;
+            }
+
+            return round((float) ($item['price'] ?? 0) * (int) ($item['qty'] ?? 1), 2);
+        }, $cart['items'] ?? [])), 2);
+    }
+
+    private function withTotals(array $cart): array
+    {
+        $cart['items'] ??= [];
+        $subtotal = round(array_sum(array_map(
+            fn (array $item) => round((float) ($item['price'] ?? 0) * (int) ($item['qty'] ?? 1), 2),
+            $cart['items']
+        )), 2);
+
+        $discount = 0.0;
+        if (is_array($cart['promo'] ?? null)) {
+            $promo = $this->validPromo((string) ($cart['promo']['code'] ?? ''));
+            if ($promo) {
+                $discount = $this->calculateDiscount($cart, $promo);
+                if ($discount > 0) {
+                    $cart['promo'] = [
+                        'code' => $promo->code,
+                        'type' => $promo->type,
+                        'value' => (float) $promo->value,
+                        'discount' => $discount,
+                    ];
+                } else {
+                    unset($cart['promo']);
+                }
+            } else {
+                unset($cart['promo']);
+            }
+        }
+
+        $cart['totals'] = [
+            'subtotal' => $subtotal,
+            'discount' => $discount,
+            'total' => round(max(0, $subtotal - $discount), 2),
+        ];
+
+        return $cart;
     }
 
     private function normalizeQuantity(mixed $qty): ?int

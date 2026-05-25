@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Modules\Finance\Models\Currency;
+use App\Modules\Order\Models\PromoCode;
 use App\Modules\Product\Models\Pricing;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Models\ProductGroup;
@@ -258,6 +259,136 @@ class CartBoundaryTest extends TestCase
         $this->assertSame('9.00', (string) $order->amount);
         $this->assertSame('9.00', (string) $order->invoice->fresh()->total);
         $this->assertSame('9.00', (string) $order->hosts()->firstOrFail()->first_payment_amount);
+    }
+
+    public function test_cart_can_apply_percent_promo_and_checkout_discount_invoice_item(): void
+    {
+        $client = $this->client();
+        $product = $this->product();
+        $cart = app(CartService::class);
+        PromoCode::query()->create([
+            'code' => 'SAVE10',
+            'type' => 'percent',
+            'value' => 10,
+            'active' => true,
+        ]);
+
+        $this->assertNotNull($cart->add($client, $product, ['billing_cycle' => 'monthly', 'qty' => 2]));
+        $cart->applyPromoCode($client, 'SAVE10');
+        $cartData = $cart->getCart($client);
+
+        $this->assertSame('SAVE10', $cartData['promo']['code']);
+        $this->assertSame(10.0, $cartData['totals']['discount']);
+        $this->assertSame(90.0, $cartData['totals']['total']);
+
+        $order = $cart->checkout($client);
+
+        $this->assertSame('SAVE10', $order->promo_code);
+        $this->assertSame('10.00', (string) $order->promo_value);
+        $this->assertSame('90.00', (string) $order->amount);
+        $this->assertSame('90.00', (string) $order->invoice->fresh()->total);
+        $this->assertDatabaseHas('invoice_items', [
+            'invoice_id' => $order->invoice_id,
+            'type' => 'discount',
+            'description' => '优惠码 SAVE10',
+            'amount' => -10.00,
+        ]);
+        $this->assertSame(1, PromoCode::query()->where('code', 'SAVE10')->value('used_count'));
+    }
+
+    public function test_cart_fixed_promo_is_capped_to_eligible_product_subtotal(): void
+    {
+        $client = $this->client();
+        $eligible = $this->product(['name' => 'Eligible Promo Product']);
+        $other = $this->product(['name' => 'Other Promo Product']);
+        $cart = app(CartService::class);
+        PromoCode::query()->create([
+            'code' => 'FIXED80',
+            'type' => 'fixed',
+            'value' => 80,
+            'applies_to' => 'products',
+            'product_ids' => [$eligible->id],
+            'active' => true,
+        ]);
+
+        $cart->add($client, $eligible, ['billing_cycle' => 'monthly']);
+        $cart->add($client, $other, ['billing_cycle' => 'monthly']);
+        $cart->applyPromoCode($client, 'FIXED80');
+        $cartData = $cart->getCart($client);
+
+        $this->assertSame(50.0, $cartData['totals']['discount']);
+        $this->assertSame(50.0, $cartData['totals']['total']);
+    }
+
+    public function test_cart_rejects_invalid_expired_or_not_applicable_promo(): void
+    {
+        $client = $this->client();
+        $product = $this->product();
+        $other = $this->product(['name' => 'Promo Not Applicable Product']);
+        $cart = app(CartService::class);
+        $cart->add($client, $product, ['billing_cycle' => 'monthly']);
+        PromoCode::query()->create([
+            'code' => 'EXPIRED',
+            'type' => 'fixed',
+            'value' => 10,
+            'expires_at' => now()->subDay(),
+            'active' => true,
+        ]);
+        PromoCode::query()->create([
+            'code' => 'OTHERONLY',
+            'type' => 'fixed',
+            'value' => 10,
+            'applies_to' => 'products',
+            'product_ids' => [$other->id],
+            'active' => true,
+        ]);
+
+        foreach (['MISSING', 'EXPIRED'] as $code) {
+            try {
+                $cart->applyPromoCode($client, $code);
+                $this->fail('Expected promo to be rejected.');
+            } catch (\RuntimeException $exception) {
+                $this->assertSame('优惠码不可用或已过期。', $exception->getMessage());
+            }
+        }
+
+        try {
+            $cart->applyPromoCode($client, 'OTHERONLY');
+            $this->fail('Expected product-scoped promo to be rejected.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('优惠码不适用于当前购物车。', $exception->getMessage());
+        }
+    }
+
+    public function test_client_can_apply_and_remove_promo_from_cart_page(): void
+    {
+        $client = $this->client();
+        $product = $this->product();
+        app(CartService::class)->add($client, $product, ['billing_cycle' => 'monthly']);
+        PromoCode::query()->create([
+            'code' => 'HTTP5',
+            'type' => 'fixed',
+            'value' => 5,
+            'active' => true,
+        ]);
+
+        $this->actingAs($client, 'client')
+            ->post(route('client.cart.promo'), ['code' => 'HTTP5'])
+            ->assertRedirect(route('client.cart.index'))
+            ->assertSessionHas('status', '优惠码已应用');
+
+        $this->actingAs($client, 'client')
+            ->get(route('client.cart.index'))
+            ->assertOk()
+            ->assertSee('HTTP5')
+            ->assertSee('-5.00');
+
+        $this->actingAs($client, 'client')
+            ->delete(route('client.cart.promo.remove'))
+            ->assertRedirect(route('client.cart.index'))
+            ->assertSessionHas('status', '优惠码已移除');
+
+        $this->assertArrayNotHasKey('promo', app(CartService::class)->getCart($client));
     }
 
     public function test_product_detail_uses_logged_in_client_currency(): void

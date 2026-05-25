@@ -6,6 +6,7 @@ use App\Modules\Finance\Services\InvoiceService;
 use App\Modules\Finance\Models\Account;
 use App\Models\PaymentAttempt;
 use App\Modules\Order\Models\Order;
+use App\Modules\Order\Models\PromoCode;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Services\PricingService;
 use App\Modules\Product\Services\ProductService;
@@ -31,9 +32,9 @@ class OrderService
     /**
      * 创建订单、账单和对应的待开通服务。
      */
-    public function create(Client $client, array $items): Order
+    public function create(Client $client, array $items, ?string $promoCode = null): Order
     {
-        return DB::transaction(function () use ($client, $items) {
+        return DB::transaction(function () use ($client, $items, $promoCode) {
             $lockedClient = Client::query()->whereKey($client->id)->lockForUpdate()->first();
             if (!$lockedClient || $lockedClient->trashed() || !$lockedClient->isActive()) {
                 throw new RuntimeException('客户账号状态不允许创建订单。');
@@ -42,7 +43,7 @@ class OrderService
             $items = $this->normalizeItemsForClient($items, $lockedClient);
             $this->assertOrderItemsPurchasable($items);
 
-            $totals = $this->calculateTotalForClient($items, null, $lockedClient);
+            $totals = $this->calculateTotalForClient($items, $promoCode, $lockedClient);
             $order = Order::create([
                 'client_id' => $lockedClient->id,
                 'order_number' => $this->nextOrderNumber(),
@@ -55,6 +56,11 @@ class OrderService
 
             $invoice = $this->invoiceService->generate($lockedClient, $totals['invoice_items']);
             $order->update(['invoice_id' => $invoice->id]);
+            if ($totals['promo_code'] && $totals['discount'] > 0) {
+                PromoCode::query()
+                    ->where('code', $totals['promo_code'])
+                    ->increment('used_count');
+            }
 
             $hostService = new HostService($this->pricingService, $this->invoiceService);
             foreach ($items as $item) {
@@ -106,13 +112,21 @@ class OrderService
         }
 
         $discount = $this->calculatePromoDiscount($subtotal, $promoCode);
+        $appliedPromoCode = $discount > 0 ? $promoCode : null;
+        if ($discount > 0) {
+            $invoiceItems[] = [
+                'type' => 'discount',
+                'description' => '优惠码 ' . $appliedPromoCode,
+                'amount' => -round($discount, 2),
+            ];
+        }
 
         return [
             'subtotal' => round($subtotal, 2),
             'discount' => round($discount, 2),
             'total' => round(max(0, $subtotal - $discount), 2),
             'currency_id' => $currencyId ?? $this->pricingService->defaultCurrencyId(),
-            'promo_code' => $promoCode,
+            'promo_code' => $appliedPromoCode,
             'invoice_items' => $invoiceItems,
         ];
     }
@@ -266,7 +280,7 @@ class OrderService
             return 0.0;
         }
 
-        $promo = DB::table('promo_codes')
+        $promo = PromoCode::query()
             ->where('code', $promoCode)
             ->where('active', true)
             ->where(function ($query) {
@@ -275,14 +289,15 @@ class OrderService
             ->where(function ($query) {
                 $query->whereNull('expires_at')->orWhere('expires_at', '>=', now());
             })
+            ->lockForUpdate()
             ->first();
 
-        if (!$promo || ((int) $promo->max_uses > 0 && (int) $promo->used_count >= (int) $promo->max_uses)) {
+        if (!$promo || ($promo->max_uses > 0 && $promo->used_count >= $promo->max_uses)) {
             return 0.0;
         }
 
-        return $promo->type === 'percentage'
-            ? $subtotal * ((float) $promo->value / 100)
+        return in_array($promo->type, ['percentage', 'percent'], true)
+            ? min($subtotal, $subtotal * ((float) $promo->value / 100))
             : min($subtotal, (float) $promo->value);
     }
 

@@ -59,6 +59,8 @@ Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.sta
     Route::get('/cart', [CartController::class, 'index'])->name('cart.index');
     Route::post('/cart', [CartController::class, 'add'])->name('cart.add');
     Route::delete('/cart/{itemId}', [CartController::class, 'remove'])->whereNumber('itemId')->name('cart.remove');
+    Route::post('/cart/promo', [CartController::class, 'applyPromo'])->name('cart.promo');
+    Route::delete('/cart/promo', [CartController::class, 'removePromo'])->name('cart.promo.remove');
     Route::post('/cart/checkout', [CartController::class, 'checkout'])->name('cart.checkout');
 
     Route::get('/hosts', [HostController::class, 'index'])->name('hosts.index');

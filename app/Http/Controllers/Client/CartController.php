@@ -89,4 +89,40 @@ class CartController extends Controller
 
         return redirect()->route('client.invoices.show', $order->invoice_id)->with('status', '订单已创建');
     }
+
+    public function applyPromo(Request $request, CartService $cart)
+    {
+        $client = Auth::guard('client')->user();
+
+        if (!$client) {
+            return redirect()->route('client.login');
+        }
+
+        $data = $request->validate([
+            'code' => ['required', 'string', 'max:100'],
+        ]);
+
+        try {
+            $cart->applyPromoCode($client, $data['code']);
+        } catch (\RuntimeException $exception) {
+            return redirect()->route('client.cart.index')->withErrors([
+                'promo' => $exception->getMessage(),
+            ]);
+        }
+
+        return redirect()->route('client.cart.index')->with('status', '优惠码已应用');
+    }
+
+    public function removePromo(CartService $cart)
+    {
+        $client = Auth::guard('client')->user();
+
+        if (!$client) {
+            return redirect()->route('client.login');
+        }
+
+        $cart->removePromoCode($client);
+
+        return redirect()->route('client.cart.index')->with('status', '优惠码已移除');
+    }
 }

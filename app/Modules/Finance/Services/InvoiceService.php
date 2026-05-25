@@ -34,6 +34,9 @@ class InvoiceService
                 fn (array $item) => (float) ($item['amount'] ?? 0),
                 $items
             )), 2);
+            if ($subtotal < 0) {
+                throw new InvalidArgumentException('账单金额不能为负数。');
+            }
             $taxRate = (float) config('billing.tax_rate', 0);
             $tax = round($subtotal * ($taxRate / 100), 2);
             $total = round($subtotal + $tax, 2);
@@ -166,7 +169,7 @@ class InvoiceService
                 throw new InvalidArgumentException('只能给未支付账单追加明细。');
             }
 
-            $this->assertAmountFitsStorage($amount);
+            $this->assertItemAmountFitsStorage($amount);
 
             $item = InvoiceItem::create([
                 'invoice_id' => $lockedInvoice->id,
@@ -585,11 +588,11 @@ class InvoiceService
         }
 
         foreach ($items as $item) {
-            if ((float) ($item['amount'] ?? 0) <= 0) {
-                throw new InvalidArgumentException('账单明细金额必须大于 0。');
+            if ((float) ($item['amount'] ?? 0) == 0.0) {
+                throw new InvalidArgumentException('账单明细金额不能为 0。');
             }
 
-            $this->assertAmountFitsStorage((float) ($item['amount'] ?? 0));
+            $this->assertItemAmountFitsStorage((float) ($item['amount'] ?? 0));
         }
     }
 
@@ -618,6 +621,13 @@ class InvoiceService
     private function assertAmountFitsStorage(float $amount): void
     {
         if ($amount < 0 || $amount > self::MAX_AMOUNT) {
+            throw new InvalidArgumentException('账单金额超出允许范围。');
+        }
+    }
+
+    private function assertItemAmountFitsStorage(float $amount): void
+    {
+        if (abs($amount) > self::MAX_AMOUNT) {
             throw new InvalidArgumentException('账单金额超出允许范围。');
         }
     }
