@@ -751,7 +751,7 @@ class HostService
         }
 
         $billingCycle = $this->renewalBillingCycle($item, $host);
-        $base = $host->next_due_date && $host->next_due_date->isFuture() ? $host->next_due_date : now();
+        $base = $host->next_due_date && ($host->next_due_date->isToday() || $host->next_due_date->isFuture()) ? $host->next_due_date : now();
         $nextDueDate = $this->addCycle($base, $billingCycle);
         $host->update([
             'billing_cycle' => $billingCycle,
