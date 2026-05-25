@@ -77,6 +77,10 @@ class AdminAuditTest extends TestCase
                     'app_secret' => 'should-not-be-stored',
                     'access_key_id' => 'should-not-be-stored',
                     'access_key' => 'should-not-be-stored',
+                    'authorization' => 'should-not-be-stored',
+                    'cookie' => 'should-not-be-stored',
+                    'session_id' => 'should-not-be-stored',
+                    'bearer_token' => 'should-not-be-stored',
                     'signature' => 'should-not-be-stored',
                 ],
             ])
@@ -90,6 +94,10 @@ class AdminAuditTest extends TestCase
         $this->assertSame('[FILTERED]', $log->payload['config']['app_secret']);
         $this->assertSame('[FILTERED]', $log->payload['config']['access_key_id']);
         $this->assertSame('[FILTERED]', $log->payload['config']['access_key']);
+        $this->assertSame('[FILTERED]', $log->payload['config']['authorization']);
+        $this->assertSame('[FILTERED]', $log->payload['config']['cookie']);
+        $this->assertSame('[FILTERED]', $log->payload['config']['session_id']);
+        $this->assertSame('[FILTERED]', $log->payload['config']['bearer_token']);
         $this->assertSame('[FILTERED]', $log->payload['config']['signature']);
         $this->assertSame('audit-app', $log->payload['config']['app_id']);
     }
@@ -136,16 +144,20 @@ class AdminAuditTest extends TestCase
             null,
             'failed',
             ['safe' => 'visible'],
-            '连接失败 password=plain-secret token:token-value access_key=key-value signature=sign-value'
+            '连接失败 password=plain-secret token:token-value authorization=auth-value cookie:cookie-value session=session-value bearer=bearer-value access_key=key-value signature=sign-value'
         );
 
         $log = AdminActionLog::query()
             ->where('action', 'audit.sensitive_error')
             ->firstOrFail();
 
-        $this->assertSame('连接失败 password=[FILTERED] token:[FILTERED] access_key=[FILTERED] signature=[FILTERED]', $log->error);
+        $this->assertSame('连接失败 password=[FILTERED] token:[FILTERED] authorization=[FILTERED] cookie:[FILTERED] session=[FILTERED] bearer=[FILTERED] access_key=[FILTERED] signature=[FILTERED]', $log->error);
         $this->assertStringNotContainsString('plain-secret', (string) $log->error);
         $this->assertStringNotContainsString('token-value', (string) $log->error);
+        $this->assertStringNotContainsString('auth-value', (string) $log->error);
+        $this->assertStringNotContainsString('cookie-value', (string) $log->error);
+        $this->assertStringNotContainsString('session-value', (string) $log->error);
+        $this->assertStringNotContainsString('bearer-value', (string) $log->error);
         $this->assertStringNotContainsString('key-value', (string) $log->error);
         $this->assertStringNotContainsString('sign-value', (string) $log->error);
 
@@ -167,30 +179,98 @@ class AdminAuditTest extends TestCase
             'result' => 'failed',
             'payload' => [
                 'access_token' => 'audit-token',
+                'authorization' => 'audit-auth',
+                'cookie' => 'audit-cookie',
+                'session_id' => 'audit-session',
+                'bearer_token' => 'audit-bearer',
                 'nested' => [
                     'api_key' => 'audit-key',
                     'signature' => 'audit-signature',
                     'message' => 'visible',
                 ],
             ],
-            'error' => '审计失败 password=plain-secret token:token-value access_key=key-value signature=sign-value',
+            'error' => '审计失败 password=plain-secret token:token-value authorization=auth-value cookie:cookie-value session=session-value bearer=bearer-value access_key=key-value signature=sign-value',
             'ip_address' => '127.0.0.1',
             'user_agent' => 'AuditTest',
         ]);
 
         $log->refresh();
         $this->assertSame('[FILTERED]', $log->payload['access_token']);
+        $this->assertSame('[FILTERED]', $log->payload['authorization']);
+        $this->assertSame('[FILTERED]', $log->payload['cookie']);
+        $this->assertSame('[FILTERED]', $log->payload['session_id']);
+        $this->assertSame('[FILTERED]', $log->payload['bearer_token']);
         $this->assertSame('[FILTERED]', $log->payload['nested']['api_key']);
         $this->assertSame('[FILTERED]', $log->payload['nested']['signature']);
         $this->assertSame('visible', $log->payload['nested']['message']);
-        $this->assertSame('审计失败 password=[FILTERED] token:[FILTERED] access_key=[FILTERED] signature=[FILTERED]', $log->error);
+        $this->assertSame('审计失败 password=[FILTERED] token:[FILTERED] authorization=[FILTERED] cookie:[FILTERED] session=[FILTERED] bearer=[FILTERED] access_key=[FILTERED] signature=[FILTERED]', $log->error);
         $this->assertStringNotContainsString('audit-token', json_encode($log->payload));
+        $this->assertStringNotContainsString('audit-auth', json_encode($log->payload));
+        $this->assertStringNotContainsString('audit-cookie', json_encode($log->payload));
+        $this->assertStringNotContainsString('audit-session', json_encode($log->payload));
+        $this->assertStringNotContainsString('audit-bearer', json_encode($log->payload));
         $this->assertStringNotContainsString('audit-key', json_encode($log->payload));
         $this->assertStringNotContainsString('audit-signature', json_encode($log->payload));
         $this->assertStringNotContainsString('plain-secret', (string) $log->error);
         $this->assertStringNotContainsString('token-value', (string) $log->error);
+        $this->assertStringNotContainsString('auth-value', (string) $log->error);
+        $this->assertStringNotContainsString('cookie-value', (string) $log->error);
+        $this->assertStringNotContainsString('session-value', (string) $log->error);
+        $this->assertStringNotContainsString('bearer-value', (string) $log->error);
         $this->assertStringNotContainsString('key-value', (string) $log->error);
         $this->assertStringNotContainsString('sign-value', (string) $log->error);
+    }
+
+    public function test_admin_audit_masks_sensitive_user_agent_text(): void
+    {
+        $admin = $this->admin();
+
+        $this->withHeader('User-Agent', 'AuditBrowser token:ua-token authorization=ua-auth cookie:ua-cookie session=ua-session bearer=ua-bearer password=ua-secret signature=ua-sign')
+            ->actingAs($admin, 'admin')
+            ->post(route('admin.logout'))
+            ->assertRedirect(route('admin.login'));
+
+        $log = AdminActionLog::query()
+            ->where('admin_user_id', $admin->id)
+            ->where('action', 'admin.logout')
+            ->firstOrFail();
+
+        $this->assertSame('AuditBrowser token:[FILTERED] authorization=[FILTERED] cookie:[FILTERED] session=[FILTERED] bearer=[FILTERED] password=[FILTERED] signature=[FILTERED]', $log->user_agent);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.admin-action-logs.show', $log))
+            ->assertOk()
+            ->assertSee('token:[FILTERED]')
+            ->assertDontSee('ua-token')
+            ->assertDontSee('ua-auth')
+            ->assertDontSee('ua-cookie')
+            ->assertDontSee('ua-session')
+            ->assertDontSee('ua-bearer')
+            ->assertDontSee('ua-secret')
+            ->assertDontSee('ua-sign');
+    }
+
+    public function test_admin_action_log_model_masks_sensitive_user_agent_text(): void
+    {
+        $log = AdminActionLog::query()->create([
+            'admin_user_id' => null,
+            'action' => 'audit.user_agent_model_mask',
+            'result' => 'success',
+            'payload' => [],
+            'ip_address' => '127.0.0.1',
+            'user_agent' => 'ModelUA token:ua-token authorization=ua-auth cookie:ua-cookie session=ua-session bearer=ua-bearer password=ua-secret signature=ua-sign',
+        ]);
+
+        $log->refresh();
+
+        $this->assertSame('ModelUA token:[FILTERED] authorization=[FILTERED] cookie:[FILTERED] session=[FILTERED] bearer=[FILTERED] password=[FILTERED] signature=[FILTERED]', $log->user_agent);
+        $this->assertStringNotContainsString('ua-token', (string) $log->user_agent);
+        $this->assertStringNotContainsString('ua-auth', (string) $log->user_agent);
+        $this->assertStringNotContainsString('ua-cookie', (string) $log->user_agent);
+        $this->assertStringNotContainsString('ua-session', (string) $log->user_agent);
+        $this->assertStringNotContainsString('ua-bearer', (string) $log->user_agent);
+        $this->assertStringNotContainsString('ua-secret', (string) $log->user_agent);
+        $this->assertStringNotContainsString('ua-sign', (string) $log->user_agent);
     }
 
     public function test_super_admin_can_view_admin_action_logs(): void

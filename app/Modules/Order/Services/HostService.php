@@ -12,7 +12,7 @@ use App\Modules\Order\Models\Upgrade;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Services\ProductService;
 use App\Modules\Product\Services\PricingService;
-use App\Services\NotificationService;
+use App\Services\Concerns\NotifiesClientsSafely;
 use App\Plugins\Contracts\ServerModuleInterface;
 use App\Plugins\Facades\Plugin;
 use Illuminate\Support\Facades\DB;
@@ -22,7 +22,9 @@ use RuntimeException;
 
 class HostService
 {
-    private const SENSITIVE_KEY_PATTERN = '/(password|secret|token|credential|access_key|private_key|key|signature|sign)$/i';
+    use NotifiesClientsSafely;
+
+    private const SENSITIVE_KEY_PATTERN = '/(password|passwd|secret|token|credential|authorization|cookie|session_id|session|bearer|access_key|private_key|key|signature|sign)$/i';
 
     private PricingService $pricingService;
 
@@ -125,7 +127,9 @@ class HostService
 
                 $lockedHost->fill([
                     'username' => $result['username'] ?? $lockedHost->username,
-                    'password' => $result['password'] ?? $lockedHost->password,
+                    'password' => array_key_exists('password', $result)
+                        ? $this->storedPassword((string) $result['password'])
+                        : $lockedHost->password,
                     'server_id' => $result['server_id'] ?? $lockedHost->server_id,
                 ]);
             }
@@ -347,12 +351,12 @@ class HostService
                 'billing_cycle' => $billingCycle,
             ]);
 
-            app(NotificationService::class)->notifyClient($lockedHost->client, 'host_renewal_invoice_created', [
+            $this->notifyClientSafely($lockedHost->client, 'host_renewal_invoice_created', [
                 'client_name' => $lockedHost->client->username,
                 'product_name' => $lockedHost->product->name,
                 'invoice_number' => $invoice->invoice_number,
                 'amount' => $invoice->total,
-            ]);
+            ], 'host.renew_invoice');
 
             return ['invoice' => $invoice];
         });
@@ -512,6 +516,11 @@ class HostService
 
     public function applyPaidInvoice(Invoice $invoice): void
     {
+        $invoice = Invoice::query()->whereKey($invoice->id)->with('items')->first();
+        if (!$invoice || $invoice->status !== 'Paid') {
+            return;
+        }
+
         $invoice->loadMissing('items');
 
         foreach ($invoice->items as $item) {
@@ -662,6 +671,11 @@ class HostService
         ];
     }
 
+    private function storedPassword(string $password): string
+    {
+        return Hash::needsRehash($password) ? Hash::make($password) : $password;
+    }
+
     private function nextDueDate(string $billingCycle): ?\Carbon\Carbon
     {
         return match (strtolower($billingCycle)) {
@@ -706,6 +720,10 @@ class HostService
 
     private function applyRenewalItem(InvoiceItem $item): void
     {
+        if ($this->invoiceItemAlreadyApplied($item, 'renew_paid')) {
+            return;
+        }
+
         $host = Host::query()->with(['client', 'product'])->find((int) $item->rel_id);
         if (!$host) {
             return;
@@ -743,6 +761,10 @@ class HostService
 
     private function applyUpgradeItem(InvoiceItem $item): void
     {
+        if ($this->invoiceItemAlreadyApplied($item, 'upgrade_completed')) {
+            return;
+        }
+
         $upgrade = Upgrade::query()->with('host.product')->find((int) $item->rel_id);
         if (!$upgrade || $upgrade->status === 'Completed') {
             return;
@@ -770,12 +792,15 @@ class HostService
             'status' => 'Completed',
             'completed_at' => now(),
         ]);
-        $this->log($host, $upgrade->type . '_completed', '升级/降配已生效', ['upgrade_id' => $upgrade->id]);
+        $this->log($host, $upgrade->type . '_completed', '升级/降配已生效', [
+            'invoice_item_id' => $item->id,
+            'upgrade_id' => $upgrade->id,
+        ]);
         $host->refresh()->loadMissing(['client', 'product']);
-        app(NotificationService::class)->notifyClient($host->client, 'host_upgrade_completed', [
+        $this->notifyClientSafely($host->client, 'host_upgrade_completed', [
             'client_name' => $host->client->username,
             'product_name' => $host->product?->name ?? '服务',
-        ]);
+        ], 'host.upgrade_completed');
     }
 
     private function completeUpgrade(Upgrade $upgrade): void
@@ -802,6 +827,14 @@ class HostService
         }
 
         return $host->billing_cycle;
+    }
+
+    private function invoiceItemAlreadyApplied(InvoiceItem $item, string $action): bool
+    {
+        return HostActionLog::query()
+            ->where('action', $action)
+            ->where('meta->invoice_item_id', $item->id)
+            ->exists();
     }
 
     private function addCycle(\Carbon\Carbon $date, string $billingCycle): ?\Carbon\Carbon
@@ -907,9 +940,14 @@ class HostService
     {
         foreach ([
             'password',
+            'passwd',
             'secret',
             'token',
             'credential',
+            'authorization',
+            'cookie',
+            'session',
+            'bearer',
             'access_key',
             'private_key',
             'signature',

@@ -69,6 +69,10 @@ class MockServerPlugin extends AbstractPlugin implements ServerModuleInterface
 
     public function terminateAccount(array $params): bool
     {
+        if (($this->getConfig()['fail_terminate'] ?? false) === true) {
+            return false;
+        }
+
         return true;
     }
 
@@ -86,6 +90,15 @@ class MockServerPlugin extends AbstractPlugin implements ServerModuleInterface
         if (($this->getConfig()['fail_when_usage_receives_password'] ?? false) === true
             && array_key_exists('password', $params)) {
             throw new \RuntimeException('Usage stats should not receive host password');
+        }
+
+        if (($this->getConfig()['invalid_usage_metric'] ?? false) === true) {
+            return [
+                'cpu' => 'not-a-number',
+                'memory' => 512,
+                'disk' => 20,
+                'bandwidth' => 100,
+            ];
         }
 
         $seed = max(1, (int) ($params['host_id'] ?? 1));

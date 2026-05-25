@@ -145,6 +145,11 @@ class HostManagementTest extends TestCase
         $this->installManualPay();
         $host = $this->host(['billing_cycle' => 'monthly', 'next_due_date' => now()->startOfSecond()]);
         $oldDueDate = $host->next_due_date->copy();
+        Pricing::query()
+            ->where('type', 'product')
+            ->where('rel_id', $host->product_id)
+            ->where('currency_id', $host->client->currency_id)
+            ->update(['annually' => 500]);
 
         $this->actingAs($host->client, 'client')
             ->post(route('client.hosts.renew', $host), ['billing_cycle' => 'annually'])
@@ -189,6 +194,54 @@ class HostManagementTest extends TestCase
 
         $this->assertTrue($host->fresh()->next_due_date->equalTo($firstDueDate));
         $this->assertDatabaseMissing('accounts', ['gateway_trans_id' => 'HOST-RENEW-TWICE']);
+    }
+
+    public function test_apply_paid_invoice_ignores_unpaid_renew_invoice(): void
+    {
+        Mail::fake();
+        $host = $this->host(['next_due_date' => now()->addDays(10)]);
+        $oldDueDate = $host->next_due_date->copy();
+
+        $this->actingAs($host->client, 'client')
+            ->post(route('client.hosts.renew', $host), ['billing_cycle' => 'monthly'])
+            ->assertRedirect();
+
+        $invoiceId = InvoiceItem::query()->where('type', 'renewal')->where('rel_id', $host->id)->value('invoice_id');
+        $invoice = \App\Modules\Finance\Models\Invoice::query()->findOrFail($invoiceId);
+
+        app(\App\Modules\Order\Services\HostService::class)->applyPaidInvoice($invoice);
+
+        $this->assertTrue($host->fresh()->next_due_date->equalTo($oldDueDate));
+        $this->assertDatabaseMissing('host_action_logs', [
+            'host_id' => $host->id,
+            'action' => 'renew_paid',
+        ]);
+    }
+
+    public function test_apply_paid_invoice_is_idempotent_for_renewal_items(): void
+    {
+        Mail::fake();
+        $this->installManualPay();
+        $host = $this->host(['next_due_date' => now()->addDays(10)]);
+
+        $this->actingAs($host->client, 'client')
+            ->post(route('client.hosts.renew', $host), ['billing_cycle' => 'monthly'])
+            ->assertRedirect();
+
+        $item = InvoiceItem::query()->where('type', 'renewal')->where('rel_id', $host->id)->firstOrFail();
+        $invoice = \App\Modules\Finance\Models\Invoice::query()->findOrFail($item->invoice_id);
+
+        $this->assertTrue(app(\App\Modules\Finance\Services\InvoiceService::class)->markAsPaid($invoice, 'manual_pay', 'HOST-RENEW-IDEMPOTENT-1'));
+        $firstDueDate = $host->fresh()->next_due_date->copy();
+
+        app(\App\Modules\Order\Services\HostService::class)->applyPaidInvoice($invoice->fresh());
+
+        $this->assertTrue($host->fresh()->next_due_date->equalTo($firstDueDate));
+        $this->assertSame(1, \App\Models\HostActionLog::query()
+            ->where('host_id', $host->id)
+            ->where('action', 'renew_paid')
+            ->where('meta->invoice_item_id', $item->id)
+            ->count());
     }
 
     public function test_paid_renew_invoice_rechecks_latest_host_status_before_applying(): void

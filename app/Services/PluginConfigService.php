@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 class PluginConfigService
 {
-    private const SENSITIVE_KEY_PATTERN = '/(password|passwd|secret|token|credential|access_key|private_key|key|signature|sign)$/i';
+    private const SENSITIVE_KEY_PATTERN = '/(password|passwd|secret|token|credential|authorization|cookie|session_id|session|bearer|access_key|private_key|key|signature|sign)$/i';
 
     public function get(string $name): array
     {

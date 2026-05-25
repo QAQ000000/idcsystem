@@ -9,6 +9,7 @@
     "config_schema": [
         {"key": "fail_create", "label": "模拟开通失败", "type": "boolean"},
         {"key": "fail_unsuspend", "label": "模拟解除暂停失败", "type": "boolean"},
+        {"key": "fail_terminate", "label": "模拟终止失败", "type": "boolean"},
         {"key": "fail_usage", "label": "模拟用量采集失败", "type": "boolean"},
         {"key": "notes", "label": "备注", "type": "textarea"}
     ]

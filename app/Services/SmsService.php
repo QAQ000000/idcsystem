@@ -49,15 +49,7 @@ class SmsService
             : $this->smsQueueEnabled();
 
         if ($async) {
-            try {
-                SendSmsJob::dispatch($log->id);
-            } catch (Throwable) {
-                $this->markFailed($log->fresh(), 'SMS dispatch failed');
-
-                return false;
-            }
-
-            return true;
+            return $this->dispatchSmsJob($log, 'SMS dispatch failed');
         }
 
         return $this->sendLog($log);
@@ -103,15 +95,7 @@ class SmsService
             return $this->refreshTemplateLog($lockedLog);
         }, function (SmsLog $lockedLog) use ($async) {
             if ($async) {
-                try {
-                    SendSmsJob::dispatch($lockedLog->id);
-                } catch (Throwable) {
-                    $this->markFailed($lockedLog->fresh(), 'SMS retry dispatch failed');
-
-                    return false;
-                }
-
-                return true;
+                return $this->dispatchSmsJob($lockedLog, 'SMS retry dispatch failed');
             }
 
             return $this->sendLog($lockedLog->fresh());
@@ -165,6 +149,35 @@ class SmsService
                 'success' => false,
                 'error' => 'SMS processing timeout',
             ]);
+    }
+
+    private function dispatchSmsJob(SmsLog $log, string $error): bool
+    {
+        if (\DB::transactionLevel() > 0) {
+            $logId = $log->id;
+            \DB::afterCommit(function () use ($logId, $error) {
+                try {
+                    SendSmsJob::dispatch($logId);
+                } catch (Throwable) {
+                    $freshLog = SmsLog::query()->find($logId);
+                    if ($freshLog) {
+                        $this->markFailed($freshLog, $error);
+                    }
+                }
+            });
+
+            return true;
+        }
+
+        try {
+            SendSmsJob::dispatch($log->id);
+        } catch (Throwable) {
+            $this->markFailed($log->fresh(), $error);
+
+            return false;
+        }
+
+        return true;
     }
 
     private function refreshTemplateLog(SmsLog $log): ?SmsLog

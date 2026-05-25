@@ -57,6 +57,22 @@ class SystemTaskTest extends TestCase
         $this->assertSame('{"processed":2,"success":1,"failed":1}', $log->output);
     }
 
+    public function test_system_task_service_marks_error_result_keys_as_failed(): void
+    {
+        $log = app(SystemTaskService::class)->run('demo:error-result', fn () => [
+            'processed' => 1,
+            'success' => 1,
+            'errors' => [
+                'provider' => 'failed password=plain-secret token:token-value',
+            ],
+        ]);
+
+        $this->assertSame('failed', $log->status);
+        $this->assertSame('{"provider":"failed password=[FILTERED] token:[FILTERED]"}', $log->error);
+        $this->assertStringNotContainsString('plain-secret', (string) $log->error);
+        $this->assertStringNotContainsString('token-value', (string) $log->error);
+    }
+
     public function test_system_task_service_masks_sensitive_output_values(): void
     {
         $log = app(SystemTaskService::class)->run('demo:sensitive-output', fn () => [
@@ -65,6 +81,10 @@ class SystemTaskTest extends TestCase
             'nested' => [
                 'access_token' => 'token-value',
                 'api_key' => 'key-value',
+                'authorization' => 'Bearer auth-value',
+                'cookie' => 'laravel_session=cookie-value',
+                'session_id' => 'session-value',
+                'bearer_token' => 'bearer-value',
                 'signature' => 'sign-value',
                 'public_value' => 'visible',
             ],
@@ -72,25 +92,33 @@ class SystemTaskTest extends TestCase
 
         $this->assertSame('success', $log->status);
         $this->assertSame(
-            '{"processed":1,"db_password":"[FILTERED]","nested":{"access_token":"[FILTERED]","api_key":"[FILTERED]","signature":"[FILTERED]","public_value":"visible"}}',
+            '{"processed":1,"db_password":"[FILTERED]","nested":{"access_token":"[FILTERED]","api_key":"[FILTERED]","authorization":"[FILTERED]","cookie":"[FILTERED]","session_id":"[FILTERED]","bearer_token":"[FILTERED]","signature":"[FILTERED]","public_value":"visible"}}',
             $log->output
         );
         $this->assertStringNotContainsString('plain-secret', (string) $log->output);
         $this->assertStringNotContainsString('token-value', (string) $log->output);
         $this->assertStringNotContainsString('key-value', (string) $log->output);
+        $this->assertStringNotContainsString('auth-value', (string) $log->output);
+        $this->assertStringNotContainsString('cookie-value', (string) $log->output);
+        $this->assertStringNotContainsString('session-value', (string) $log->output);
+        $this->assertStringNotContainsString('bearer-value', (string) $log->output);
         $this->assertStringNotContainsString('sign-value', (string) $log->output);
     }
 
     public function test_system_task_service_masks_sensitive_exception_messages(): void
     {
         $log = app(SystemTaskService::class)->run('demo:sensitive-error', function () {
-            throw new \RuntimeException('连接失败 password=plain-secret token:token-value access_key=key-value signature=sign-value');
+            throw new \RuntimeException('连接失败 password=plain-secret token:token-value authorization=auth-value cookie:cookie-value session=session-value bearer=bearer-value access_key=key-value signature=sign-value');
         });
 
         $this->assertSame('failed', $log->status);
-        $this->assertSame('连接失败 password=[FILTERED] token:[FILTERED] access_key=[FILTERED] signature=[FILTERED]', $log->error);
+        $this->assertSame('连接失败 password=[FILTERED] token:[FILTERED] authorization=[FILTERED] cookie:[FILTERED] session=[FILTERED] bearer=[FILTERED] access_key=[FILTERED] signature=[FILTERED]', $log->error);
         $this->assertStringNotContainsString('plain-secret', (string) $log->error);
         $this->assertStringNotContainsString('token-value', (string) $log->error);
+        $this->assertStringNotContainsString('auth-value', (string) $log->error);
+        $this->assertStringNotContainsString('cookie-value', (string) $log->error);
+        $this->assertStringNotContainsString('session-value', (string) $log->error);
+        $this->assertStringNotContainsString('bearer-value', (string) $log->error);
         $this->assertStringNotContainsString('key-value', (string) $log->error);
         $this->assertStringNotContainsString('sign-value', (string) $log->error);
     }
@@ -103,21 +131,47 @@ class SystemTaskTest extends TestCase
             'started_at' => now(),
             'finished_at' => now(),
             'duration_ms' => 10,
-            'output' => 'output password=plain-secret token:token-value access_key=key-value signature=sign-value',
-            'error' => 'error password=plain-secret token:token-value access_key=key-value signature=sign-value',
+            'output' => 'output password=plain-secret token:token-value authorization=auth-value cookie:cookie-value session=session-value bearer=bearer-value access_key=key-value signature=sign-value',
+            'error' => 'error password=plain-secret token:token-value authorization=auth-value cookie:cookie-value session=session-value bearer=bearer-value access_key=key-value signature=sign-value',
         ]);
 
         $log->refresh();
-        $this->assertSame('output password=[FILTERED] token:[FILTERED] access_key=[FILTERED] signature=[FILTERED]', $log->output);
-        $this->assertSame('error password=[FILTERED] token:[FILTERED] access_key=[FILTERED] signature=[FILTERED]', $log->error);
+        $this->assertSame('output password=[FILTERED] token:[FILTERED] authorization=[FILTERED] cookie:[FILTERED] session=[FILTERED] bearer=[FILTERED] access_key=[FILTERED] signature=[FILTERED]', $log->output);
+        $this->assertSame('error password=[FILTERED] token:[FILTERED] authorization=[FILTERED] cookie:[FILTERED] session=[FILTERED] bearer=[FILTERED] access_key=[FILTERED] signature=[FILTERED]', $log->error);
         $this->assertStringNotContainsString('plain-secret', (string) $log->output);
         $this->assertStringNotContainsString('token-value', (string) $log->output);
+        $this->assertStringNotContainsString('auth-value', (string) $log->output);
+        $this->assertStringNotContainsString('cookie-value', (string) $log->output);
+        $this->assertStringNotContainsString('session-value', (string) $log->output);
+        $this->assertStringNotContainsString('bearer-value', (string) $log->output);
         $this->assertStringNotContainsString('key-value', (string) $log->output);
         $this->assertStringNotContainsString('sign-value', (string) $log->output);
         $this->assertStringNotContainsString('plain-secret', (string) $log->error);
         $this->assertStringNotContainsString('token-value', (string) $log->error);
+        $this->assertStringNotContainsString('auth-value', (string) $log->error);
+        $this->assertStringNotContainsString('cookie-value', (string) $log->error);
+        $this->assertStringNotContainsString('session-value', (string) $log->error);
+        $this->assertStringNotContainsString('bearer-value', (string) $log->error);
         $this->assertStringNotContainsString('key-value', (string) $log->error);
         $this->assertStringNotContainsString('sign-value', (string) $log->error);
+    }
+
+    public function test_system_task_log_model_masks_json_text_without_breaking_quotes(): void
+    {
+        $log = SystemTaskLog::query()->create([
+            'task_name' => 'demo:model-json-mask',
+            'status' => 'failed',
+            'started_at' => now(),
+            'finished_at' => now(),
+            'duration_ms' => 10,
+            'output' => '{"provider":"failed password=plain-secret token:token-value"}',
+            'error' => '{"provider":"failed password=plain-secret token:token-value"}',
+        ]);
+
+        $log->refresh();
+
+        $this->assertSame('{"provider":"failed password=[FILTERED] token:[FILTERED]"}', $log->output);
+        $this->assertSame('{"provider":"failed password=[FILTERED] token:[FILTERED]"}', $log->error);
     }
 
     public function test_host_usage_command_writes_system_task_log(): void

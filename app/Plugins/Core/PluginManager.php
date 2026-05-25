@@ -9,9 +9,13 @@ use App\Models\EmailLog;
 use App\Models\SmsLog;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Schema;
 
 class PluginManager
 {
+    private const VALID_TYPES = ['gateway', 'email', 'sms', 'server'];
+    private const SAFE_NAME_PATTERN = '/^[A-Za-z0-9_-]+$/';
+
     protected array $plugins = [];
     protected ?string $currentType = null;
 
@@ -62,6 +66,10 @@ class PluginManager
 
     public function loadPlugin(Plugin $plugin): ?object
     {
+        if (!$this->isValidType($plugin->type) || !$this->isSafeName($plugin->name)) {
+            return null;
+        }
+
         $pluginPath = $this->pluginPath($plugin->type, $plugin->name);
 
         if (!File::exists($pluginPath)) {
@@ -85,6 +93,10 @@ class PluginManager
 
     public function routeFile(Plugin $plugin): ?string
     {
+        if (!$this->isValidType($plugin->type) || !$this->isSafeName($plugin->name)) {
+            return null;
+        }
+
         $routeFile = $this->pluginPath($plugin->type, $plugin->name) . '/routes/web.php';
 
         return File::exists($routeFile) ? $routeFile : null;
@@ -92,6 +104,10 @@ class PluginManager
 
     public function scan(string $type): array
     {
+        if (!$this->isValidType($type)) {
+            return [];
+        }
+
         $pluginsPath = $this->typePath($type);
 
         if (!File::exists($pluginsPath)) {
@@ -105,8 +121,17 @@ class PluginManager
             $pluginJsonPath = $dir . '/plugin.json';
 
             if (File::exists($pluginJsonPath)) {
-                $pluginJson = json_decode(File::get($pluginJsonPath), true) ?: [];
-                $pluginJson['installed'] = Plugin::query()->where('name', $pluginJson['name'] ?? basename($dir))->exists();
+                $pluginJson = $this->readManifest($pluginJsonPath);
+                $pluginName = $pluginJson['name'] ?? basename($dir);
+                $pluginType = $pluginJson['type'] ?? $type;
+                if (!$this->manifestMatchesRequestedPlugin($type, $pluginName, $pluginType)) {
+                    continue;
+                }
+
+                $pluginJson['installed'] = Plugin::query()
+                    ->where('name', $pluginName)
+                    ->where('type', $pluginType)
+                    ->exists();
                 $plugins[] = $pluginJson;
             }
         }
@@ -116,13 +141,17 @@ class PluginManager
 
     public function manifest(string $type, string $name): array
     {
+        if (!$this->isValidType($type) || !$this->isSafeName($name)) {
+            return [];
+        }
+
         $pluginJsonPath = $this->pluginPath($type, $name) . '/plugin.json';
 
         if (!File::exists($pluginJsonPath)) {
             return [];
         }
 
-        return json_decode(File::get($pluginJsonPath), true) ?: [];
+        return $this->readManifest($pluginJsonPath);
     }
 
     public function configFields(Plugin $plugin): array
@@ -165,6 +194,10 @@ class PluginManager
 
     public function install(string $type, string $name): bool
     {
+        if (!$this->isValidType($type) || !$this->isSafeName($name)) {
+            return false;
+        }
+
         $pluginPath = $this->pluginPath($type, $name);
         $pluginJsonPath = $pluginPath . '/plugin.json';
 
@@ -172,9 +205,13 @@ class PluginManager
             return false;
         }
 
-        $pluginJson = json_decode(File::get($pluginJsonPath), true) ?: [];
+        $pluginJson = $this->readManifest($pluginJsonPath);
         $pluginName = $pluginJson['name'] ?? $name;
         $pluginType = $pluginJson['type'] ?? $type;
+        if (!$this->manifestMatchesRequestedPlugin($type, $pluginName, $pluginType)) {
+            return false;
+        }
+
         $existingDifferentType = Plugin::query()
             ->where('name', $pluginName)
             ->where('type', '!=', $pluginType)
@@ -307,6 +344,32 @@ class PluginManager
             . $entryClass;
     }
 
+    private function readManifest(string $path): array
+    {
+        $manifest = json_decode(File::get($path), true);
+
+        return is_array($manifest) ? $manifest : [];
+    }
+
+    private function manifestMatchesRequestedPlugin(string $requestedType, mixed $pluginName, mixed $pluginType): bool
+    {
+        return is_string($pluginName)
+            && is_string($pluginType)
+            && $pluginType === $requestedType
+            && $this->isValidType($pluginType)
+            && $this->isSafeName($pluginName);
+    }
+
+    private function isValidType(string $type): bool
+    {
+        return in_array($type, self::VALID_TYPES, true);
+    }
+
+    private function isSafeName(string $name): bool
+    {
+        return preg_match(self::SAFE_NAME_PATTERN, $name) === 1;
+    }
+
     private function studly(string $value): string
     {
         return str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $value)));
@@ -336,37 +399,46 @@ class PluginManager
     private function hasBusinessReferences(Plugin $plugin): bool
     {
         return match ($plugin->type) {
-            'server' => \App\Modules\Product\Models\Product::query()
+            'server' => $this->tableHasBusinessReference('products', fn () => \App\Modules\Product\Models\Product::query()
                 ->where('server_type', $plugin->name)
-                ->exists(),
-            'gateway' => \App\Modules\Finance\Models\Account::query()
+                ->exists()),
+            'gateway' => $this->tableHasBusinessReference('accounts', fn () => \App\Modules\Finance\Models\Account::query()
                 ->where('payment_method', $plugin->name)
-                ->exists()
-                || \App\Modules\Finance\Models\Invoice::query()
+                ->exists())
+                || $this->tableHasBusinessReference('invoices', fn () => \App\Modules\Finance\Models\Invoice::query()
                     ->where('payment_method', $plugin->name)
                     ->whereIn('status', ['Unpaid', 'Paid', 'Partially Refunded'])
-                    ->exists()
-                || PaymentAttempt::query()
+                    ->exists())
+                || $this->tableHasBusinessReference('payment_attempts', fn () => PaymentAttempt::query()
                     ->where('gateway', $plugin->name)
                     ->where('status', 'pending')
-                    ->exists(),
-            'email' => Setting::query()
+                    ->exists()),
+            'email' => $this->tableHasBusinessReference('settings', fn () => Setting::query()
                 ->where('key', 'default_email_provider')
                 ->where('value', $plugin->name)
-                ->exists()
-                || EmailLog::query()
+                ->exists())
+                || $this->tableHasBusinessReference('email_logs', fn () => EmailLog::query()
                     ->where('provider', $plugin->name)
                     ->whereIn('status', ['pending', 'processing', 'failed'])
-                    ->exists(),
-            'sms' => Setting::query()
+                    ->exists()),
+            'sms' => $this->tableHasBusinessReference('settings', fn () => Setting::query()
                 ->where('key', 'default_sms_provider')
                 ->where('value', $plugin->name)
-                ->exists()
-                || SmsLog::query()
+                ->exists())
+                || $this->tableHasBusinessReference('sms_logs', fn () => SmsLog::query()
                     ->where('provider', $plugin->name)
                     ->whereIn('status', ['pending', 'processing', 'failed'])
-                    ->exists(),
+                    ->exists()),
             default => false,
         };
+    }
+
+    private function tableHasBusinessReference(string $table, callable $callback): bool
+    {
+        if (!Schema::hasTable($table)) {
+            return false;
+        }
+
+        return (bool) $callback();
     }
 }

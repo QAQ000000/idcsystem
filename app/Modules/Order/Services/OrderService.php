@@ -4,6 +4,7 @@ namespace App\Modules\Order\Services;
 
 use App\Modules\Finance\Services\InvoiceService;
 use App\Modules\Finance\Models\Account;
+use App\Models\PaymentAttempt;
 use App\Modules\Order\Models\Order;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Services\PricingService;
@@ -38,6 +39,7 @@ class OrderService
                 throw new RuntimeException('客户账号状态不允许创建订单。');
             }
 
+            $items = $this->normalizeItemsForClient($items, $lockedClient);
             $this->assertOrderItemsPurchasable($items);
 
             $totals = $this->calculateTotalForClient($items, null, $lockedClient);
@@ -181,6 +183,21 @@ class OrderService
                     'status' => 'Cancelled',
                     'notes' => trim(($invoice->notes ? $invoice->notes . PHP_EOL : '') . $reason),
                 ]);
+
+                PaymentAttempt::query()
+                    ->where('invoice_id', $invoice->id)
+                    ->where('status', 'pending')
+                    ->lockForUpdate()
+                    ->get()
+                    ->each(function (PaymentAttempt $attempt) use ($reason): void {
+                        $attempt->update([
+                            'status' => 'expired',
+                            'result' => array_merge($attempt->result ?? [], [
+                                'expired_reason' => 'Order cancelled',
+                                'cancel_reason' => $reason,
+                            ]),
+                        ]);
+                    });
             }
 
             return true;
@@ -210,6 +227,17 @@ class OrderService
                 throw new RuntimeException('订单包含不可购买商品。');
             }
         }
+    }
+
+    private function normalizeItemsForClient(array $items, Client $client): array
+    {
+        $currencyId = (int) ($client->currency_id ?: $this->pricingService->defaultCurrencyId());
+
+        return array_map(function (array $item) use ($currencyId) {
+            $item['currency_id'] = $currencyId;
+
+            return $item;
+        }, $items);
     }
 
     private function productService(): ProductService

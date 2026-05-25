@@ -10,9 +10,14 @@ class PaymentRefundRequest extends Model
 {
     private const SENSITIVE_KEYWORDS = [
         'password',
+        'passwd',
         'secret',
         'token',
         'credential',
+        'authorization',
+        'cookie',
+        'session',
+        'bearer',
         'access_key',
         'private_key',
         'signature',

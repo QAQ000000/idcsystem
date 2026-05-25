@@ -35,9 +35,14 @@ class SystemTaskLog extends Model
     {
         foreach ([
             'password',
+            'passwd',
             'secret',
             'token',
             'credential',
+            'authorization',
+            'cookie',
+            'session',
+            'bearer',
             'access_key',
             'private_key',
             'signature',
@@ -45,7 +50,7 @@ class SystemTaskLog extends Model
             'key',
         ] as $key) {
             $value = preg_replace(
-                '/(' . preg_quote($key, '/') . ')\s*([=:])\s*([^\s,;]+)/i',
+                '/(' . preg_quote($key, '/') . ')\s*([=:])\s*(?!\[FILTERED\])([^\s,;"\}\]]+)/i',
                 '$1$2[FILTERED]',
                 $value
             ) ?? $value;

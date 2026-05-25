@@ -200,6 +200,31 @@ class InstallTest extends TestCase
         $this->assertTrue(Schema::connection('mysql')->hasTable('failed_jobs'));
     }
 
+    public function test_installer_runs_pending_table_alteration_when_required_table_exists_without_column(): void
+    {
+        $this->useTemporaryInstallDatabase();
+        Artisan::call('migrate', ['--force' => true, '--database' => 'mysql']);
+
+        $connection = DB::connection('mysql');
+        $connection->table('migrations')
+            ->where('migration', '2026_05_25_000001_add_meta_to_invoice_items_table')
+            ->delete();
+
+        Schema::connection('mysql')->table('invoice_items', function (Blueprint $table): void {
+            $table->dropColumn('meta');
+        });
+
+        $this->assertTrue(app(InstallService::class)->databaseInitialized());
+        $this->assertFalse(Schema::connection('mysql')->hasColumn('invoice_items', 'meta'));
+
+        app(InstallService::class)->runMigrationsAndSeeders();
+
+        $this->assertTrue(Schema::connection('mysql')->hasColumn('invoice_items', 'meta'));
+        $this->assertDatabaseHas('migrations', [
+            'migration' => '2026_05_25_000001_add_meta_to_invoice_items_table',
+        ]);
+    }
+
     public function test_installer_resumes_multi_table_migration_when_only_first_table_exists(): void
     {
         $this->useTemporaryInstallDatabase();
@@ -579,6 +604,26 @@ class InstallTest extends TestCase
         ])->assertRedirect(route('install.admin'));
 
         $this->assertTrue(app(InstallService::class)->databaseInitialized());
+    }
+
+    public function test_database_step_repairs_initialized_schema_with_missing_seed_data(): void
+    {
+        $this->useTemporaryInstallDatabase();
+        Artisan::call('migrate', ['--force' => true, '--database' => 'mysql']);
+        DB::connection('mysql')->table('permissions')->truncate();
+
+        $this->assertTrue(app(InstallService::class)->databaseInitialized());
+        $this->assertSame(0, DB::connection('mysql')->table('permissions')->count());
+
+        $this->post(route('install.database.save'), [
+            'host' => '127.0.0.1',
+            'port' => 3306,
+            'database' => storage_path('framework/testing/install.sqlite'),
+            'username' => 'root',
+            'password' => '',
+        ])->assertRedirect(route('install.admin'));
+
+        $this->assertTrue(DB::connection('mysql')->table('permissions')->where('name', 'host.view')->exists());
     }
 
     private function useTemporaryInstallDatabase(): void

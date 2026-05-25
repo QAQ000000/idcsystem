@@ -464,6 +464,67 @@ class CartBoundaryTest extends TestCase
         ]]);
     }
 
+    public function test_order_service_uses_client_currency_even_when_currency_id_is_missing(): void
+    {
+        $cny = Currency::query()->firstOrCreate(
+            ['code' => 'CNY'],
+            ['prefix' => '¥', 'suffix' => '', 'exchange_rate' => 1, 'is_default' => true]
+        );
+        $usd = Currency::query()->firstOrCreate(
+            ['code' => 'USD'],
+            ['prefix' => '$', 'suffix' => '', 'exchange_rate' => 7, 'is_default' => false]
+        );
+        $client = $this->client();
+        $client->update(['currency_id' => $usd->id]);
+        $product = $this->product();
+        Pricing::query()
+            ->where('type', 'product')
+            ->where('rel_id', $product->id)
+            ->where('currency_id', $cny->id)
+            ->update(['monthly' => 50]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('订单商品价格无效');
+
+        app(OrderService::class)->create($client->fresh(), [[
+            'product_id' => $product->id,
+            'billing_cycle' => 'monthly',
+        ]]);
+    }
+
+    public function test_order_service_ignores_spoofed_currency_id_and_uses_client_currency(): void
+    {
+        $cny = Currency::query()->firstOrCreate(
+            ['code' => 'CNY'],
+            ['prefix' => '¥', 'suffix' => '', 'exchange_rate' => 1, 'is_default' => true]
+        );
+        $usd = Currency::query()->firstOrCreate(
+            ['code' => 'USD'],
+            ['prefix' => '$', 'suffix' => '', 'exchange_rate' => 7, 'is_default' => false]
+        );
+        $client = $this->client();
+        $client->update(['currency_id' => $usd->id]);
+        $product = $this->product();
+        Pricing::query()->updateOrCreate(
+            ['type' => 'product', 'rel_id' => $product->id, 'currency_id' => $cny->id],
+            ['monthly' => 50]
+        );
+        Pricing::query()->updateOrCreate(
+            ['type' => 'product', 'rel_id' => $product->id, 'currency_id' => $usd->id],
+            ['monthly' => 9]
+        );
+
+        $order = app(OrderService::class)->create($client->fresh(), [[
+            'product_id' => $product->id,
+            'billing_cycle' => 'monthly',
+            'currency_id' => $cny->id,
+        ]]);
+
+        $this->assertSame($usd->id, (int) $order->currency_id);
+        $this->assertSame('9.00', (string) $order->amount);
+        $this->assertSame('9.00', (string) $order->invoice->fresh()->total);
+    }
+
     public function test_order_service_rejects_quantity_above_limit(): void
     {
         $client = $this->client();

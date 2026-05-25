@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Plugin;
 use App\Modules\Finance\Models\Currency;
 use App\Modules\Finance\Models\InvoiceItem;
 use App\Modules\Finance\Services\BillingService;
@@ -130,6 +131,78 @@ class ServicesGoalTest extends TestCase
         app(PricingService::class)->setPricing('product', $product->id, $currency->id, [
             'monthly' => 100000000,
         ]);
+    }
+
+    public function test_product_service_rejects_invalid_group_and_negative_stock(): void
+    {
+        $service = app(ProductService::class);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('产品分组不存在');
+
+        $service->create([
+            'group_id' => 999999,
+            'name' => 'Invalid Product',
+            'type' => 'vps',
+            'stock_qty' => 0,
+        ]);
+    }
+
+    public function test_product_service_rejects_negative_stock_on_update(): void
+    {
+        $group = ProductGroup::query()->create(['name' => '产品服务边界组']);
+        $product = Product::query()->create([
+            'group_id' => $group->id,
+            'name' => 'Stock Boundary Product',
+            'type' => 'vps',
+            'stock_qty' => 0,
+        ]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('产品库存不能为负数');
+
+        app(ProductService::class)->update($product, ['stock_qty' => -1]);
+    }
+
+    public function test_product_service_rejects_disabled_server_type_but_preserves_existing_binding(): void
+    {
+        $group = ProductGroup::query()->create(['name' => '服务器模块边界组']);
+        Plugin::query()->create([
+            'name' => 'disabled_server',
+            'type' => 'server',
+            'title' => 'Disabled Server',
+            'version' => '1.0.0',
+            'status' => 0,
+            'config' => [],
+        ]);
+        $service = app(ProductService::class);
+
+        try {
+            $service->create([
+                'group_id' => $group->id,
+                'name' => 'Disabled Server Product',
+                'type' => 'vps',
+                'server_type' => 'disabled_server',
+                'stock_qty' => 0,
+            ]);
+            $this->fail('Expected disabled server type to be rejected.');
+        } catch (InvalidArgumentException $exception) {
+            $this->assertSame('服务器模块不可用。', $exception->getMessage());
+        }
+
+        $product = Product::query()->create([
+            'group_id' => $group->id,
+            'name' => 'Existing Disabled Server Product',
+            'type' => 'vps',
+            'server_type' => 'disabled_server',
+            'stock_qty' => 0,
+        ]);
+
+        $this->assertTrue($service->update($product, [
+            'name' => 'Existing Disabled Server Product Updated',
+            'server_type' => 'disabled_server',
+        ]));
+        $this->assertSame('disabled_server', $product->fresh()->server_type);
     }
 
     public function test_recurring_invoice_generation_skips_hosts_with_unpaid_renewal_invoice(): void

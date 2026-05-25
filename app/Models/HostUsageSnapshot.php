@@ -42,9 +42,14 @@ class HostUsageSnapshot extends Model
     {
         foreach ([
             'password',
+            'passwd',
             'secret',
             'token',
             'credential',
+            'authorization',
+            'cookie',
+            'session',
+            'bearer',
             'access_key',
             'private_key',
             'signature',

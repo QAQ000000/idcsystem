@@ -85,6 +85,33 @@ class HostMonitoringTest extends TestCase
         ]);
     }
 
+    public function test_usage_sync_rejects_invalid_usage_metric_values(): void
+    {
+        $this->installMockServer(['invalid_usage_metric' => true]);
+        $host = $this->host(['status' => 'Active']);
+
+        $result = app(HostMonitoringService::class)->syncUsage();
+
+        $this->assertSame(1, $result['processed']);
+        $this->assertSame(0, $result['success']);
+        $this->assertSame(1, $result['failed']);
+        $this->assertDatabaseHas('host_usage_snapshots', [
+            'host_id' => $host->id,
+            'cpu' => null,
+            'error' => 'Invalid usage metric: cpu',
+        ]);
+        $this->assertDatabaseHas('host_action_logs', [
+            'host_id' => $host->id,
+            'action' => 'usage_sync_failed',
+            'message' => 'Invalid usage metric: cpu',
+        ]);
+        $this->assertDatabaseMissing('host_usage_snapshots', [
+            'host_id' => $host->id,
+            'cpu' => 0,
+            'error' => null,
+        ]);
+    }
+
     public function test_admin_host_detail_shows_recent_usage_snapshots(): void
     {
         $this->installMockServer();

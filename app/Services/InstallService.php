@@ -289,6 +289,7 @@ class InstallService
 
         if ($this->databaseInitialized()) {
             $this->repairMigrationRepository();
+            Artisan::call('migrate', ['--force' => true, '--database' => 'mysql']);
             Artisan::call('db:seed', ['--force' => true]);
 
             return;
@@ -426,7 +427,8 @@ class InstallService
             }
 
             $tables = $this->tableNamesFromMigration($file->getRealPath());
-            if ($tables !== [] && $this->allTablesExist($tables)) {
+            $tableAlterations = $this->tableAlterationsFromMigration($file->getRealPath());
+            if ($tables !== [] && $this->allTablesExist($tables) && $this->allTableAlterationsExist($tableAlterations)) {
                 $repairs[] = [
                     'migration' => $migration,
                     'batch' => $batch,
@@ -469,11 +471,50 @@ class InstallService
         return array_values(array_unique($matches[1] ?? []));
     }
 
+    private function tableAlterationsFromMigration(string $path): array
+    {
+        $content = File::get($path);
+
+        preg_match_all("/Schema::table\\(['\"]([^'\"]+)['\"]/", $content, $tables);
+        if (($tables[1] ?? []) === []) {
+            return [];
+        }
+
+        preg_match_all("/\\\$table->(?:[a-zA-Z0-9_]+)\\(['\"]([^'\"]+)['\"]/", $content, $columns);
+        if (($columns[1] ?? []) === []) {
+            return [];
+        }
+
+        $alterations = [];
+        foreach (array_unique($tables[1]) as $table) {
+            $alterations[$table] = array_values(array_unique($columns[1]));
+        }
+
+        return $alterations;
+    }
+
     private function allTablesExist(array $tables): bool
     {
         foreach ($tables as $table) {
             if (!Schema::connection('mysql')->hasTable($table)) {
                 return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function allTableAlterationsExist(array $alterations): bool
+    {
+        foreach ($alterations as $table => $columns) {
+            if (!Schema::connection('mysql')->hasTable($table)) {
+                return false;
+            }
+
+            foreach ($columns as $column) {
+                if (!Schema::connection('mysql')->hasColumn($table, $column)) {
+                    return false;
+                }
             }
         }
 

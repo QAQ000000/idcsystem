@@ -7,7 +7,7 @@ use Illuminate\Support\Str;
 
 class EmailLog extends Model
 {
-    private const SENSITIVE_KEY_PATTERN = '/(password|secret|token|credential|access_key|private_key|key|signature|sign)$/i';
+    private const SENSITIVE_KEY_PATTERN = '/(password|passwd|secret|token|credential|authorization|cookie|session_id|session|bearer|access_key|private_key|key|signature|sign)$/i';
 
     protected $fillable = [
         'to',
@@ -66,9 +66,14 @@ class EmailLog extends Model
     {
         foreach ([
             'password',
+            'passwd',
             'secret',
             'token',
             'credential',
+            'authorization',
+            'cookie',
+            'session',
+            'bearer',
             'access_key',
             'private_key',
             'signature',

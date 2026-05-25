@@ -11,6 +11,7 @@ use App\Models\HostActionLog;
 use App\Plugins\Contracts\ServerModuleInterface;
 use App\Plugins\Facades\Plugin;
 use App\Services\AdminAuditService;
+use App\Services\HostMonitoringService;
 use Illuminate\Http\Request;
 use Throwable;
 
@@ -46,7 +47,7 @@ class HostController extends Controller
         ]);
     }
 
-    public function show(Host $host)
+    public function show(Host $host, HostMonitoringService $monitoring)
     {
         $host->load([
             'client',
@@ -63,7 +64,9 @@ class HostController extends Controller
 
         if ($serverPlugin) {
             try {
-                $usageStats = $serverPlugin->getUsageStats($this->usageStatsParams($host));
+                $usageStats = $monitoring->normalizeUsageStats(
+                    $serverPlugin->getUsageStats($this->usageStatsParams($host))
+                );
             } catch (Throwable $exception) {
                 $usageError = $exception->getMessage();
                 $this->logUsageQueryFailure($host, $usageError);

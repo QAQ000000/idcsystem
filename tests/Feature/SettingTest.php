@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Services\SettingsService;
 use App\Modules\Admin\Models\AdminUser;
+use App\Modules\Finance\Models\Currency;
+use App\Modules\Product\Services\PricingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
@@ -90,6 +92,65 @@ class SettingTest extends TestCase
 
         $this->assertDatabaseMissing('settings', ['key' => 'auto_setup_policy', 'value' => 'broken-policy']);
         $this->assertDatabaseMissing('settings', ['key' => 'smtp_encryption', 'value' => 'starttls']);
+    }
+
+    public function test_admin_settings_page_rejects_unknown_default_currency(): void
+    {
+        $this->seed();
+        $admin = \App\Modules\Admin\Models\AdminUser::query()->where('username', 'admin')->firstOrFail();
+
+        $this->actingAs($admin, 'admin')
+            ->from(route('admin.settings.index'))
+            ->post(route('admin.settings.update'), [
+                'site_name' => 'IDC Cloud',
+                'site_url' => 'https://idc.example.com',
+                'default_currency' => 'BAD',
+                'auto_setup_policy' => 'paid',
+                'invoice_due_days' => 7,
+                'renewal_reminder_days' => 5,
+                'mail_from_name' => 'IDC Cloud',
+                'mail_from_address' => 'notice@example.com',
+                'smtp_host' => 'smtp.example.com',
+                'smtp_port' => 587,
+                'smtp_username' => 'smtp-user',
+                'default_email_provider' => 'smtp',
+                'default_sms_provider' => 'aliyun',
+                'sms_signature' => 'IDC',
+            ])
+            ->assertRedirect(route('admin.settings.index'))
+            ->assertSessionHasErrors('default_currency');
+
+        $this->assertDatabaseMissing('settings', ['key' => 'default_currency', 'value' => 'BAD']);
+    }
+
+    public function test_admin_settings_page_syncs_default_currency_flag(): void
+    {
+        $this->seed();
+        $admin = \App\Modules\Admin\Models\AdminUser::query()->where('username', 'admin')->firstOrFail();
+        $usd = Currency::query()->where('code', 'USD')->firstOrFail();
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.settings.update'), [
+                'site_name' => 'IDC Cloud',
+                'site_url' => 'https://idc.example.com',
+                'default_currency' => 'USD',
+                'auto_setup_policy' => 'paid',
+                'invoice_due_days' => 7,
+                'renewal_reminder_days' => 5,
+                'mail_from_name' => 'IDC Cloud',
+                'mail_from_address' => 'notice@example.com',
+                'smtp_host' => 'smtp.example.com',
+                'smtp_port' => 587,
+                'smtp_username' => 'smtp-user',
+                'default_email_provider' => 'smtp',
+                'default_sms_provider' => 'aliyun',
+                'sms_signature' => 'IDC',
+            ])
+            ->assertRedirect(route('admin.settings.index'));
+
+        $this->assertTrue($usd->fresh()->is_default);
+        $this->assertFalse((bool) Currency::query()->where('code', 'CNY')->value('is_default'));
+        $this->assertSame($usd->id, app(PricingService::class)->defaultCurrencyId());
     }
 
     public function test_admin_settings_page_keeps_existing_smtp_password_when_blank(): void

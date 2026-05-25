@@ -26,7 +26,7 @@ class SettingController extends Controller
         $data = $request->validate([
             'site_name' => ['required', 'string', 'max:100'],
             'site_url' => ['required', 'url', 'max:255'],
-            'default_currency' => ['required', 'string', 'max:10'],
+            'default_currency' => ['required', 'string', 'max:10', Rule::exists('currencies', 'code')],
             'maintenance_mode' => ['nullable', 'boolean'],
             'auto_setup_policy' => ['required', 'string', Rule::in(['manual', 'paid', 'instant'])],
             'invoice_due_days' => ['required', 'integer', 'min:0', 'max:365'],
@@ -57,6 +57,7 @@ class SettingController extends Controller
             'default_currency' => $data['default_currency'],
             'maintenance_mode' => $request->boolean('maintenance_mode'),
         ], 'general');
+        $this->syncDefaultCurrency($data['default_currency']);
 
         $settings->setMany([
             'auto_setup_policy' => $data['auto_setup_policy'],
@@ -107,5 +108,11 @@ class SettingController extends Controller
         }
 
         return $settings;
+    }
+
+    private function syncDefaultCurrency(string $code): void
+    {
+        Currency::query()->where('code', '!=', $code)->update(['is_default' => false]);
+        Currency::query()->where('code', $code)->update(['is_default' => true]);
     }
 }

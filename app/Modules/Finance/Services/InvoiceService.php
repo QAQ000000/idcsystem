@@ -9,13 +9,15 @@ use App\Modules\Order\Models\Host;
 use App\Modules\Order\Models\Upgrade;
 use App\Modules\Order\Services\HostService;
 use App\Modules\User\Models\Client;
-use App\Services\NotificationService;
+use App\Services\Concerns\NotifiesClientsSafely;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 
 class InvoiceService
 {
+    use NotifiesClientsSafely;
+
     public const MAX_AMOUNT = 99999999.99;
 
     /**
@@ -24,6 +26,7 @@ class InvoiceService
     public function generate(Client $client, array $items): Invoice
     {
         $invoice = DB::transaction(function () use ($client, $items) {
+            $this->assertClientCanReceiveInvoice($client);
             $this->validateInvoiceItems($items);
             $subtotal = round(array_sum(array_map(
                 fn (array $item) => (float) ($item['amount'] ?? 0),
@@ -49,24 +52,25 @@ class InvoiceService
             ]);
 
             foreach ($items as $item) {
-                $this->addItem(
+                $this->createItem(
                     $invoice,
                     (string) ($item['type'] ?? 'product'),
                     (string) ($item['description'] ?? ''),
                     (float) ($item['amount'] ?? 0),
                     (int) ($item['rel_id'] ?? 0),
-                    is_array($item['meta'] ?? null) ? $item['meta'] : null
+                    is_array($item['meta'] ?? null) ? $item['meta'] : null,
+                    true
                 );
             }
 
             return $invoice->fresh(['items']);
         });
 
-        app(NotificationService::class)->notifyClient($client, 'invoice_created', [
+        $this->notifyClientSafely($client, 'invoice_created', [
             'client_name' => $client->username,
             'invoice_number' => $invoice->invoice_number,
             'amount' => $invoice->total,
-        ]);
+        ], 'invoice.generate');
 
         return $invoice;
     }
@@ -77,6 +81,7 @@ class InvoiceService
     public function generateNoPaymentRequired(Client $client, array $items): Invoice
     {
         return DB::transaction(function () use ($client, $items) {
+            $this->assertClientCanReceiveInvoice($client);
             $this->validateNoPaymentItems($items);
 
             $invoice = Invoice::create([
@@ -94,13 +99,14 @@ class InvoiceService
             ]);
 
             foreach ($items as $item) {
-                $this->addItem(
+                $this->createItem(
                     $invoice,
                     (string) ($item['type'] ?? 'adjustment'),
                     (string) ($item['description'] ?? ''),
                     0,
                     (int) ($item['rel_id'] ?? 0),
-                    is_array($item['meta'] ?? null) ? $item['meta'] : null
+                    is_array($item['meta'] ?? null) ? $item['meta'] : null,
+                    true
                 );
             }
 
@@ -119,11 +125,32 @@ class InvoiceService
         int $relId = 0,
         ?array $meta = null
     ): InvoiceItem {
-        return DB::transaction(function () use ($invoice, $type, $description, $amount, $relId, $meta) {
+        return $this->createItem($invoice, $type, $description, $amount, $relId, $meta);
+    }
+
+    private function createItem(
+        Invoice $invoice,
+        string $type,
+        string $description,
+        float $amount,
+        int $relId = 0,
+        ?array $meta = null,
+        bool $allowFinalizedInvoice = false
+    ): InvoiceItem {
+        return DB::transaction(function () use ($invoice, $type, $description, $amount, $relId, $meta, $allowFinalizedInvoice) {
+            $lockedInvoice = Invoice::query()->whereKey($invoice->id)->lockForUpdate()->first();
+            if (!$lockedInvoice) {
+                throw new InvalidArgumentException('账单不存在。');
+            }
+
+            if (!$allowFinalizedInvoice && $lockedInvoice->status !== 'Unpaid') {
+                throw new InvalidArgumentException('只能给未支付账单追加明细。');
+            }
+
             $this->assertAmountFitsStorage($amount);
 
             $item = InvoiceItem::create([
-                'invoice_id' => $invoice->id,
+                'invoice_id' => $lockedInvoice->id,
                 'type' => $type,
                 'description' => $description,
                 'amount' => round($amount, 2),
@@ -131,7 +158,7 @@ class InvoiceService
                 'meta' => $meta,
             ]);
 
-            $this->recalculateTotals($invoice);
+            $this->recalculateTotals($lockedInvoice);
 
             return $item;
         });
@@ -225,11 +252,11 @@ class InvoiceService
             $this->provisionPendingOrderHosts($freshInvoice);
             app(HostService::class)->applyPaidInvoice($freshInvoice);
             if ($freshInvoice->client) {
-                app(NotificationService::class)->notifyClient($freshInvoice->client, 'invoice_paid', [
+                $this->notifyClientSafely($freshInvoice->client, 'invoice_paid', [
                     'client_name' => $freshInvoice->client->username,
                     'invoice_number' => $freshInvoice->invoice_number,
                     'amount' => $freshInvoice->total,
-                ]);
+                ], 'invoice.mark_paid');
             }
         }
 
@@ -453,7 +480,16 @@ class InvoiceService
         foreach ($invoice->order->hosts as $host) {
             if ($invoice->status === 'Refunded') {
                 if (in_array($host->status, ['Active', 'Suspended'], true)) {
-                    $hostService->terminate($host);
+                    if (!$hostService->terminate($host)) {
+                        $host->update([
+                            'admin_notes' => trim(($host->admin_notes ? $host->admin_notes . PHP_EOL : '') . '全额退款后服务终止失败，请人工处理'),
+                        ]);
+                        $host->actionLogs()->create([
+                            'action' => 'refund_termination_pending',
+                            'message' => '全额退款后服务终止失败，请人工处理',
+                            'meta' => ['invoice_id' => $invoice->id],
+                        ]);
+                    }
                 }
 
                 continue;
@@ -481,6 +517,15 @@ class InvoiceService
             }
 
             $this->assertAmountFitsStorage((float) ($item['amount'] ?? 0));
+        }
+    }
+
+    private function assertClientCanReceiveInvoice(Client $client): void
+    {
+        $freshClient = Client::query()->whereKey($client->id)->first();
+
+        if (!$freshClient || $freshClient->trashed() || !$freshClient->isActive()) {
+            throw new InvalidArgumentException('客户账号状态不允许生成账单。');
         }
     }
 

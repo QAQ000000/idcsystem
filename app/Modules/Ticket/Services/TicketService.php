@@ -8,12 +8,14 @@ use App\Modules\Ticket\Models\TicketDepartment;
 use App\Modules\Ticket\Models\TicketReply;
 use App\Modules\Ticket\Models\TicketStatus;
 use App\Modules\User\Models\Client;
-use App\Services\NotificationService;
+use App\Services\Concerns\NotifiesClientsSafely;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class TicketService
 {
+    use NotifiesClientsSafely;
+
     /**
      * 创建工单。
      */
@@ -81,11 +83,11 @@ class TicketService
         });
 
         if ($reply && $ticket->client) {
-            app(NotificationService::class)->notifyClient($ticket->client, 'ticket_replied', [
+            $this->notifyClientSafely($ticket->client, 'ticket_replied', [
                 'client_name' => $ticket->client->username,
                 'ticket_number' => $ticket->ticket_number,
                 'reply_message' => $message,
-            ]);
+            ], 'ticket.reply');
         }
 
         return $reply;

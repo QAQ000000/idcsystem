@@ -8,7 +8,7 @@ use Throwable;
 
 class SystemTaskService
 {
-    private const SENSITIVE_KEY_PATTERN = '/(password|secret|token|credential|access_key|private_key|key|signature|sign)$/i';
+    private const SENSITIVE_KEY_PATTERN = '/(password|passwd|secret|token|credential|authorization|cookie|session_id|session|bearer|access_key|private_key|key|signature|sign)$/i';
 
     public function run(string $taskName, callable $callback): SystemTaskLog
     {
@@ -25,13 +25,14 @@ class SystemTaskService
             $result = $callback();
             $output = $this->stringify($result);
             $failedCount = is_array($result) ? (int) ($result['failed'] ?? 0) : 0;
+            $errorMessage = is_array($result) ? $this->errorMessageFromResult($result, $failedCount) : null;
 
             $log->update([
-                'status' => $failedCount > 0 ? 'failed' : 'success',
+                'status' => $errorMessage ? 'failed' : 'success',
                 'finished_at' => now(),
                 'duration_ms' => (int) round((microtime(true) - $startedAtFloat) * 1000),
                 'output' => $output,
-                'error' => $failedCount > 0 ? "{$failedCount} 个子任务失败" : null,
+                'error' => $errorMessage,
             ]);
         } catch (Throwable $exception) {
             $log->update([
@@ -44,6 +45,23 @@ class SystemTaskService
         }
 
         return $log->fresh();
+    }
+
+    private function errorMessageFromResult(array $result, int $failedCount): ?string
+    {
+        if ($failedCount > 0) {
+            return "{$failedCount} 个子任务失败";
+        }
+
+        foreach (['error', 'errors'] as $key) {
+            if (!array_key_exists($key, $result) || $result[$key] === null || $result[$key] === '' || $result[$key] === []) {
+                continue;
+            }
+
+            return $this->stringify($result[$key]) ?: '任务返回错误信息';
+        }
+
+        return null;
     }
 
     private function stringify(mixed $value): ?string
@@ -91,9 +109,14 @@ class SystemTaskService
     {
         foreach ([
             'password',
+            'passwd',
             'secret',
             'token',
             'credential',
+            'authorization',
+            'cookie',
+            'session',
+            'bearer',
             'access_key',
             'private_key',
             'signature',
@@ -101,7 +124,7 @@ class SystemTaskService
             'key',
         ] as $key) {
             $value = preg_replace(
-                '/(' . preg_quote($key, '/') . ')\s*([=:])\s*([^\s,;]+)/i',
+                '/(' . preg_quote($key, '/') . ')\s*([=:])\s*(?!\[FILTERED\])([^\s,;"\}\]]+)/i',
                 '$1$2[FILTERED]',
                 $value
             ) ?? $value;

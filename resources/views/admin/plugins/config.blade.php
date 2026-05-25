@@ -15,7 +15,7 @@
         @csrf
 
         @php
-            $sensitivePattern = '/(password|passwd|secret|token|credential|access_key|private_key|key|signature|sign)$/i';
+            $sensitivePattern = '/(password|passwd|secret|token|credential|authorization|cookie|session_id|session|bearer|access_key|private_key|key|signature|sign)$/i';
             $config = $plugin->config ?? [];
             $oldConfigValue = function (string $key, mixed $default = '') {
                 $value = old('config.' . $key, $default);

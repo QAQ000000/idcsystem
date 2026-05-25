@@ -55,9 +55,7 @@ class InstallController extends Controller
             $installer->runWithInstallationLock(function () use ($installer, $data): void {
                 $installer->testDatabase($data);
                 $installer->storeDatabaseConfig($data);
-                if (!$installer->databaseInitialized()) {
-                    $installer->runMigrationsAndSeeders();
-                }
+                $installer->runMigrationsAndSeeders();
                 $installer->persistStoredDatabaseConfigAfterResponse();
             });
         } catch (Throwable $exception) {

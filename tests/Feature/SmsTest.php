@@ -85,6 +85,32 @@ class SmsTest extends TestCase
         ]);
     }
 
+    public function test_async_sms_dispatch_waits_until_database_transaction_commits(): void
+    {
+        config(['queue.default' => 'sync']);
+        $this->seed(\Database\Seeders\SmsTemplateSeeder::class);
+        $this->installSms();
+        app(SettingsService::class)->set('sms_queue_enabled', true, 'sms');
+
+        try {
+            \DB::transaction(function () {
+                app(SmsService::class)->send('13800138099', 'invoice_paid', [
+                    'client_name' => '事务回滚',
+                    'invoice_number' => 'INV-ROLLBACK',
+                    'amount' => '1.00',
+                ]);
+
+                throw new RuntimeException('rollback sms transaction');
+            });
+        } catch (RuntimeException $exception) {
+            $this->assertSame('rollback sms transaction', $exception->getMessage());
+        }
+
+        $this->assertDatabaseMissing('sms_logs', [
+            'phone' => '13800138099',
+        ]);
+    }
+
     public function test_sms_log_masks_sensitive_payload_and_error_text(): void
     {
         $log = SmsLog::query()->create([
@@ -97,26 +123,46 @@ class SmsTest extends TestCase
             'success' => false,
             'payload' => [
                 'access_token' => 'sms-token',
+                'authorization' => 'sms-auth',
+                'cookie' => 'sms-cookie',
+                'session_id' => 'sms-session',
+                'bearer_token' => 'sms-bearer',
                 'nested' => [
                     'api_key' => 'sms-key',
                     'message' => 'visible',
                 ],
             ],
-            'error' => 'sms failed password=plain-secret token:token-value signature=sign-value',
+            'error' => 'sms failed password=plain-secret token:token-value authorization=auth-value cookie:cookie-value session=session-value bearer=bearer-value signature=sign-value',
             'attempts' => 0,
         ]);
 
         $log->refresh();
         $this->assertSame('[FILTERED]', $log->payload['access_token']);
+        $this->assertSame('[FILTERED]', $log->payload['authorization']);
+        $this->assertSame('[FILTERED]', $log->payload['cookie']);
+        $this->assertSame('[FILTERED]', $log->payload['session_id']);
+        $this->assertSame('[FILTERED]', $log->payload['bearer_token']);
         $this->assertSame('[FILTERED]', $log->payload['nested']['api_key']);
         $this->assertSame('visible', $log->payload['nested']['message']);
         $this->assertStringContainsString('password=[FILTERED]', $log->error);
         $this->assertStringContainsString('token:[FILTERED]', $log->error);
+        $this->assertStringContainsString('authorization=[FILTERED]', $log->error);
+        $this->assertStringContainsString('cookie:[FILTERED]', $log->error);
+        $this->assertStringContainsString('session=[FILTERED]', $log->error);
+        $this->assertStringContainsString('bearer=[FILTERED]', $log->error);
         $this->assertStringContainsString('signature=[FILTERED]', $log->error);
         $this->assertStringNotContainsString('sms-token', json_encode($log->payload));
+        $this->assertStringNotContainsString('sms-auth', json_encode($log->payload));
+        $this->assertStringNotContainsString('sms-cookie', json_encode($log->payload));
+        $this->assertStringNotContainsString('sms-session', json_encode($log->payload));
+        $this->assertStringNotContainsString('sms-bearer', json_encode($log->payload));
         $this->assertStringNotContainsString('sms-key', json_encode($log->payload));
         $this->assertStringNotContainsString('plain-secret', $log->error);
         $this->assertStringNotContainsString('token-value', $log->error);
+        $this->assertStringNotContainsString('auth-value', $log->error);
+        $this->assertStringNotContainsString('cookie-value', $log->error);
+        $this->assertStringNotContainsString('session-value', $log->error);
+        $this->assertStringNotContainsString('bearer-value', $log->error);
         $this->assertStringNotContainsString('sign-value', $log->error);
     }
 

@@ -7,10 +7,21 @@ use App\Models\HostUsageSnapshot;
 use App\Modules\Order\Models\Host;
 use App\Plugins\Contracts\ServerModuleInterface;
 use App\Plugins\Facades\Plugin;
+use InvalidArgumentException;
 use Throwable;
 
 class HostMonitoringService
 {
+    public function normalizeUsageStats(array $stats): array
+    {
+        return [
+            'cpu' => $this->normalizeUsageMetric($stats, 'cpu', 100),
+            'memory' => $this->normalizeUsageMetric($stats, 'memory', 99999999.99),
+            'disk' => $this->normalizeUsageMetric($stats, 'disk', 99999999.99),
+            'bandwidth' => $this->normalizeUsageMetric($stats, 'bandwidth', 99999999.99),
+        ];
+    }
+
     public function collectUsageForHost(Host $host): HostUsageSnapshot
     {
         try {
@@ -101,15 +112,42 @@ class HostMonitoringService
 
     private function snapshot(Host $host, array $stats, ?string $error = null): HostUsageSnapshot
     {
+        $normalizedStats = $error === null ? $this->normalizeUsageStats($stats) : [
+            'cpu' => null,
+            'memory' => null,
+            'disk' => null,
+            'bandwidth' => null,
+        ];
+
         return HostUsageSnapshot::query()->create([
             'host_id' => $host->id,
-            'cpu' => isset($stats['cpu']) ? (float) $stats['cpu'] : null,
-            'memory' => isset($stats['memory']) ? (float) $stats['memory'] : null,
-            'disk' => isset($stats['disk']) ? (float) $stats['disk'] : null,
-            'bandwidth' => isset($stats['bandwidth']) ? (float) $stats['bandwidth'] : null,
+            'cpu' => $normalizedStats['cpu'],
+            'memory' => $normalizedStats['memory'],
+            'disk' => $normalizedStats['disk'],
+            'bandwidth' => $normalizedStats['bandwidth'],
             'collected_at' => now(),
             'error' => $error,
         ]);
+    }
+
+    private function normalizeUsageMetric(array $stats, string $key, float $max): ?float
+    {
+        if (!array_key_exists($key, $stats) || $stats[$key] === null || $stats[$key] === '') {
+            return null;
+        }
+
+        if (!is_numeric($stats[$key])) {
+            throw new InvalidArgumentException("Invalid usage metric: {$key}");
+        }
+
+        $value = (float) $stats[$key];
+
+        // 服务器模块返回的数据会直接入库，必须先挡住非有限值和超出字段容量的数值。
+        if (!is_finite($value) || $value < 0 || $value > $max) {
+            throw new InvalidArgumentException("Invalid usage metric: {$key}");
+        }
+
+        return round($value, 2);
     }
 
     private function recentlyReminded(Host $host): bool

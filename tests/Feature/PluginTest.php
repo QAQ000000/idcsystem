@@ -19,6 +19,7 @@ use Spatie\Permission\Models\Role;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class PluginTest extends TestCase
@@ -30,6 +31,9 @@ class PluginTest extends TestCase
         File::deleteDirectory(base_path('plugins/Gateway/demo_route_plugin'));
         File::deleteDirectory(base_path('plugins/Gateway/demo_enabled_route_plugin'));
         File::deleteDirectory(base_path('plugins/Gateway/password_field_plugin'));
+        File::deleteDirectory(base_path('plugins/Gateway/authorization_field_plugin'));
+        File::deleteDirectory(base_path('plugins/Gateway/wrong_type_plugin'));
+        File::deleteDirectory(base_path('plugins/Gateway/unsafe_manifest_name_plugin'));
 
         parent::tearDown();
     }
@@ -211,6 +215,58 @@ class PluginTest extends TestCase
 
         $this->assertFalse(app(PluginManager::class)->install('gateway', 'manual_pay'));
         $this->assertSame('email', Plugin::query()->where('name', 'manual_pay')->value('type'));
+    }
+
+    public function test_plugin_install_rejects_manifest_type_that_does_not_match_requested_directory(): void
+    {
+        $this->createManifestOnlyPlugin('wrong_type_plugin', [
+            'name' => 'wrong_type_plugin',
+            'title' => 'Wrong Type Plugin',
+            'type' => 'email',
+            'version' => '1.0.0',
+            'entry' => 'MissingPlugin',
+        ]);
+
+        $manager = app(PluginManager::class);
+
+        $this->assertFalse($manager->install('gateway', 'wrong_type_plugin'));
+        $this->assertNull(collect($manager->scan('gateway'))->firstWhere('name', 'wrong_type_plugin'));
+        $this->assertDatabaseMissing('plugins', ['name' => 'wrong_type_plugin']);
+    }
+
+    public function test_plugin_install_rejects_unsafe_manifest_name(): void
+    {
+        $this->createManifestOnlyPlugin('unsafe_manifest_name_plugin', [
+            'name' => '../unsafe',
+            'title' => 'Unsafe Manifest Name Plugin',
+            'type' => 'gateway',
+            'version' => '1.0.0',
+            'entry' => 'MissingPlugin',
+        ]);
+
+        $manager = app(PluginManager::class);
+
+        $this->assertFalse($manager->install('gateway', 'unsafe_manifest_name_plugin'));
+        $this->assertEmpty($manager->manifest('gateway', '../unsafe'));
+        $this->assertNull(collect($manager->scan('gateway'))->firstWhere('title', 'Unsafe Manifest Name Plugin'));
+        $this->assertDatabaseMissing('plugins', ['title' => 'Unsafe Manifest Name Plugin']);
+    }
+
+    public function test_plugin_scan_installed_flag_is_scoped_by_type(): void
+    {
+        Plugin::query()->create([
+            'name' => 'manual_pay',
+            'title' => 'Conflicting Manual Pay',
+            'type' => 'email',
+            'version' => '1.0.0',
+            'status' => 0,
+            'config' => [],
+        ]);
+
+        $manualPay = collect(app(PluginManager::class)->scan('gateway'))->firstWhere('name', 'manual_pay');
+
+        $this->assertNotNull($manualPay);
+        $this->assertFalse($manualPay['installed']);
     }
 
     public function test_admin_plugin_config_and_disable_flow(): void
@@ -413,6 +469,47 @@ class PluginTest extends TestCase
 
         $config = $plugin->fresh()->config;
         $this->assertSame('saved-signature', $config['signature']);
+        $this->assertSame('new-merchant', $config['merchant']);
+    }
+
+    public function test_authorization_config_key_is_treated_as_sensitive_even_when_declared_as_text(): void
+    {
+        $this->seed();
+        $admin = \App\Modules\Admin\Models\AdminUser::query()->where('username', 'admin')->firstOrFail();
+        $this->createAuthorizationFieldPlugin();
+        $plugin = Plugin::query()->create([
+            'name' => 'authorization_field_plugin',
+            'title' => 'Authorization Field Plugin',
+            'type' => 'gateway',
+            'version' => '1.0.0',
+            'status' => 1,
+            'config' => [
+                'authorization' => 'saved-authorization',
+                'session_id' => 'saved-session',
+                'merchant' => 'old-merchant',
+            ],
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.plugins.config', $plugin->name))
+            ->assertOk()
+            ->assertSee('已保存，留空则不修改')
+            ->assertDontSee('saved-authorization')
+            ->assertDontSee('saved-session');
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.plugins.config.save', $plugin->name), [
+                'config' => [
+                    'authorization' => '',
+                    'session_id' => '',
+                    'merchant' => 'new-merchant',
+                ],
+            ])
+            ->assertRedirect(route('admin.plugins.config', $plugin->name));
+
+        $config = $plugin->fresh()->config;
+        $this->assertSame('saved-authorization', $config['authorization']);
+        $this->assertSame('saved-session', $config['session_id']);
         $this->assertSame('new-merchant', $config['merchant']);
     }
 
@@ -724,6 +821,22 @@ class PluginTest extends TestCase
         $this->assertSame(0, Plugin::query()->where('name', 'aliyun')->value('status'));
     }
 
+    public function test_plugin_disable_and_uninstall_ignore_missing_optional_reference_tables(): void
+    {
+        $manager = app(PluginManager::class);
+        $manager->install('email', 'smtp');
+        $manager->enable('smtp');
+
+        Schema::dropIfExists('email_logs');
+
+        $this->assertTrue($manager->disable('smtp'));
+        $this->assertSame(0, Plugin::query()->where('name', 'smtp')->value('status'));
+
+        $manager->enable('smtp');
+        $this->assertTrue($manager->uninstall('smtp'));
+        $this->assertDatabaseMissing('plugins', ['name' => 'smtp']);
+    }
+
     public function test_disabled_plugin_route_file_is_not_registered(): void
     {
         $this->createRoutedPlugin('demo_route_plugin');
@@ -789,6 +902,17 @@ PHP);
         file_put_contents($routeFile, str_replace('plugins.demo_route_plugin.test', "plugins.{$name}.test", $contents));
     }
 
+    private function createManifestOnlyPlugin(string $directory, array $manifest): void
+    {
+        $pluginPath = base_path('plugins/Gateway/' . $directory);
+
+        if (!is_dir($pluginPath)) {
+            mkdir($pluginPath, 0777, true);
+        }
+
+        file_put_contents($pluginPath . '/plugin.json', json_encode($manifest, JSON_PRETTY_PRINT));
+    }
+
     private function createPasswordFieldPlugin(): void
     {
         $pluginPath = base_path('plugins/Gateway/password_field_plugin');
@@ -826,6 +950,28 @@ PHP);
             'entry' => 'MissingPlugin',
             'config_schema' => [
                 ['key' => 'signature', 'label' => 'Signature', 'type' => 'text'],
+                ['key' => 'merchant', 'label' => 'Merchant', 'type' => 'text'],
+            ],
+        ], JSON_PRETTY_PRINT));
+    }
+
+    private function createAuthorizationFieldPlugin(): void
+    {
+        $pluginPath = base_path('plugins/Gateway/authorization_field_plugin');
+
+        if (!is_dir($pluginPath)) {
+            mkdir($pluginPath, 0777, true);
+        }
+
+        file_put_contents($pluginPath . '/plugin.json', json_encode([
+            'name' => 'authorization_field_plugin',
+            'title' => 'Authorization Field Plugin',
+            'type' => 'gateway',
+            'version' => '1.0.0',
+            'entry' => 'MissingPlugin',
+            'config_schema' => [
+                ['key' => 'authorization', 'label' => 'Authorization', 'type' => 'text'],
+                ['key' => 'session_id', 'label' => 'Session ID', 'type' => 'text'],
                 ['key' => 'merchant', 'label' => 'Merchant', 'type' => 'text'],
             ],
         ], JSON_PRETTY_PRINT));

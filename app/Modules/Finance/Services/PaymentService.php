@@ -144,6 +144,10 @@ class PaymentService
             return false;
         }
 
+        if (!$this->callbackStatusIsPaid($data)) {
+            return false;
+        }
+
         $invoiceIdValue = $this->scalarCallbackValue($data, ['invoice_id', 'out_trade_no']);
         if ($invoiceIdValue === null || !ctype_digit($invoiceIdValue)) {
             return false;
@@ -175,7 +179,7 @@ class PaymentService
         }
 
         $transId = $this->scalarCallbackValue($data, ['trans_id', 'trade_no', 'transaction_id']);
-        if ($transId === '') {
+        if ($transId === null || $transId === '') {
             return false;
         }
 
@@ -207,6 +211,23 @@ class PaymentService
         }
 
         return null;
+    }
+
+    private function callbackStatusIsPaid(array $data): bool
+    {
+        $status = $this->scalarCallbackValue($data, ['status', 'payment_status', 'trade_status']);
+        if ($status === null || $status === '') {
+            return false;
+        }
+
+        return in_array(strtolower($status), [
+            'paid',
+            'success',
+            'succeeded',
+            'completed',
+            'trade_success',
+            'trade_finished',
+        ], true);
     }
 
     /**

@@ -11,9 +11,11 @@ use App\Modules\Ticket\Models\TicketStatus;
 use App\Modules\Ticket\Services\TicketService;
 use App\Modules\Admin\Models\AdminUser;
 use App\Modules\User\Models\Client;
+use App\Services\NotificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -147,6 +149,34 @@ class TicketStatusBoundaryTest extends TestCase
         $this->assertSame(0, TicketReply::query()->where('ticket_id', $ticket->id)->count());
         $this->assertSame(0, EmailLog::query()->where('template', 'ticket_replied')->count());
         $this->assertSame(0, SmsLog::query()->where('template', 'ticket_replied')->count());
+    }
+
+    public function test_ticket_reply_is_not_blocked_when_notification_service_fails(): void
+    {
+        $ticket = $this->ticket()->fresh(['client', 'status']);
+        $this->instance(NotificationService::class, new class extends NotificationService {
+            public function notifyClient(Client $client, string $event, array $variables = []): array
+            {
+                throw new \RuntimeException('notification service unavailable');
+            }
+        });
+        Log::shouldReceive('warning')
+            ->once()
+            ->with('Client notification failed without blocking workflow.', \Mockery::on(
+                fn (array $context): bool => $context['workflow'] === 'ticket.reply'
+                    && $context['event'] === 'ticket_replied'
+                    && (int) $context['client_id'] === (int) $ticket->client_id
+                    && $context['error'] === 'notification service unavailable'
+            ));
+
+        $reply = app(TicketService::class)->reply($ticket, 'admin', 1, '后台回复内容');
+
+        $this->assertNotNull($reply);
+        $this->assertDatabaseHas('ticket_replies', [
+            'ticket_id' => $ticket->id,
+            'author_type' => 'admin',
+            'message' => '后台回复内容',
+        ]);
     }
 
     public function test_ticket_status_change_rechecks_latest_closed_status_inside_transaction(): void

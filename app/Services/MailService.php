@@ -29,15 +29,7 @@ class MailService
             : $this->mailQueueEnabled();
 
         if ($async) {
-            try {
-                SendEmailJob::dispatch($log->id);
-            } catch (Throwable) {
-                $this->markFailed($log->fresh(), 'Email dispatch failed');
-
-                return false;
-            }
-
-            return true;
+            return $this->dispatchEmailJob($log, 'Email dispatch failed');
         }
 
         return $this->sendLog($log);
@@ -83,15 +75,7 @@ class MailService
             return $this->refreshTemplateLog($lockedLog);
         }, function (EmailLog $lockedLog) use ($async) {
             if ($async) {
-                try {
-                    SendEmailJob::dispatch($lockedLog->id);
-                } catch (Throwable) {
-                    $this->markFailed($lockedLog->fresh(), 'Email retry dispatch failed');
-
-                    return false;
-                }
-
-                return true;
+                return $this->dispatchEmailJob($lockedLog, 'Email retry dispatch failed');
             }
 
             return $this->sendLog($lockedLog->fresh());
@@ -145,6 +129,35 @@ class MailService
                 'success' => false,
                 'error' => 'Email processing timeout',
             ]);
+    }
+
+    private function dispatchEmailJob(EmailLog $log, string $error): bool
+    {
+        if (\DB::transactionLevel() > 0) {
+            $logId = $log->id;
+            \DB::afterCommit(function () use ($logId, $error) {
+                try {
+                    SendEmailJob::dispatch($logId);
+                } catch (Throwable) {
+                    $freshLog = EmailLog::query()->find($logId);
+                    if ($freshLog) {
+                        $this->markFailed($freshLog, $error);
+                    }
+                }
+            });
+
+            return true;
+        }
+
+        try {
+            SendEmailJob::dispatch($log->id);
+        } catch (Throwable) {
+            $this->markFailed($log->fresh(), $error);
+
+            return false;
+        }
+
+        return true;
     }
 
     private function refreshTemplateLog(EmailLog $log): ?EmailLog

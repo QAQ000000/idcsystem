@@ -179,6 +179,8 @@ class ServerModuleTest extends TestCase
         $host = $order->hosts()->firstOrFail()->fresh();
         $this->assertSame('Active', $host->status);
         $this->assertSame('mock' . $host->id, $host->username);
+        $this->assertNotSame('MockPass-' . $host->id, $host->password);
+        $this->assertTrue(Hash::check('MockPass-' . $host->id, $host->password));
         $this->assertDatabaseHas('host_action_logs', [
             'host_id' => $host->id,
             'action' => 'provision',
@@ -259,11 +261,15 @@ class ServerModuleTest extends TestCase
         $log = HostActionLog::query()->create([
             'host_id' => $host->id,
             'action' => 'provision_failed',
-            'message' => '模块失败 password=plain-secret token:token-value',
+            'message' => '模块失败 password=plain-secret token:token-value authorization=auth-value cookie:cookie-value session=session-value bearer=bearer-value',
             'meta' => [
                 'result' => [
                     'password' => 'result-password',
                     'access_token' => 'result-token',
+                    'authorization' => 'result-auth',
+                    'cookie' => 'result-cookie',
+                    'session_id' => 'result-session',
+                    'bearer_token' => 'result-bearer',
                     'api_key' => 'result-key',
                     'signature' => 'result-signature',
                     'message' => 'safe message',
@@ -272,9 +278,13 @@ class ServerModuleTest extends TestCase
         ]);
 
         $log->refresh();
-        $this->assertSame('模块失败 password=[FILTERED] token:[FILTERED]', $log->message);
+        $this->assertSame('模块失败 password=[FILTERED] token:[FILTERED] authorization=[FILTERED] cookie:[FILTERED] session=[FILTERED] bearer=[FILTERED]', $log->message);
         $this->assertSame('[FILTERED]', $log->meta['result']['password']);
         $this->assertSame('[FILTERED]', $log->meta['result']['access_token']);
+        $this->assertSame('[FILTERED]', $log->meta['result']['authorization']);
+        $this->assertSame('[FILTERED]', $log->meta['result']['cookie']);
+        $this->assertSame('[FILTERED]', $log->meta['result']['session_id']);
+        $this->assertSame('[FILTERED]', $log->meta['result']['bearer_token']);
         $this->assertSame('[FILTERED]', $log->meta['result']['api_key']);
         $this->assertSame('[FILTERED]', $log->meta['result']['signature']);
         $this->assertSame('safe message', $log->meta['result']['message']);
@@ -285,8 +295,16 @@ class ServerModuleTest extends TestCase
             ->assertSee('password=[FILTERED]')
             ->assertDontSee('plain-secret')
             ->assertDontSee('token-value')
+            ->assertDontSee('auth-value')
+            ->assertDontSee('cookie-value')
+            ->assertDontSee('session-value')
+            ->assertDontSee('bearer-value')
             ->assertDontSee('result-password')
             ->assertDontSee('result-token')
+            ->assertDontSee('result-auth')
+            ->assertDontSee('result-cookie')
+            ->assertDontSee('result-session')
+            ->assertDontSee('result-bearer')
             ->assertDontSee('result-key')
             ->assertDontSee('result-signature');
     }
@@ -599,6 +617,25 @@ class ServerModuleTest extends TestCase
             'host_id' => $host->id,
             'action' => 'usage_query_failed',
             'message' => 'MockServer 模拟用量采集失败',
+        ]);
+    }
+
+    public function test_admin_host_detail_rejects_invalid_usage_stats(): void
+    {
+        $this->installMockServer(['invalid_usage_metric' => true]);
+        $host = $this->host(['status' => 'Active']);
+
+        $this->actingAs($this->admin(), 'admin')
+            ->get(route('admin.hosts.show', $host))
+            ->assertOk()
+            ->assertSee('实时用量读取失败')
+            ->assertSee('Invalid usage metric: cpu')
+            ->assertDontSee('not-a-number%');
+
+        $this->assertDatabaseHas('host_action_logs', [
+            'host_id' => $host->id,
+            'action' => 'usage_query_failed',
+            'message' => 'Invalid usage metric: cpu',
         ]);
     }
 

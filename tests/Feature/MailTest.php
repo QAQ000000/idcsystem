@@ -82,26 +82,46 @@ class MailTest extends TestCase
             'success' => false,
             'payload' => [
                 'access_token' => 'mail-token',
+                'authorization' => 'mail-auth',
+                'cookie' => 'mail-cookie',
+                'session_id' => 'mail-session',
+                'bearer_token' => 'mail-bearer',
                 'nested' => [
                     'smtp_password' => 'mail-password',
                     'message' => 'visible',
                 ],
             ],
-            'error' => 'smtp failed password=plain-secret token:token-value signature=sign-value',
+            'error' => 'smtp failed password=plain-secret token:token-value authorization=auth-value cookie:cookie-value session=session-value bearer=bearer-value signature=sign-value',
             'attempts' => 0,
         ]);
 
         $log->refresh();
         $this->assertSame('[FILTERED]', $log->payload['access_token']);
+        $this->assertSame('[FILTERED]', $log->payload['authorization']);
+        $this->assertSame('[FILTERED]', $log->payload['cookie']);
+        $this->assertSame('[FILTERED]', $log->payload['session_id']);
+        $this->assertSame('[FILTERED]', $log->payload['bearer_token']);
         $this->assertSame('[FILTERED]', $log->payload['nested']['smtp_password']);
         $this->assertSame('visible', $log->payload['nested']['message']);
         $this->assertStringContainsString('password=[FILTERED]', $log->error);
         $this->assertStringContainsString('token:[FILTERED]', $log->error);
+        $this->assertStringContainsString('authorization=[FILTERED]', $log->error);
+        $this->assertStringContainsString('cookie:[FILTERED]', $log->error);
+        $this->assertStringContainsString('session=[FILTERED]', $log->error);
+        $this->assertStringContainsString('bearer=[FILTERED]', $log->error);
         $this->assertStringContainsString('signature=[FILTERED]', $log->error);
         $this->assertStringNotContainsString('mail-token', json_encode($log->payload));
+        $this->assertStringNotContainsString('mail-auth', json_encode($log->payload));
+        $this->assertStringNotContainsString('mail-cookie', json_encode($log->payload));
+        $this->assertStringNotContainsString('mail-session', json_encode($log->payload));
+        $this->assertStringNotContainsString('mail-bearer', json_encode($log->payload));
         $this->assertStringNotContainsString('mail-password', json_encode($log->payload));
         $this->assertStringNotContainsString('plain-secret', $log->error);
         $this->assertStringNotContainsString('token-value', $log->error);
+        $this->assertStringNotContainsString('auth-value', $log->error);
+        $this->assertStringNotContainsString('cookie-value', $log->error);
+        $this->assertStringNotContainsString('session-value', $log->error);
+        $this->assertStringNotContainsString('bearer-value', $log->error);
         $this->assertStringNotContainsString('sign-value', $log->error);
     }
 
@@ -120,6 +140,29 @@ class MailTest extends TestCase
             'subject' => 'Async Subject',
             'status' => 'pending',
             'success' => false,
+        ]);
+    }
+
+    public function test_async_mail_dispatch_waits_until_database_transaction_commits(): void
+    {
+        Mail::fake();
+        config(['queue.default' => 'sync']);
+        $this->installSmtp();
+        $this->setMailQueueEnabled(true);
+
+        try {
+            \DB::transaction(function () {
+                app(MailService::class)->send('rollback-mail@example.com', 'Rollback Subject', '<p>Rollback</p>');
+
+                throw new RuntimeException('rollback mail transaction');
+            });
+        } catch (RuntimeException $exception) {
+            $this->assertSame('rollback mail transaction', $exception->getMessage());
+        }
+
+        Mail::assertNothingSent();
+        $this->assertDatabaseMissing('email_logs', [
+            'to' => 'rollback-mail@example.com',
         ]);
     }
 

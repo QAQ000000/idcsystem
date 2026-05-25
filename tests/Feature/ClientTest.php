@@ -129,16 +129,30 @@ class ClientTest extends TestCase
     {
         $admin = $this->admin();
         $client = $this->client();
-        ClientLoginLog::query()->create([
+        $log = ClientLoginLog::query()->create([
             'client_id' => $client->id,
             'ip' => '127.0.0.1',
-            'user_agent' => 'Test Agent',
+            'user_agent' => 'Test Agent token:client-token authorization=client-auth cookie:client-cookie session=client-session bearer=client-bearer password=client-password signature=client-sign',
             'logged_in_at' => now(),
         ]);
 
+        $log->refresh();
+        $this->assertSame(
+            'Test Agent token:[FILTERED] authorization=[FILTERED] cookie:[FILTERED] session=[FILTERED] bearer=[FILTERED] password=[FILTERED] signature=[FILTERED]',
+            $log->user_agent
+        );
+
         $this->actingAs($admin, 'admin')
             ->get(route('admin.clients.show', $client))
-            ->assertOk();
+            ->assertOk()
+            ->assertSee('token:[FILTERED]')
+            ->assertDontSee('client-token')
+            ->assertDontSee('client-auth')
+            ->assertDontSee('client-cookie')
+            ->assertDontSee('client-session')
+            ->assertDontSee('client-bearer')
+            ->assertDontSee('client-password')
+            ->assertDontSee('client-sign');
     }
 
     public function test_client_view_only_admin_cannot_see_unpermitted_related_business_summaries(): void

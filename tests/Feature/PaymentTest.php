@@ -15,6 +15,7 @@ use App\Modules\Order\Models\Host;
 use App\Modules\Order\Models\Order;
 use App\Modules\Order\Services\OrderService;
 use App\Modules\User\Models\Client;
+use App\Plugins\Contracts\PaymentGatewayInterface;
 use App\Plugins\Core\PluginManager;
 use App\Modules\Admin\Models\AdminUser;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -81,6 +82,10 @@ class PaymentTest extends TestCase
                 'success' => true,
                 'pay_url' => 'https://pay.example.com/checkout',
                 'access_token' => 'gateway-token',
+                'authorization' => 'gateway-auth',
+                'cookie' => 'gateway-cookie',
+                'session_id' => 'gateway-session',
+                'bearer_token' => 'gateway-bearer',
                 'signature' => 'gateway-signature',
                 'nested' => [
                     'api_key' => 'gateway-key',
@@ -91,10 +96,18 @@ class PaymentTest extends TestCase
 
         $attempt->refresh();
         $this->assertSame('[FILTERED]', $attempt->result['access_token']);
+        $this->assertSame('[FILTERED]', $attempt->result['authorization']);
+        $this->assertSame('[FILTERED]', $attempt->result['cookie']);
+        $this->assertSame('[FILTERED]', $attempt->result['session_id']);
+        $this->assertSame('[FILTERED]', $attempt->result['bearer_token']);
         $this->assertSame('[FILTERED]', $attempt->result['signature']);
         $this->assertSame('[FILTERED]', $attempt->result['nested']['api_key']);
         $this->assertSame('visible', $attempt->result['nested']['message']);
         $this->assertStringNotContainsString('gateway-token', json_encode($attempt->result));
+        $this->assertStringNotContainsString('gateway-auth', json_encode($attempt->result));
+        $this->assertStringNotContainsString('gateway-cookie', json_encode($attempt->result));
+        $this->assertStringNotContainsString('gateway-session', json_encode($attempt->result));
+        $this->assertStringNotContainsString('gateway-bearer', json_encode($attempt->result));
         $this->assertStringNotContainsString('gateway-signature', json_encode($attempt->result));
         $this->assertStringNotContainsString('gateway-key', json_encode($attempt->result));
     }
@@ -119,15 +132,23 @@ class PaymentTest extends TestCase
             'gateway_trans_id' => 'REFUND-MASK-001',
             'amount' => 88.00,
             'status' => 'failed',
-            'error' => 'gateway error password=plain-secret token:token-value signature=sign-value',
+            'error' => 'gateway error password=plain-secret token:token-value authorization=auth-value cookie:cookie-value session=session-value bearer=bearer-value signature=sign-value',
         ]);
 
         $request->refresh();
         $this->assertStringContainsString('password=[FILTERED]', $request->error);
         $this->assertStringContainsString('token:[FILTERED]', $request->error);
+        $this->assertStringContainsString('authorization=[FILTERED]', $request->error);
+        $this->assertStringContainsString('cookie:[FILTERED]', $request->error);
+        $this->assertStringContainsString('session=[FILTERED]', $request->error);
+        $this->assertStringContainsString('bearer=[FILTERED]', $request->error);
         $this->assertStringContainsString('signature=[FILTERED]', $request->error);
         $this->assertStringNotContainsString('plain-secret', $request->error);
         $this->assertStringNotContainsString('token-value', $request->error);
+        $this->assertStringNotContainsString('auth-value', $request->error);
+        $this->assertStringNotContainsString('cookie-value', $request->error);
+        $this->assertStringNotContainsString('session-value', $request->error);
+        $this->assertStringNotContainsString('bearer-value', $request->error);
         $this->assertStringNotContainsString('sign-value', $request->error);
     }
 
@@ -301,6 +322,32 @@ class PaymentTest extends TestCase
         $this->assertDatabaseMissing('accounts', ['gateway_trans_id' => 'CANCELLED-CALLBACK-1']);
     }
 
+    public function test_order_cancel_expires_pending_payment_attempts(): void
+    {
+        $this->installManualPay();
+        $client = $this->client();
+        $invoice = $this->invoice($client, 100);
+        $order = $this->order($client, $invoice);
+        app(PaymentService::class)->processPayment($invoice, 'manual_pay', []);
+
+        $this->assertDatabaseHas('payment_attempts', [
+            'invoice_id' => $invoice->id,
+            'gateway' => 'manual_pay',
+            'status' => 'pending',
+        ]);
+
+        $this->assertTrue(app(OrderService::class)->cancel($order, '客户取消'));
+
+        $attempt = PaymentAttempt::query()
+            ->where('invoice_id', $invoice->id)
+            ->where('gateway', 'manual_pay')
+            ->firstOrFail();
+        $this->assertSame('expired', $attempt->status);
+        $this->assertSame('Order cancelled', $attempt->result['expired_reason']);
+        $this->assertSame('客户取消', $attempt->result['cancel_reason']);
+        $this->assertTrue(app(PluginManager::class)->disable('manual_pay'));
+    }
+
     public function test_payment_service_rechecks_order_status_inside_transaction(): void
     {
         $this->installManualPay();
@@ -380,6 +427,40 @@ class PaymentTest extends TestCase
         ]]);
     }
 
+    public function test_invoice_generation_rejects_inactive_or_deleted_clients(): void
+    {
+        $inactive = $this->client('invoice-inactive', 'invoice-inactive@example.com');
+        $inactive->update(['status' => 2]);
+
+        try {
+            app(InvoiceService::class)->generate($inactive->fresh(), [[
+                'type' => 'product',
+                'description' => '停用客户账单',
+                'amount' => 100,
+            ]]);
+            $this->fail('Expected invoice generation to reject inactive clients.');
+        } catch (\InvalidArgumentException $exception) {
+            $this->assertSame('客户账号状态不允许生成账单。', $exception->getMessage());
+        }
+
+        $deleted = $this->client('invoice-deleted', 'invoice-deleted@example.com');
+        $deleted->delete();
+
+        try {
+            app(InvoiceService::class)->generateNoPaymentRequired($deleted->fresh(), [[
+                'type' => 'downgrade',
+                'description' => '已删除客户无需付款账单',
+                'amount' => 0,
+            ]]);
+            $this->fail('Expected no-payment invoice generation to reject deleted clients.');
+        } catch (\InvalidArgumentException $exception) {
+            $this->assertSame('客户账号状态不允许生成账单。', $exception->getMessage());
+        }
+
+        $this->assertDatabaseMissing('invoices', ['client_id' => $inactive->id]);
+        $this->assertDatabaseMissing('invoices', ['client_id' => $deleted->id]);
+    }
+
     public function test_invoice_add_item_rejects_amount_above_database_capacity(): void
     {
         $invoice = $this->invoice($this->client(), 100);
@@ -388,6 +469,17 @@ class PaymentTest extends TestCase
         $this->expectExceptionMessage('账单金额超出允许范围');
 
         app(InvoiceService::class)->addItem($invoice, 'product', '超大追加明细', 100000000);
+    }
+
+    public function test_invoice_add_item_rejects_finalized_invoice(): void
+    {
+        $invoice = $this->invoice($this->client(), 100);
+        $invoice->update(['status' => 'Paid']);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('只能给未支付账单追加明细');
+
+        app(InvoiceService::class)->addItem($invoice->fresh(), 'product', '已支付后追加明细', 50);
     }
 
     public function test_no_payment_invoice_allows_only_zero_amount_items(): void
@@ -499,6 +591,96 @@ class PaymentTest extends TestCase
         $this->assertSame('Unpaid', $invoice->fresh()->status);
     }
 
+    public function test_payment_callback_service_rejects_non_paid_status_even_when_gateway_accepts_payload(): void
+    {
+        $this->installManualPay();
+        $invoice = $this->invoice($this->client(), 88.00);
+        app(PaymentService::class)->processPayment($invoice, 'manual_pay', []);
+
+        Facade::clearResolvedInstance('plugin.manager');
+        $this->app->instance('plugin.manager', new class {
+            public function get(string $name): ?PaymentGatewayInterface
+            {
+                return new class implements PaymentGatewayInterface {
+                    public function getName(): string
+                    {
+                        return 'manual_pay';
+                    }
+
+                    public function getTitle(): string
+                    {
+                        return 'Unsafe Test Gateway';
+                    }
+
+                    public function getVersion(): string
+                    {
+                        return '1.0.0';
+                    }
+
+                    public function getType(): string
+                    {
+                        return 'gateway';
+                    }
+
+                    public function install(): bool
+                    {
+                        return true;
+                    }
+
+                    public function uninstall(): bool
+                    {
+                        return true;
+                    }
+
+                    public function getConfig(): array
+                    {
+                        return [];
+                    }
+
+                    public function setConfig(array $config): void
+                    {
+                    }
+
+                    public function pay(array $order): array
+                    {
+                        return ['success' => true];
+                    }
+
+                    public function notify(array $data): bool
+                    {
+                        return true;
+                    }
+
+                    public function refund(string $transId, float $amount): bool
+                    {
+                        return true;
+                    }
+
+                    public function query(string $transId): array
+                    {
+                        return [];
+                    }
+                };
+            }
+        });
+
+        $result = app(PaymentService::class)->handleCallback('manual_pay', [
+            'invoice_id' => $invoice->id,
+            'amount' => 88.00,
+            'status' => 'failed',
+            'trans_id' => 'MANUAL-FAILED-STATUS',
+        ]);
+
+        $this->assertFalse($result);
+        $this->assertSame('Unpaid', $invoice->fresh()->status);
+        $this->assertDatabaseMissing('accounts', ['gateway_trans_id' => 'MANUAL-FAILED-STATUS']);
+        $this->assertDatabaseHas('payment_attempts', [
+            'invoice_id' => $invoice->id,
+            'gateway' => 'manual_pay',
+            'status' => 'pending',
+        ]);
+    }
+
     public function test_payment_callback_rejects_without_pending_payment_attempt(): void
     {
         $this->installManualPay();
@@ -549,6 +731,29 @@ class PaymentTest extends TestCase
             'invoice_id' => $invoice->id,
             'amount' => 88.00,
             'status' => 'paid',
+        ]);
+
+        $this->assertFalse($result);
+        $this->assertSame('Unpaid', $invoice->fresh()->status);
+        $this->assertDatabaseMissing('accounts', ['invoice_id' => $invoice->id]);
+        $this->assertDatabaseHas('payment_attempts', [
+            'invoice_id' => $invoice->id,
+            'gateway' => 'manual_pay',
+            'status' => 'pending',
+        ]);
+    }
+
+    public function test_payment_callback_rejects_array_transaction_id_without_server_error(): void
+    {
+        $this->installManualPay();
+        $invoice = $this->invoice($this->client(), 88.00);
+        app(PaymentService::class)->processPayment($invoice, 'manual_pay', []);
+
+        $result = app(PaymentService::class)->handleCallback('manual_pay', [
+            'invoice_id' => $invoice->id,
+            'amount' => 88.00,
+            'status' => 'paid',
+            'trans_id' => ['MANUAL-ARRAY-TRANS-001'],
         ]);
 
         $this->assertFalse($result);
@@ -787,6 +992,33 @@ class PaymentTest extends TestCase
         $this->assertSame('Pending', $pending->fresh()->status);
         $this->assertDatabaseHas('host_action_logs', ['host_id' => $active->id, 'action' => 'terminate']);
         $this->assertDatabaseHas('host_action_logs', ['host_id' => $suspended->id, 'action' => 'terminate']);
+    }
+
+    public function test_full_refund_marks_host_for_manual_review_when_termination_fails(): void
+    {
+        $this->installMockServer(['fail_terminate' => true]);
+        $client = $this->client();
+        $invoice = $this->invoice($client, 100);
+        $invoice->update(['status' => 'Paid']);
+        $order = $this->order($client, $invoice);
+        $order->update(['status' => 'Paid']);
+        $host = $this->host($client, $order, ['status' => 'Active']);
+        $host->product->update(['server_type' => 'mock_server']);
+
+        $this->assertTrue(app(InvoiceService::class)->refund($invoice->fresh(), 100));
+
+        $this->assertSame('Active', $host->fresh()->status);
+        $this->assertStringContainsString('全额退款后服务终止失败，请人工处理', (string) $host->fresh()->admin_notes);
+        $this->assertDatabaseHas('host_action_logs', [
+            'host_id' => $host->id,
+            'action' => 'terminate_failed',
+            'message' => '服务器模块终止失败',
+        ]);
+        $this->assertDatabaseHas('host_action_logs', [
+            'host_id' => $host->id,
+            'action' => 'refund_termination_pending',
+            'message' => '全额退款后服务终止失败，请人工处理',
+        ]);
     }
 
     public function test_payment_refund_does_not_mark_account_when_invoice_refund_fails(): void
@@ -1429,6 +1661,14 @@ class PaymentTest extends TestCase
                 'bank_name' => '测试银行',
             ],
         ]);
+    }
+
+    private function installMockServer(array $config = []): void
+    {
+        $manager = app(PluginManager::class);
+        $manager->install('server', 'mock_server');
+        $manager->enable('mock_server');
+        Plugin::query()->where('name', 'mock_server')->update(['config' => $config]);
     }
 
     private function superAdmin(): AdminUser

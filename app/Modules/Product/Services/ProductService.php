@@ -2,10 +2,13 @@
 
 namespace App\Modules\Product\Services;
 
+use App\Models\Plugin;
 use App\Modules\Product\Models\Pricing;
 use App\Modules\Product\Models\Product;
+use App\Modules\Product\Models\ProductGroup;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 
 class ProductService
 {
@@ -15,7 +18,7 @@ class ProductService
     public function create(array $data): Product
     {
         return DB::transaction(function () use ($data) {
-            return Product::create($data);
+            return Product::create($this->normalizeProductPayload($data));
         });
     }
 
@@ -25,7 +28,7 @@ class ProductService
     public function update(Product $product, array $data): bool
     {
         return DB::transaction(function () use ($product, $data) {
-            return $product->update($data);
+            return $product->update($this->normalizeProductPayload($data, $product));
         });
     }
 
@@ -126,5 +129,70 @@ class ProductService
             ->orderBy('sort_order')
             ->orderBy('id')
             ->get();
+    }
+
+    private function normalizeProductPayload(array $data, ?Product $product = null): array
+    {
+        if (!$product && empty($data['group_id'])) {
+            throw new InvalidArgumentException('产品分组不能为空。');
+        }
+
+        if (array_key_exists('group_id', $data) && !ProductGroup::query()->whereKey((int) $data['group_id'])->exists()) {
+            throw new InvalidArgumentException('产品分组不存在。');
+        }
+
+        if (!$product && trim((string) ($data['name'] ?? '')) === '') {
+            throw new InvalidArgumentException('产品名称不能为空。');
+        }
+
+        if (!$product && trim((string) ($data['type'] ?? '')) === '') {
+            throw new InvalidArgumentException('产品类型不能为空。');
+        }
+
+        if (array_key_exists('stock_qty', $data)) {
+            if (!is_numeric($data['stock_qty']) || (int) $data['stock_qty'] < 0) {
+                throw new InvalidArgumentException('产品库存不能为负数。');
+            }
+
+            $data['stock_qty'] = (int) $data['stock_qty'];
+        }
+
+        foreach (['stock_control', 'hidden', 'retired', 'is_featured'] as $field) {
+            if (array_key_exists($field, $data)) {
+                $data[$field] = filter_var($data[$field], FILTER_VALIDATE_BOOLEAN);
+            }
+        }
+
+        if (array_key_exists('server_type', $data)) {
+            $data['server_type'] = $this->normalizeServerType($data['server_type'], $product);
+        }
+
+        return $data;
+    }
+
+    private function normalizeServerType(mixed $serverType, ?Product $product): ?string
+    {
+        $serverType = trim((string) $serverType);
+        if ($serverType === '') {
+            return null;
+        }
+
+        $exists = Plugin::query()
+            ->where('type', 'server')
+            ->where('name', $serverType)
+            ->where(function ($query) use ($serverType, $product) {
+                $query->where('status', 1);
+
+                if ($product && (string) $product->server_type === $serverType) {
+                    $query->orWhere('name', $serverType);
+                }
+            })
+            ->exists();
+
+        if (!$exists) {
+            throw new InvalidArgumentException('服务器模块不可用。');
+        }
+
+        return $serverType;
     }
 }
