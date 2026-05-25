@@ -54,7 +54,8 @@ class InvoiceService
                     (string) ($item['type'] ?? 'product'),
                     (string) ($item['description'] ?? ''),
                     (float) ($item['amount'] ?? 0),
-                    (int) ($item['rel_id'] ?? 0)
+                    (int) ($item['rel_id'] ?? 0),
+                    is_array($item['meta'] ?? null) ? $item['meta'] : null
                 );
             }
 
@@ -98,7 +99,8 @@ class InvoiceService
                     (string) ($item['type'] ?? 'adjustment'),
                     (string) ($item['description'] ?? ''),
                     0,
-                    (int) ($item['rel_id'] ?? 0)
+                    (int) ($item['rel_id'] ?? 0),
+                    is_array($item['meta'] ?? null) ? $item['meta'] : null
                 );
             }
 
@@ -114,9 +116,10 @@ class InvoiceService
         string $type,
         string $description,
         float $amount,
-        int $relId = 0
+        int $relId = 0,
+        ?array $meta = null
     ): InvoiceItem {
-        return DB::transaction(function () use ($invoice, $type, $description, $amount, $relId) {
+        return DB::transaction(function () use ($invoice, $type, $description, $amount, $relId, $meta) {
             $this->assertAmountFitsStorage($amount);
 
             $item = InvoiceItem::create([
@@ -125,6 +128,7 @@ class InvoiceService
                 'description' => $description,
                 'amount' => round($amount, 2),
                 'rel_id' => $relId,
+                'meta' => $meta,
             ]);
 
             $this->recalculateTotals($invoice);
