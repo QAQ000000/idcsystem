@@ -32,6 +32,7 @@ class AdminPermissionSeeder extends Seeder
             'order.view',
             'order.approve',
             'order.cancel',
+            'promo.manage',
             'host.view',
             'host.manage',
             'invoice.view',

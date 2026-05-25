@@ -12,6 +12,7 @@ use App\Http\Controllers\Admin\HostController;
 use App\Http\Controllers\Admin\InvoiceController;
 use App\Http\Controllers\Admin\InvoiceReceiptController;
 use App\Http\Controllers\Admin\OrderController;
+use App\Http\Controllers\Admin\PromoCodeController;
 use App\Http\Controllers\Admin\NotificationCenterController;
 use App\Http\Controllers\Admin\PluginController;
 use App\Http\Controllers\Admin\ProductController;
@@ -133,6 +134,13 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::resource('orders', OrderController::class)
         ->only(['index', 'show'])
         ->middleware('admin.permission:order.view');
+
+    Route::post('/promo-codes/{promoCode}/toggle', [PromoCodeController::class, 'toggle'])
+        ->middleware('admin.permission:promo.manage')
+        ->name('promo-codes.toggle');
+    Route::resource('promo-codes', PromoCodeController::class)
+        ->except(['show'])
+        ->middleware('admin.permission:promo.manage');
 
     Route::post('/hosts/{host}/action', [HostController::class, 'action'])
         ->middleware('admin.permission:host.manage')

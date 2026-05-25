@@ -29,6 +29,9 @@
                     @if ($canAdmin('order.view'))
                         <a href="{{ route('admin.orders.index') }}">订单</a>
                     @endif
+                    @if ($canAdmin('promo.manage'))
+                        <a href="{{ route('admin.promo-codes.index') }}">优惠码</a>
+                    @endif
                     @if ($canAdmin('invoice.view'))
                         <a href="{{ route('admin.invoices.index') }}">账单</a>
                         <a href="{{ route('admin.invoice-receipts.index') }}">发票申请</a>
