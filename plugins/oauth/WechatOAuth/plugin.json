@@ -1,0 +1,16 @@
+{
+  "name": "wechat_oauth",
+  "title": "微信登录",
+  "type": "oauth",
+  "version": "1.0.0",
+  "author": "系统内置",
+  "description": "通过微信 OAuth 网页授权登录客户中心",
+  "entry": "Plugins\\Oauth\\WechatOAuth\\src\\WechatOAuthPlugin",
+  "config_schema": [
+    {"key": "app_id", "label": "微信 AppID", "type": "text"},
+    {"key": "app_secret", "label": "微信 AppSecret", "type": "password"},
+    {"key": "scope", "label": "授权范围", "type": "text", "placeholder": "snsapi_login"},
+    {"key": "redirect_url", "label": "回调地址", "type": "text"},
+    {"key": "mock_user", "label": "测试用户 JSON", "type": "textarea"}
+  ]
+}

@@ -28,6 +28,8 @@ Route::get('/login/2fa', [AuthController::class, 'showTwoFactorForm'])->name('cl
 Route::post('/login/2fa/verify', [AuthController::class, 'verifyTwoFactor'])->middleware('throttle:10,1')->name('client.login.2fa.verify');
 Route::get('/register', [AuthController::class, 'showRegisterForm'])->name('client.register');
 Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:5,1')->name('client.register.store');
+Route::get('/oauth/wechat', [AuthController::class, 'redirectToWechatOAuth'])->middleware('throttle:10,1')->name('oauth.wechat.redirect');
+Route::get('/oauth/wechat/callback', [AuthController::class, 'handleWechatOAuthCallback'])->middleware('throttle:10,1')->name('oauth.wechat.callback');
 Route::post('/logout', [AuthController::class, 'logout'])->name('client.logout');
 Route::get('/email/verify', [AuthController::class, 'verificationNotice'])
     ->middleware('auth:client')

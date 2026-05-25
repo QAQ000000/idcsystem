@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Schema;
 
 class PluginManager
 {
-    private const VALID_TYPES = ['gateway', 'email', 'sms', 'server'];
+    private const VALID_TYPES = ['gateway', 'email', 'sms', 'server', 'oauth', 'captcha', 'certification'];
     private const SAFE_NAME_PATTERN = '/^[A-Za-z0-9_-]+$/';
 
     protected array $plugins = [];
@@ -391,6 +391,13 @@ class PluginManager
         $studlyPath = $typePath . DIRECTORY_SEPARATOR . $this->studly($name);
         if (File::exists($studlyPath)) {
             return $studlyPath;
+        }
+
+        foreach (File::directories($typePath) as $directory) {
+            $manifestPath = $directory . DIRECTORY_SEPARATOR . 'plugin.json';
+            if (File::exists($manifestPath) && ($this->readManifest($manifestPath)['name'] ?? null) === $name) {
+                return $directory;
+            }
         }
 
         return $typePath . DIRECTORY_SEPARATOR . $name;

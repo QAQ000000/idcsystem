@@ -11,6 +11,8 @@ use App\Modules\Ticket\Models\Ticket;
 use App\Modules\Ticket\Models\TicketDepartment;
 use App\Modules\Ticket\Models\TicketStatus;
 use App\Modules\User\Models\Client;
+use App\Models\Plugin;
+use App\Plugins\Core\PluginManager;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\URL;
@@ -214,6 +216,66 @@ class AuthWorkflowTest extends TestCase
         $this->assertContains('throttle:5,1', \Illuminate\Support\Facades\Route::getRoutes()->getByName('client.register.store')->middleware());
     }
 
+    public function test_wechat_oauth_plugin_can_be_scanned_installed_and_enabled(): void
+    {
+        $manager = app(PluginManager::class);
+        $scan = collect($manager->scan('oauth'));
+
+        $this->assertTrue($scan->contains(fn (array $plugin) => $plugin['name'] === 'wechat_oauth'));
+        $this->assertTrue($manager->install('oauth', 'wechat_oauth'));
+        $this->assertDatabaseHas('plugins', ['name' => 'wechat_oauth', 'type' => 'oauth', 'status' => 0]);
+        $this->assertTrue($manager->enable('wechat_oauth'));
+        $this->assertDatabaseHas('plugins', ['name' => 'wechat_oauth', 'status' => 1]);
+    }
+
+    public function test_login_page_shows_wechat_oauth_entry(): void
+    {
+        $this->get(route('client.login'))
+            ->assertOk()
+            ->assertSee(route('oauth.wechat.redirect'), false)
+            ->assertSee('微信登录');
+    }
+
+    public function test_wechat_oauth_callback_creates_client_and_logs_in(): void
+    {
+        $this->installWechatOauth([
+            'mock_user' => json_encode([
+                'openid' => 'wechat-openid-001',
+                'unionid' => 'wechat-unionid-001',
+                'nickname' => 'Wechat User',
+                'email' => 'wechat-user@example.com',
+            ], JSON_UNESCAPED_UNICODE),
+        ]);
+
+        $this->withSession(['oauth_wechat_state' => 'state-ok'])
+            ->get(route('oauth.wechat.callback', ['code' => 'mock-code', 'state' => 'state-ok']))
+            ->assertRedirect(route('client.dashboard'));
+
+        $this->assertAuthenticated('client');
+        $this->assertDatabaseHas('clients', [
+            'email' => 'wechat-user@example.com',
+            'status' => 1,
+        ]);
+        $clientId = Client::query()->where('email', 'wechat-user@example.com')->value('id');
+        $this->assertDatabaseHas('client_oauth', [
+            'client_id' => $clientId,
+            'provider' => 'wechat',
+            'provider_user_id' => 'wechat-openid-001',
+        ]);
+    }
+
+    public function test_wechat_oauth_callback_rejects_invalid_state(): void
+    {
+        $this->installWechatOauth();
+
+        $this->withSession(['oauth_wechat_state' => 'state-ok'])
+            ->get(route('oauth.wechat.callback', ['code' => 'mock-code', 'state' => 'wrong']))
+            ->assertRedirect(route('client.login'));
+
+        $this->assertGuest('client');
+        $this->assertDatabaseMissing('client_oauth', ['provider' => 'wechat']);
+    }
+
     public function test_admin_product_pricing_page_uses_selected_currency(): void
     {
         $this->seed();
@@ -354,6 +416,25 @@ class AuthWorkflowTest extends TestCase
         ]);
 
         return $product;
+    }
+
+    private function installWechatOauth(array $config = []): void
+    {
+        $manager = app(PluginManager::class);
+        $manager->install('oauth', 'wechat_oauth');
+        $manager->enable('wechat_oauth');
+        Plugin::query()->where('name', 'wechat_oauth')->update([
+            'config' => $config + [
+                'app_id' => 'wx-oauth-app',
+                'app_secret' => 'secret',
+                'scope' => 'snsapi_login',
+                'redirect_url' => route('oauth.wechat.callback'),
+                'mock_user' => json_encode([
+                    'openid' => 'wechat-openid-default',
+                    'nickname' => 'Wechat User',
+                ], JSON_UNESCAPED_UNICODE),
+            ],
+        ]);
     }
 
     private function createClientTicket(Client $client): Ticket

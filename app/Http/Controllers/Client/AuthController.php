@@ -6,8 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Modules\User\Models\Client;
 use App\Modules\User\Services\AuthService;
 use App\Modules\User\Services\TwoFactorService;
+use App\Plugins\Facades\Plugin;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
+use Plugins\Oauth\WechatOAuth\src\WechatOAuthPlugin;
 
 class AuthController extends Controller
 {
@@ -85,6 +88,41 @@ class AuthController extends Controller
     public function showRegisterForm()
     {
         return view('client.auth.register');
+    }
+
+    public function redirectToWechatOAuth(Request $request)
+    {
+        $plugin = Plugin::type('oauth')->get('wechat_oauth');
+        if (!$plugin instanceof WechatOAuthPlugin) {
+            return redirect()->route('client.login')->with('error', '微信登录暂不可用。');
+        }
+
+        $state = Str::random(40);
+        $request->session()->put('oauth_wechat_state', $state);
+
+        return redirect()->away($plugin->getAuthUrl($state));
+    }
+
+    public function handleWechatOAuthCallback(Request $request, AuthService $auth)
+    {
+        $plugin = Plugin::type('oauth')->get('wechat_oauth');
+        $state = (string) $request->query('state', '');
+        if (!$plugin instanceof WechatOAuthPlugin || $state === '' || !hash_equals((string) $request->session()->pull('oauth_wechat_state'), $state)) {
+            return redirect()->route('client.login')->withErrors(['email' => '微信登录状态已失效，请重试。']);
+        }
+
+        try {
+            $token = $plugin->getAccessToken((string) $request->query('code', ''));
+            $client = $auth->loginWithOAuth('wechat', $plugin->getUserInfo((string) ($token['access_token'] ?? '')) + $token);
+        } catch (\Throwable $exception) {
+            return redirect()->route('client.login')->withErrors(['email' => $exception->getMessage() ?: '微信登录失败。']);
+        }
+
+        Auth::guard('client')->login($client);
+        $request->session()->regenerate();
+        $auth->recordLogin($client);
+
+        return redirect()->route('client.dashboard');
     }
 
     public function register(Request $request, AuthService $auth)
