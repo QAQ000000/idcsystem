@@ -5,5 +5,12 @@
   "version": "1.0.0",
   "author": "IDC System",
   "description": "内置线下转账支付插件，用于人工确认收款。",
-  "entry": "ManualPayPlugin"
+  "entry": "ManualPayPlugin",
+  "config_schema": [
+    {"key": "instructions", "label": "付款说明", "type": "textarea"},
+    {"key": "bank_name", "label": "开户银行", "type": "text"},
+    {"key": "account_name", "label": "收款户名", "type": "text"},
+    {"key": "account_number", "label": "收款账号", "type": "text"},
+    {"key": "notes", "label": "备注", "type": "textarea"}
+  ]
 }

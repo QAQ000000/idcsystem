@@ -2,6 +2,7 @@
 
 namespace App\Modules\Product\Services;
 
+use App\Modules\Product\Models\Pricing;
 use App\Modules\Product\Models\Product;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -34,6 +35,20 @@ class ProductService
     public function delete(Product $product): bool
     {
         return DB::transaction(function () use ($product) {
+            if ($product->hosts()->exists()) {
+                return false;
+            }
+
+            Pricing::query()
+                ->where('type', 'product')
+                ->where('rel_id', $product->id)
+                ->delete();
+
+            DB::table('custom_fields')
+                ->where('type', 'product')
+                ->where('rel_id', $product->id)
+                ->delete();
+
             return (bool) $product->delete();
         });
     }

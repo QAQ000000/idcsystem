@@ -30,6 +30,9 @@ Route::post('/logout', [AuthController::class, 'logout'])->name('client.logout')
 
 Route::get('/products', [ProductController::class, 'index'])->name('client.products.index');
 Route::get('/products/{product}', [ProductController::class, 'show'])->name('client.products.show');
+Route::post('/payment/{gateway}/callback', [InvoiceController::class, 'callback'])
+    ->middleware('throttle:60,1')
+    ->name('payment.callback');
 
 Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.status'])->group(function (): void {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
@@ -40,7 +43,7 @@ Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.sta
 
     Route::get('/cart', [CartController::class, 'index'])->name('cart.index');
     Route::post('/cart', [CartController::class, 'add'])->name('cart.add');
-    Route::delete('/cart/{itemId}', [CartController::class, 'remove'])->name('cart.remove');
+    Route::delete('/cart/{itemId}', [CartController::class, 'remove'])->whereNumber('itemId')->name('cart.remove');
     Route::post('/cart/checkout', [CartController::class, 'checkout'])->name('cart.checkout');
 
     Route::get('/hosts', [HostController::class, 'index'])->name('hosts.index');

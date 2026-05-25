@@ -35,3 +35,21 @@ Artisan::command('host:send-due-reminders {--days=7}', function () {
     $this->info($task->output ?: 'Host due reminders completed');
     return 0;
 })->purpose('Send host due reminder notifications');
+
+Artisan::command('notifications:recover-stale {--minutes=15}', function () {
+    $minutes = max(1, (int) $this->option('minutes'));
+    $task = app(\App\Services\SystemTaskService::class)->run('notifications:recover-stale', function () use ($minutes) {
+        return [
+            'email' => app(\App\Services\MailService::class)->recoverStaleProcessing($minutes),
+            'sms' => app(\App\Services\SmsService::class)->recoverStaleProcessing($minutes),
+        ];
+    });
+
+    if ($task->status === 'failed') {
+        $this->error($task->error ?: 'Notification recovery failed');
+        return 1;
+    }
+
+    $this->info($task->output ?: 'Notification recovery completed');
+    return 0;
+})->purpose('Recover stale notification logs stuck in processing status');

@@ -12,12 +12,14 @@ use App\Modules\Finance\Models\Currency;
 use App\Modules\Finance\Services\InvoiceService;
 use App\Modules\User\Models\Client;
 use App\Plugins\Core\PluginManager;
+use App\Services\NotificationService;
 use App\Services\SettingsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Spatie\Permission\Models\Role;
+use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 class NotificationTest extends TestCase
@@ -55,6 +57,42 @@ class NotificationTest extends TestCase
             ->assertRedirect(route('admin.sms-templates.index'));
 
         $this->assertSame('短信账单 {{invoice_number}}', $template->fresh()->content);
+    }
+
+    public function test_admin_email_template_edit_ignores_array_old_input_values(): void
+    {
+        $admin = $this->admin();
+        $this->seed(\Database\Seeders\EmailTemplateSeeder::class);
+        $template = EmailTemplate::query()->where('name', 'invoice_created')->firstOrFail();
+
+        session()->flashInput([
+            'subject' => ['polluted'],
+            'body' => ['polluted'],
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.email-templates.edit', $template))
+            ->assertOk()
+            ->assertSee($template->subject)
+            ->assertSee($template->body)
+            ->assertDontSee('polluted');
+    }
+
+    public function test_admin_sms_template_edit_ignores_array_old_input_values(): void
+    {
+        $admin = $this->admin();
+        $this->seed(\Database\Seeders\SmsTemplateSeeder::class);
+        $template = SmsTemplate::query()->where('name', 'invoice_created')->firstOrFail();
+
+        session()->flashInput([
+            'content' => ['polluted'],
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.sms-templates.edit', $template))
+            ->assertOk()
+            ->assertSee($template->content)
+            ->assertDontSee('polluted');
     }
 
     public function test_disabled_templates_do_not_send_notifications(): void
@@ -133,6 +171,41 @@ class NotificationTest extends TestCase
             ->assertOk();
     }
 
+    public function test_non_notification_admin_cannot_view_notification_logs_or_templates(): void
+    {
+        $admin = AdminUser::query()->create([
+            'username' => 'notify-limited',
+            'email' => 'notify-limited@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 1,
+        ]);
+        Role::query()->firstOrCreate(['name' => 'support-admin', 'guard_name' => 'web']);
+        $admin->syncRoles(['support-admin']);
+        $emailLog = EmailLog::query()->create([
+            'to' => 'client@example.com',
+            'subject' => '敏感邮件',
+            'body' => '邮件内容',
+            'status' => 'failed',
+            'success' => false,
+            'attempts' => 0,
+        ]);
+        $smsLog = SmsLog::query()->create([
+            'phone' => '13800138100',
+            'content' => '短信内容',
+            'status' => 'failed',
+            'success' => false,
+            'attempts' => 0,
+        ]);
+
+        $this->actingAs($admin, 'admin')->get(route('admin.notifications.index'))->assertForbidden();
+        $this->actingAs($admin, 'admin')->get(route('admin.email-logs.index'))->assertForbidden();
+        $this->actingAs($admin, 'admin')->get(route('admin.email-logs.show', $emailLog))->assertForbidden();
+        $this->actingAs($admin, 'admin')->get(route('admin.sms-logs.index'))->assertForbidden();
+        $this->actingAs($admin, 'admin')->get(route('admin.sms-logs.show', $smsLog))->assertForbidden();
+        $this->actingAs($admin, 'admin')->get(route('admin.email-templates.index'))->assertForbidden();
+        $this->actingAs($admin, 'admin')->get(route('admin.sms-templates.index'))->assertForbidden();
+    }
+
     public function test_notification_center_recovers_from_legacy_collection_settings_cache(): void
     {
         $admin = $this->admin();
@@ -145,6 +218,74 @@ class NotificationTest extends TestCase
             ->assertSee('关闭');
 
         $this->assertIsArray(Cache::get('system:settings'));
+    }
+
+    public function test_notification_center_falls_back_when_policy_setting_is_not_scalar(): void
+    {
+        $admin = $this->admin();
+        \App\Models\Setting::query()->create([
+            'key' => 'notify_invoice_created_mail',
+            'value' => json_encode(['bad' => 'value']),
+            'group' => 'notification',
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.notifications.index'))
+            ->assertOk()
+            ->assertSee('账单生成')
+            ->assertSee('启用');
+    }
+
+    public function test_notification_center_hides_template_and_setting_links_without_permissions(): void
+    {
+        $admin = AdminUser::query()->create([
+            'username' => 'notify-manage-only',
+            'email' => 'notify-manage-only@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 1,
+        ]);
+        $role = Role::query()->firstOrCreate(['name' => 'notification-manager', 'guard_name' => 'web']);
+        $permission = Permission::query()->firstOrCreate(['name' => 'notification.manage', 'guard_name' => 'web']);
+        $role->givePermissionTo($permission);
+        $admin->syncRoles([$role]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.notifications.index'))
+            ->assertOk()
+            ->assertSee('邮件日志')
+            ->assertSee('短信日志')
+            ->assertDontSee('邮件模板')
+            ->assertDontSee('短信模板')
+            ->assertDontSee('修改设置');
+    }
+
+    public function test_notifications_skip_inactive_and_deleted_clients(): void
+    {
+        Mail::fake();
+        $this->seed(\Database\Seeders\EmailTemplateSeeder::class);
+        $this->seed(\Database\Seeders\SmsTemplateSeeder::class);
+        $this->installSmtp();
+        $this->installSms();
+        $inactive = $this->client('notify-inactive', 'notify-inactive@example.com', '13800138101');
+        $inactive->update(['status' => 2]);
+        $deleted = $this->client('notify-deleted', 'notify-deleted@example.com', '13800138102');
+        $deleted->delete();
+
+        $inactiveResult = app(NotificationService::class)->notifyClient($inactive->fresh(), 'invoice_created', [
+            'client_name' => $inactive->username,
+            'invoice_number' => 'INV-INACTIVE',
+            'amount' => 100,
+        ]);
+        $deletedResult = app(NotificationService::class)->notifyClient(Client::withTrashed()->findOrFail($deleted->id), 'invoice_created', [
+            'client_name' => $deleted->username,
+            'invoice_number' => 'INV-DELETED',
+            'amount' => 100,
+        ]);
+
+        $this->assertSame('客户账号未启用或已删除，跳过通知。', $inactiveResult['errors']['client']);
+        $this->assertSame('客户账号未启用或已删除，跳过通知。', $deletedResult['errors']['client']);
+        $this->assertSame(0, EmailLog::query()->count());
+        $this->assertSame(0, SmsLog::query()->count());
     }
 
     private function installSmtp(): void
@@ -163,7 +304,11 @@ class NotificationTest extends TestCase
         Plugin::query()->where('name', 'aliyun')->update(['config' => ['mock' => true]]);
     }
 
-    private function client(): Client
+    private function client(
+        string $username = 'notify-client',
+        string $email = 'notify-client@example.com',
+        string $phone = '13800138100'
+    ): Client
     {
         Currency::query()->firstOrCreate(
             ['code' => 'CNY'],
@@ -171,13 +316,13 @@ class NotificationTest extends TestCase
         );
 
         return Client::query()->create([
-            'username' => 'notify-client',
-            'email' => 'notify-client@example.com',
+            'username' => $username,
+            'email' => $email,
             'password' => Hash::make('client123456'),
             'status' => 1,
             'currency_id' => 1,
             'phone_code' => '86',
-            'phone' => '13800138100',
+            'phone' => $phone,
         ]);
     }
 

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
+use App\Modules\User\Models\Client;
 use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -21,7 +22,6 @@ class AccountController extends Controller
     {
         $client = Auth::guard('client')->user();
         $data = $request->validate([
-            'username' => ['required', 'string', 'max:50', 'unique:clients,username,' . $client->id],
             'company_name' => ['nullable', 'string', 'max:100'],
             'phone_code' => ['nullable', 'string', 'max:10'],
             'phone' => ['nullable', 'string', 'max:50'],
@@ -54,14 +54,15 @@ class AccountController extends Controller
             'password' => ['required', 'string', 'min:8', 'confirmed'],
         ]);
 
-        if (!Hash::check($data['current_password'], $client->password)) {
+        $freshClient = Client::query()->whereKey($client->id)->first();
+        if (!$freshClient || !$freshClient->isActive() || !Hash::check($data['current_password'], $freshClient->password)) {
             return back()->withErrors(['current_password' => '当前密码不正确。']);
         }
 
-        $client->update(['password' => Hash::make($data['password'])]);
+        $freshClient->update(['password' => Hash::make($data['password'])]);
 
-        app(NotificationService::class)->notifyClient($client, 'password_changed', [
-            'client_name' => $client->username,
+        app(NotificationService::class)->notifyClient($freshClient, 'password_changed', [
+            'client_name' => $freshClient->username,
         ]);
 
         return redirect()->route('client.account.security')->with('status', '密码已修改，当前会话保持登录');

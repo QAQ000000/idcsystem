@@ -8,6 +8,8 @@ use Illuminate\Support\Facades\DB;
 
 class ClientService
 {
+    public const BLOCKING_HOST_STATUSES = ['Pending', 'Active', 'Suspended'];
+
     public function create(array $data): Client
     {
         $data['password'] = Hash::make($data['password']);
@@ -39,6 +41,25 @@ class ClientService
         return $client->update(['status' => 2]);
     }
 
+    public function hasBlockingHosts(Client $client): bool
+    {
+        return $client->hosts()
+            ->whereIn('status', self::BLOCKING_HOST_STATUSES)
+            ->exists();
+    }
+
+    public function delete(Client $client): bool
+    {
+        return DB::transaction(function () use ($client) {
+            $lockedClient = Client::query()->whereKey($client->id)->lockForUpdate()->first();
+            if (!$lockedClient || $this->hasBlockingHosts($lockedClient)) {
+                return false;
+            }
+
+            return (bool) $lockedClient->delete();
+        });
+    }
+
     public function addCredit(Client $client, float $amount, string $description = ''): bool
     {
         if ($amount <= 0) {
@@ -46,13 +67,19 @@ class ClientService
         }
 
         return DB::transaction(function () use ($client, $amount, $description) {
-            $client->increment('credit', $amount);
+            $lockedClient = Client::query()->whereKey($client->id)->lockForUpdate()->first();
+            if (!$lockedClient || !$this->canAdjustCredit($lockedClient)) {
+                return false;
+            }
+
+            $lockedClient->increment('credit', $amount);
+            $lockedClient->refresh();
 
             \App\Modules\Finance\Models\Credit::create([
-                'client_id'   => $client->id,
+                'client_id'   => $lockedClient->id,
                 'type'        => 'add',
                 'amount'      => $amount,
-                'balance'     => $client->fresh()->credit,
+                'balance'     => $lockedClient->credit,
                 'description' => $description,
             ]);
 
@@ -62,22 +89,33 @@ class ClientService
 
     public function deductCredit(Client $client, float $amount, string $description = ''): bool
     {
-        if ($amount <= 0 || !$client->hasEnoughCredit($amount)) {
+        if ($amount <= 0) {
             return false;
         }
 
         return DB::transaction(function () use ($client, $amount, $description) {
-            $client->decrement('credit', $amount);
+            $lockedClient = Client::query()->whereKey($client->id)->lockForUpdate()->first();
+            if (!$lockedClient || !$this->canAdjustCredit($lockedClient) || !$lockedClient->hasEnoughCredit($amount)) {
+                return false;
+            }
+
+            $lockedClient->decrement('credit', $amount);
+            $lockedClient->refresh();
 
             \App\Modules\Finance\Models\Credit::create([
-                'client_id'   => $client->id,
+                'client_id'   => $lockedClient->id,
                 'type'        => 'deduct',
                 'amount'      => $amount,
-                'balance'     => $client->fresh()->credit,
+                'balance'     => $lockedClient->credit,
                 'description' => $description,
             ]);
 
             return true;
         });
+    }
+
+    private function canAdjustCredit(Client $client): bool
+    {
+        return !$client->trashed() && $client->isActive();
     }
 }

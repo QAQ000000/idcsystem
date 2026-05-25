@@ -6,9 +6,11 @@ use App\Modules\Finance\Services\InvoiceService;
 use App\Modules\Order\Models\Order;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Services\PricingService;
+use App\Modules\Product\Services\ProductService;
 use App\Modules\User\Models\Client;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 class OrderService
 {
@@ -28,24 +30,35 @@ class OrderService
     public function create(Client $client, array $items): Order
     {
         return DB::transaction(function () use ($client, $items) {
-            $totals = $this->calculateTotal($items);
+            $lockedClient = Client::query()->whereKey($client->id)->lockForUpdate()->first();
+            if (!$lockedClient || $lockedClient->trashed() || !$lockedClient->isActive()) {
+                throw new RuntimeException('客户账号状态不允许创建订单。');
+            }
+
+            $this->assertOrderItemsPurchasable($items);
+
+            $totals = $this->calculateTotalForClient($items, null, $lockedClient);
             $order = Order::create([
-                'client_id' => $client->id,
+                'client_id' => $lockedClient->id,
                 'order_number' => $this->nextOrderNumber(),
                 'status' => 'Pending',
                 'amount' => $totals['total'],
-                'currency_id' => (int) ($totals['currency_id'] ?? $client->currency_id ?? 1),
+                'currency_id' => (int) ($totals['currency_id'] ?? $lockedClient->currency_id ?? 1),
                 'promo_code' => $totals['promo_code'],
                 'promo_value' => $totals['discount'],
             ]);
 
-            $invoice = $this->invoiceService->generate($client, $totals['invoice_items']);
+            $invoice = $this->invoiceService->generate($lockedClient, $totals['invoice_items']);
             $order->update(['invoice_id' => $invoice->id]);
 
             $hostService = new HostService($this->pricingService, $this->invoiceService);
             foreach ($items as $item) {
                 $product = $this->resolveProduct($item);
-                $hostService->create($order, $product, $item);
+                $quantity = max(1, (int) ($item['qty'] ?? 1));
+
+                for ($i = 0; $i < $quantity; $i++) {
+                    $hostService->create($order, $product, $item);
+                }
             }
 
             return $order->fresh(['hosts']);
@@ -57,6 +70,11 @@ class OrderService
      */
     public function calculateTotal(array $items, ?string $promoCode = null): array
     {
+        return $this->calculateTotalForClient($items, $promoCode);
+    }
+
+    private function calculateTotalForClient(array $items, ?string $promoCode = null, ?Client $client = null): array
+    {
         $subtotal = 0.0;
         $currencyId = null;
         $invoiceItems = [];
@@ -66,9 +84,13 @@ class OrderService
             $billingCycle = (string) ($item['billing_cycle'] ?? 'monthly');
             $quantity = max(1, (int) ($item['qty'] ?? 1));
             $price = $this->pricingService->calculatePrice($product, $billingCycle, $item);
+            if ($price <= 0) {
+                throw new RuntimeException('订单商品价格无效，不能创建订单。');
+            }
+
             $lineTotal = round($price * $quantity, 2);
             $subtotal += $lineTotal;
-            $currencyId ??= (int) ($item['currency_id'] ?? $this->pricingService->defaultCurrencyId());
+            $currencyId ??= (int) ($item['currency_id'] ?? $client?->currency_id ?? $this->pricingService->defaultCurrencyId());
 
             $invoiceItems[] = [
                 'type' => 'product',
@@ -152,10 +174,31 @@ class OrderService
     private function resolveProduct(array $item): Product
     {
         if (($item['product'] ?? null) instanceof Product) {
-            return $item['product'];
+            return Product::query()->findOrFail($item['product']->id);
         }
 
         return Product::query()->findOrFail((int) ($item['product_id'] ?? 0));
+    }
+
+    private function assertOrderItemsPurchasable(array $items): void
+    {
+        if ($items === []) {
+            throw new RuntimeException('订单没有可购买商品。');
+        }
+
+        foreach ($items as $item) {
+            $product = $this->resolveProduct($item);
+            $quantity = max(1, (int) ($item['qty'] ?? 1));
+
+            if (!$this->productService()->isPurchasable($product, $quantity)) {
+                throw new RuntimeException('订单包含不可购买商品。');
+            }
+        }
+    }
+
+    private function productService(): ProductService
+    {
+        return app(ProductService::class);
     }
 
     private function calculatePromoDiscount(float $subtotal, ?string $promoCode): float

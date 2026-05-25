@@ -56,6 +56,7 @@ class HostController extends Controller
         }
 
         abort_unless((int) $host->client_id === (int) $client->id, 403);
+        abort_if(in_array($host->status, ['Terminated', 'Cancelled'], true), 403);
         $data = $request->validate([
             'billing_cycle' => ['nullable', 'string', 'max:50', 'in:' . implode(',', $hosts->availableCycles())],
         ]);
@@ -85,7 +86,13 @@ class HostController extends Controller
             ->where('retired', false)
             ->findOrFail((int) $data['product_id']);
 
-        $invoice = $hosts->createUpgradeInvoice($host->load('product', 'client'), $targetProduct);
+        try {
+            $invoice = $hosts->createUpgradeInvoice($host->load('product', 'client'), $targetProduct);
+        } catch (\RuntimeException $exception) {
+            return redirect()->route('client.hosts.show', $host)->withErrors([
+                'product_id' => $exception->getMessage(),
+            ]);
+        }
 
         return redirect()->route('client.invoices.show', $invoice)->with('status', '升级/降配账单已生成');
     }
@@ -94,13 +101,11 @@ class HostController extends Controller
     {
         $this->authorizeHost($host);
         $data = $request->validate([
-            'action' => ['required', 'string', 'in:provision,suspend,unsuspend,reboot,reset_password,cancel_auto_renew'],
+            'action' => ['required', 'string', 'in:provision,reboot,reset_password,cancel_auto_renew'],
         ]);
 
         $ok = match ($data['action']) {
             'provision' => $this->canSelfProvision($host) ? $hosts->provision($host) : false,
-            'suspend' => $hosts->suspend($host, '客户自助暂停'),
-            'unsuspend' => $hosts->unsuspend($host),
             'reboot' => $hosts->reboot($host),
             'reset_password' => $hosts->resetPassword($host),
             'cancel_auto_renew' => $hosts->cancelAutoRenew($host),
@@ -130,6 +135,6 @@ class HostController extends Controller
 
         // 客户侧只能重试已付款服务的开通，避免未支付订单直接绕过账单流程。
         return $host->order?->status === 'Paid'
-            || $host->order?->invoice?->status === 'Paid';
+            && (!$host->order?->invoice || $host->order->invoice->status === 'Paid');
     }
 }

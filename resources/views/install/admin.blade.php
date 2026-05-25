@@ -3,7 +3,7 @@
 @section('title', '管理员配置')
 
 @section('content')
-    <form method="post" action="{{ route('install.admin.save') }}" class="rounded bg-white p-6 shadow-sm">
+    <form method="post" action="{{ route('install.admin.save') }}" class="rounded bg-white p-6 shadow-sm" data-prevent-double-submit>
         @csrf
         <div class="grid gap-4 md:grid-cols-2">
             <label class="block text-sm">
@@ -31,7 +31,7 @@
 
         <div class="mt-6 flex justify-between">
             <a class="rounded border px-4 py-2" href="{{ route('install.database') }}">返回数据库配置</a>
-            <button class="rounded bg-slate-900 px-4 py-2 text-white">完成安装</button>
+            <button data-submit-button data-loading-text="正在完成..." class="rounded bg-slate-900 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-70">完成安装</button>
         </div>
     </form>
 @endsection

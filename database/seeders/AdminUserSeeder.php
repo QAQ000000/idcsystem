@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Modules\Admin\Models\AdminUser;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
+use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
 class AdminUserSeeder extends Seeder
@@ -28,5 +29,6 @@ class AdminUserSeeder extends Seeder
         );
 
         $admin->syncRoles([$role]);
+        $role->syncPermissions(Permission::query()->where('guard_name', 'web')->get());
     }
 }

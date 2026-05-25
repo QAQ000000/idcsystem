@@ -24,7 +24,7 @@ class AdminAuditService
             'target_id' => $target?->getKey(),
             'result' => $result,
             'payload' => $this->maskSensitive($payload),
-            'error' => $error,
+            'error' => $error === null ? null : $this->maskSensitiveText($error),
             'ip_address' => $request->ip(),
             'user_agent' => Str::limit((string) $request->userAgent(), 255, ''),
         ]);
@@ -42,11 +42,39 @@ class AdminAuditService
             if (str_contains($normalized, 'password')
                 || str_contains($normalized, 'secret')
                 || str_contains($normalized, 'token')
+                || str_contains($normalized, 'credential')
+                || str_contains($normalized, 'access_key')
+                || str_contains($normalized, 'private_key')
+                || str_contains($normalized, 'signature')
+                || str_ends_with($normalized, 'sign')
                 || str_ends_with($normalized, 'key')) {
                 $payload[$key] = '[FILTERED]';
             }
         }
 
         return $payload;
+    }
+
+    private function maskSensitiveText(string $value): string
+    {
+        foreach ([
+            'password',
+            'secret',
+            'token',
+            'credential',
+            'access_key',
+            'private_key',
+            'signature',
+            'sign',
+            'key',
+        ] as $key) {
+            $value = preg_replace(
+                '/(' . preg_quote($key, '/') . ')\s*([=:])\s*([^\s,;]+)/i',
+                '$1$2[FILTERED]',
+                $value
+            ) ?? $value;
+        }
+
+        return Str::limit($value, 2000, '...');
     }
 }

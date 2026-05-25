@@ -12,7 +12,7 @@
                 <option value="">全部客户</option>
                 @foreach ($clients as $client)
                     <option value="{{ $client->id }}" @selected((string) ($filters['client_id'] ?? '') === (string) $client->id)>
-                        {{ $client->username }} / {{ $client->email }}
+                        {{ $client->username }} / {{ $client->email }}{{ $client->trashed() ? '（已删除）' : '' }}
                     </option>
                 @endforeach
             </select>
@@ -71,7 +71,12 @@
                                 <div class="mt-1 inline-flex rounded bg-red-100 px-2 py-0.5 text-xs text-red-800">已终止</div>
                             @endif
                         </td>
-                        <td class="px-4 py-3">{{ $host->client?->username }}</td>
+                        <td class="px-4 py-3">
+                            {{ $host->client?->username }}
+                            @if ($host->client?->trashed())
+                                <span class="ml-1 inline-flex rounded bg-slate-200 px-2 py-0.5 text-xs text-slate-700">已删除</span>
+                            @endif
+                        </td>
                         <td class="px-4 py-3">{{ $host->product?->name }}</td>
                         <td class="px-4 py-3">{{ $host->status }}</td>
                         <td class="px-4 py-3">{{ $host->next_due_date?->format('Y-m-d H:i') ?: '-' }}</td>

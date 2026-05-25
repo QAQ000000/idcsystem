@@ -24,7 +24,10 @@ class SendEmailJob implements ShouldQueue
         $claimed = EmailLog::query()
             ->whereKey($this->emailLogId)
             ->whereIn('status', ['pending', 'failed'])
-            ->update(['status' => 'processing']);
+            ->update([
+                'status' => 'processing',
+                'attempts' => \DB::raw('attempts + 1'),
+            ]);
         if ($claimed !== 1) {
             return;
         }

@@ -11,7 +11,15 @@ class SettingsService
 
     public function get(string $key, mixed $default = null): mixed
     {
-        return $this->all()->get($key, $default);
+        $value = $this->all()->get($key, $default);
+
+        if (!is_scalar($value) && $value !== null) {
+            $this->clearCache();
+
+            return $default;
+        }
+
+        return $value;
     }
 
     public function set(string $key, mixed $value, string $group = 'general'): void
@@ -36,8 +44,8 @@ class SettingsService
         $cached = Cache::get(self::CACHE_KEY);
 
         // 旧版本曾把 Collection 对象写入缓存，部分缓存驱动反序列化后会变成 incomplete object。
-        // 这里只信任普通数组，发现旧缓存就丢弃并从数据库重建，避免后台设置页被历史缓存打崩。
-        if (!is_array($cached)) {
+        // 这里只信任普通数组及其标量/数组值，发现旧缓存就丢弃并从数据库重建，避免后台设置页被历史缓存打崩。
+        if (!is_array($cached) || !$this->isSafeCacheArray($cached)) {
             Cache::forget(self::CACHE_KEY);
             $cached = $this->settingsArray();
             Cache::forever(self::CACHE_KEY, $cached);
@@ -81,6 +89,25 @@ class SettingsService
         $decoded = json_decode($value, true);
 
         return json_last_error() === JSON_ERROR_NONE ? $decoded : $value;
+    }
+
+    private function isSafeCacheArray(array $settings): bool
+    {
+        foreach ($settings as $value) {
+            if (is_array($value)) {
+                if (!$this->isSafeCacheArray($value)) {
+                    return false;
+                }
+
+                continue;
+            }
+
+            if (!is_scalar($value) && $value !== null) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function settingsArray(): array

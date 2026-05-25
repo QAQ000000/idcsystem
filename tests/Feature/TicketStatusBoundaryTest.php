@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\EmailLog;
+use App\Models\SmsLog;
 use App\Modules\Ticket\Models\Ticket;
 use App\Modules\Ticket\Models\TicketDepartment;
 use App\Modules\Ticket\Models\TicketReply;
@@ -12,6 +14,7 @@ use App\Modules\User\Models\Client;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Hash;
+use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -28,6 +31,59 @@ class TicketStatusBoundaryTest extends TestCase
 
         $this->assertDatabaseHas('ticket_statuses', ['name' => 'Open', 'is_default' => true]);
         $this->assertSame((int) TicketStatus::query()->where('name', 'Open')->value('id'), (int) $ticket->status_id);
+    }
+
+    public function test_ticket_service_rejects_inactive_client_creation(): void
+    {
+        $client = $this->client();
+        $client->update(['status' => 2]);
+        $department = TicketDepartment::query()->create(['name' => '支持部门']);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('客户账号状态不允许创建工单');
+
+        app(TicketService::class)->create($client->fresh(), $department->id, '无法登录', '请协助排查');
+    }
+
+    public function test_client_cannot_create_ticket_in_department_closed_to_clients(): void
+    {
+        $client = $this->client();
+        $openDepartment = TicketDepartment::query()->create(['name' => '客户支持', 'allow_client_open' => true]);
+        $closedDepartment = TicketDepartment::query()->create(['name' => '内部处理', 'allow_client_open' => false]);
+
+        $this->actingAs($client, 'client')
+            ->get(route('client.tickets.create'))
+            ->assertOk()
+            ->assertSee('客户支持')
+            ->assertDontSee('内部处理');
+
+        $this->actingAs($client, 'client')
+            ->post(route('client.tickets.store'), [
+                'department_id' => $closedDepartment->id,
+                'subject' => '错误部门',
+                'message' => '不应创建成功',
+            ])
+            ->assertRedirect(route('client.tickets.create'))
+            ->assertSessionHasErrors('department_id');
+
+        $this->assertDatabaseMissing('tickets', [
+            'client_id' => $client->id,
+            'department_id' => $closedDepartment->id,
+        ]);
+        $this->assertDatabaseMissing('tickets', [
+            'client_id' => $client->id,
+            'department_id' => $openDepartment->id,
+            'subject' => '错误部门',
+        ]);
+    }
+
+    public function test_ticket_service_rejects_inactive_client_reply(): void
+    {
+        $ticket = $this->ticket();
+        $ticket->client->update(['status' => 2]);
+
+        $this->assertNull(app(TicketService::class)->reply($ticket->fresh(['client']), 'client', (int) $ticket->client_id, '继续追问'));
+        $this->assertSame(0, TicketReply::query()->where('ticket_id', $ticket->id)->count());
     }
 
     public function test_ticket_change_status_rejects_missing_status(): void
@@ -66,14 +122,65 @@ class TicketStatusBoundaryTest extends TestCase
         $this->assertSame(0, TicketReply::query()->where('ticket_id', $ticket->id)->count());
     }
 
+    public function test_ticket_reply_rechecks_latest_closed_status_inside_transaction(): void
+    {
+        $ticket = $this->ticket()->fresh(['client', 'status']);
+        TicketStatus::query()->create(['name' => 'Closed', 'is_default' => false]);
+        $staleTicket = $ticket->replicate();
+        $staleTicket->setRawAttributes($ticket->getAttributes(), true);
+        $staleTicket->exists = true;
+        $staleTicket->setRelation('client', $ticket->client);
+        $staleTicket->setRelation('status', $ticket->status);
+
+        $this->assertTrue(app(TicketService::class)->close($ticket));
+
+        $this->assertNull(app(TicketService::class)->reply($staleTicket, 'client', (int) $ticket->client_id, '旧页面继续回复'));
+        $this->assertSame('Closed', $ticket->fresh('status')->status->name);
+        $this->assertSame(0, TicketReply::query()->where('ticket_id', $ticket->id)->count());
+    }
+
+    public function test_failed_ticket_reply_does_not_create_notification_logs(): void
+    {
+        $ticket = $this->closedTicket()->fresh(['client', 'status']);
+
+        $this->assertNull(app(TicketService::class)->reply($ticket, 'client', (int) $ticket->client_id, '关闭后继续回复'));
+        $this->assertSame(0, TicketReply::query()->where('ticket_id', $ticket->id)->count());
+        $this->assertSame(0, EmailLog::query()->where('template', 'ticket_replied')->count());
+        $this->assertSame(0, SmsLog::query()->where('template', 'ticket_replied')->count());
+    }
+
+    public function test_ticket_status_change_rechecks_latest_closed_status_inside_transaction(): void
+    {
+        $ticket = $this->ticket()->fresh(['status']);
+        $open = $ticket->status;
+        TicketStatus::query()->create(['name' => 'Closed', 'is_default' => false]);
+        $staleTicket = $ticket->replicate();
+        $staleTicket->setRawAttributes($ticket->getAttributes(), true);
+        $staleTicket->exists = true;
+        $staleTicket->setRelation('status', $open);
+
+        $this->assertTrue(app(TicketService::class)->close($ticket));
+
+        $this->assertFalse(app(TicketService::class)->changeStatus($staleTicket, (int) $open->id));
+        $this->assertSame('Closed', $ticket->fresh('status')->status->name);
+    }
+
     public function test_admin_cannot_reply_closed_ticket(): void
     {
         $ticket = $this->closedTicket();
+        $admin = $this->admin();
 
-        $this->actingAs($this->admin(), 'admin')
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.tickets.show', $ticket))
+            ->assertOk()
+            ->assertSee('工单已关闭，不能继续回复。')
+            ->assertDontSee('回复内容')
+            ->assertDontSee(route('admin.tickets.close', $ticket), false);
+
+        $this->actingAs($admin, 'admin')
             ->post(route('admin.tickets.reply', $ticket), ['message' => '后台继续回复'])
             ->assertRedirect(route('admin.tickets.show', $ticket))
-            ->assertSessionHas('error', '已关闭工单不允许继续回复');
+            ->assertSessionHas('error', '当前工单不允许继续回复');
 
         $this->assertSame('Closed', $ticket->fresh('status')->status->name);
         $this->assertSame(0, TicketReply::query()->where('ticket_id', $ticket->id)->count());
@@ -82,6 +189,161 @@ class TicketStatusBoundaryTest extends TestCase
             'target_id' => $ticket->id,
             'result' => 'failed',
         ]);
+    }
+
+    public function test_ticket_operation_panel_hides_actions_for_limited_admin(): void
+    {
+        $ticket = $this->ticket();
+        $admin = AdminUser::query()->create([
+            'username' => 'ticket-view-limited',
+            'email' => 'ticket-view-limited@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 1,
+        ]);
+        Role::query()->firstOrCreate(['name' => 'support-admin', 'guard_name' => 'web']);
+        $admin->syncRoles(['support-admin']);
+        $admin->givePermissionTo(Permission::query()->firstOrCreate(['name' => 'ticket.view', 'guard_name' => 'web']));
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.tickets.show', $ticket))
+            ->assertOk()
+            ->assertSee('当前账号没有工单操作权限。')
+            ->assertDontSee('回复内容')
+            ->assertDontSee('分配工单')
+            ->assertDontSee('关闭工单');
+    }
+
+    public function test_admin_close_ticket_reports_failure_when_closed_status_is_missing(): void
+    {
+        $ticket = $this->ticket();
+
+        $this->actingAs($this->admin(), 'admin')
+            ->post(route('admin.tickets.close', $ticket))
+            ->assertRedirect(route('admin.tickets.show', $ticket))
+            ->assertSessionHas('error', '工单关闭失败');
+
+        $this->assertSame((int) $ticket->status_id, (int) $ticket->fresh()->status_id);
+        $this->assertDatabaseHas('admin_action_logs', [
+            'action' => 'ticket.close',
+            'target_id' => $ticket->id,
+            'result' => 'failed',
+        ]);
+    }
+
+    public function test_ticket_service_rejects_assigning_missing_or_inactive_admin(): void
+    {
+        $ticket = $this->ticket();
+        $activeAdmin = AdminUser::query()->create([
+            'username' => 'ticket-active-assignee',
+            'email' => 'ticket-active-assignee@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 1,
+        ]);
+        $inactiveAdmin = AdminUser::query()->create([
+            'username' => 'ticket-inactive-assignee',
+            'email' => 'ticket-inactive-assignee@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 0,
+        ]);
+
+        $service = app(TicketService::class);
+
+        $this->assertFalse($service->assign($ticket, 999999));
+        $this->assertSame(0, (int) $ticket->fresh()->assigned_to);
+
+        $this->assertFalse($service->assign($ticket, (int) $inactiveAdmin->id));
+        $this->assertSame(0, (int) $ticket->fresh()->assigned_to);
+
+        $this->assertTrue($service->assign($ticket, (int) $activeAdmin->id));
+        $this->assertSame((int) $activeAdmin->id, (int) $ticket->fresh()->assigned_to);
+    }
+
+    public function test_ticket_service_rejects_assigning_closed_ticket_with_stale_model(): void
+    {
+        $ticket = $this->ticket()->fresh(['status']);
+        TicketStatus::query()->create(['name' => 'Closed', 'is_default' => false]);
+        $admin = AdminUser::query()->create([
+            'username' => 'ticket-closed-assignee',
+            'email' => 'ticket-closed-assignee@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 1,
+        ]);
+        $staleTicket = $ticket->replicate();
+        $staleTicket->setRawAttributes($ticket->getAttributes(), true);
+        $staleTicket->exists = true;
+        $staleTicket->setRelation('status', $ticket->status);
+
+        $this->assertTrue(app(TicketService::class)->close($ticket));
+
+        $this->assertFalse(app(TicketService::class)->assign($staleTicket, (int) $admin->id));
+        $this->assertSame(0, (int) $ticket->fresh()->assigned_to);
+    }
+
+    public function test_admin_assign_ticket_rejects_missing_or_inactive_admin(): void
+    {
+        $ticket = $this->ticket();
+        $operator = $this->admin();
+        $inactiveAdmin = AdminUser::query()->create([
+            'username' => 'ticket-route-inactive-assignee',
+            'email' => 'ticket-route-inactive-assignee@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 0,
+        ]);
+        $activeAdmin = AdminUser::query()->create([
+            'username' => 'ticket-route-active-assignee',
+            'email' => 'ticket-route-active-assignee@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 1,
+        ]);
+
+        $this->actingAs($operator, 'admin')
+            ->from(route('admin.tickets.show', $ticket))
+            ->post(route('admin.tickets.assign', $ticket), ['admin_id' => 999999])
+            ->assertRedirect(route('admin.tickets.show', $ticket))
+            ->assertSessionHasErrors('admin_id');
+        $this->assertSame(0, (int) $ticket->fresh()->assigned_to);
+
+        $this->actingAs($operator, 'admin')
+            ->from(route('admin.tickets.show', $ticket))
+            ->post(route('admin.tickets.assign', $ticket), ['admin_id' => $inactiveAdmin->id])
+            ->assertRedirect(route('admin.tickets.show', $ticket))
+            ->assertSessionHasErrors('admin_id');
+        $this->assertSame(0, (int) $ticket->fresh()->assigned_to);
+
+        $this->actingAs($operator, 'admin')
+            ->post(route('admin.tickets.assign', $ticket), ['admin_id' => $activeAdmin->id])
+            ->assertRedirect(route('admin.tickets.show', $ticket))
+            ->assertSessionHas('status', '工单已分配');
+
+        $this->assertSame((int) $activeAdmin->id, (int) $ticket->fresh()->assigned_to);
+    }
+
+    public function test_admin_cannot_reply_deleted_client_ticket_but_can_close_it(): void
+    {
+        $ticket = $this->ticket();
+        $ticket->client->delete();
+        $admin = $this->admin();
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.tickets.show', $ticket))
+            ->assertOk()
+            ->assertSee('已删除')
+            ->assertSee('客户已删除，不能继续回复该工单。')
+            ->assertDontSee('回复内容');
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.tickets.reply', $ticket), ['message' => '后台继续回复'])
+            ->assertRedirect(route('admin.tickets.show', $ticket))
+            ->assertSessionHas('error', '当前工单不允许继续回复');
+
+        $this->assertSame(0, TicketReply::query()->where('ticket_id', $ticket->id)->count());
+
+        TicketStatus::query()->firstOrCreate(['name' => 'Closed'], ['is_default' => false]);
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.tickets.close', $ticket))
+            ->assertRedirect(route('admin.tickets.show', $ticket));
+
+        $this->assertSame('Closed', $ticket->fresh('status')->status->name);
     }
 
     public function test_client_cannot_reply_closed_ticket(): void

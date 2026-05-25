@@ -3,8 +3,12 @@
 namespace Tests\Feature;
 
 use App\Models\Plugin;
+use App\Models\PaymentAttempt;
+use App\Models\EmailLog;
+use App\Models\SmsLog;
 use App\Modules\Admin\Models\AdminUser;
 use App\Modules\Finance\Models\Account;
+use App\Modules\Finance\Models\Invoice;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Models\ProductGroup;
 use App\Modules\User\Models\Client;
@@ -25,6 +29,7 @@ class PluginTest extends TestCase
     {
         File::deleteDirectory(base_path('plugins/Gateway/demo_route_plugin'));
         File::deleteDirectory(base_path('plugins/Gateway/demo_enabled_route_plugin'));
+        File::deleteDirectory(base_path('plugins/Gateway/password_field_plugin'));
 
         parent::tearDown();
     }
@@ -45,6 +50,73 @@ class PluginTest extends TestCase
 
         $this->assertSame('abc', $service->get('demo_pay')['app_id']);
         $this->assertDatabaseHas('plugins', ['name' => 'demo_pay']);
+    }
+
+    public function test_plugin_config_service_filters_keys_not_declared_by_manifest_schema(): void
+    {
+        app(PluginManager::class)->install('gateway', 'manual_pay');
+
+        $config = app(PluginConfigService::class)->save('manual_pay', [
+            'instructions' => '请转账后提交工单',
+            'bank_name' => 'IDC Bank',
+            'pay_should_fail' => true,
+            'unexpected_nested' => ['admin' => true],
+        ])->config;
+
+        $this->assertSame('请转账后提交工单', $config['instructions']);
+        $this->assertSame('IDC Bank', $config['bank_name']);
+        $this->assertArrayNotHasKey('pay_should_fail', $config);
+        $this->assertArrayNotHasKey('unexpected_nested', $config);
+    }
+
+    public function test_plugin_config_service_casts_schema_boolean_and_number_values(): void
+    {
+        app(PluginManager::class)->install('server', 'mock_server');
+
+        $config = app(PluginConfigService::class)->save('mock_server', [
+            'fail_create' => '1',
+            'fail_usage' => '0',
+        ])->config;
+
+        $this->assertTrue($config['fail_create']);
+        $this->assertFalse($config['fail_usage']);
+    }
+
+    public function test_plugin_config_service_rejects_array_values_for_scalar_schema_fields(): void
+    {
+        app(PluginManager::class)->install('gateway', 'manual_pay');
+
+        $config = app(PluginConfigService::class)->save('manual_pay', [
+            'instructions' => ['bad'],
+            'bank_name' => 'IDC Bank',
+            'account_number' => ['bad'],
+        ])->config;
+
+        $this->assertSame('IDC Bank', $config['bank_name']);
+        $this->assertArrayNotHasKey('instructions', $config);
+        $this->assertArrayNotHasKey('account_number', $config);
+    }
+
+    public function test_plugin_config_service_keeps_generic_fields_for_plugins_without_manifest_schema(): void
+    {
+        Plugin::query()->create([
+            'name' => 'legacy_sms',
+            'title' => 'Legacy SMS',
+            'type' => 'sms',
+            'version' => '1.0.0',
+            'status' => 1,
+            'config' => [],
+        ]);
+
+        $config = app(PluginConfigService::class)->save('legacy_sms', [
+            'app_id' => 'legacy-app',
+            'endpoint' => 'https://sms.example.com',
+            'unexpected' => 'drop-me',
+        ])->config;
+
+        $this->assertSame('legacy-app', $config['app_id']);
+        $this->assertSame('https://sms.example.com', $config['endpoint']);
+        $this->assertArrayNotHasKey('unexpected', $config);
     }
 
     public function test_plugin_config_service_keeps_existing_sensitive_values_when_blank(): void
@@ -89,6 +161,22 @@ class PluginTest extends TestCase
         ]);
 
         $this->assertSame('新说明', $manager->get('manual_pay')->getConfig()['instructions']);
+    }
+
+    public function test_reinstalling_enabled_plugin_preserves_status_and_config(): void
+    {
+        $manager = app(PluginManager::class);
+        $manager->install('gateway', 'manual_pay');
+        $manager->enable('manual_pay');
+        Plugin::query()->where('name', 'manual_pay')->update([
+            'config' => ['instructions' => '保留说明'],
+        ]);
+
+        $this->assertTrue($manager->install('gateway', 'manual_pay'));
+
+        $plugin = Plugin::query()->where('name', 'manual_pay')->firstOrFail();
+        $this->assertSame(1, $plugin->status);
+        $this->assertSame('保留说明', $plugin->config['instructions']);
     }
 
     public function test_plugin_install_rejects_same_name_with_different_existing_type(): void
@@ -141,6 +229,29 @@ class PluginTest extends TestCase
         $this->assertSame(0, $plugin->fresh()->status);
     }
 
+    public function test_admin_plugin_config_rejects_array_values_for_scalar_fields(): void
+    {
+        $this->seed();
+        $admin = \App\Modules\Admin\Models\AdminUser::query()->where('username', 'admin')->firstOrFail();
+        app(PluginManager::class)->install('gateway', 'manual_pay');
+        $plugin = Plugin::query()->where('name', 'manual_pay')->firstOrFail();
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.plugins.config.save', $plugin->name), [
+                'config' => [
+                    'instructions' => ['bad'],
+                    'bank_name' => 'IDC Bank',
+                    'account_number' => ['bad'],
+                ],
+            ])
+            ->assertRedirect(route('admin.plugins.config', $plugin->name));
+
+        $config = $plugin->fresh()->config;
+        $this->assertSame('IDC Bank', $config['bank_name']);
+        $this->assertArrayNotHasKey('instructions', $config);
+        $this->assertArrayNotHasKey('account_number', $config);
+    }
+
     public function test_admin_plugin_config_does_not_render_saved_secret_and_blank_secret_keeps_existing_value(): void
     {
         $this->seed();
@@ -181,6 +292,135 @@ class PluginTest extends TestCase
         $this->assertSame('https://sms-new.example.com', $config['endpoint']);
     }
 
+    public function test_admin_plugin_config_page_ignores_array_old_input_values(): void
+    {
+        $this->seed();
+        $admin = \App\Modules\Admin\Models\AdminUser::query()->where('username', 'admin')->firstOrFail();
+        $plugin = Plugin::query()->create([
+            'name' => 'array_old_sms',
+            'title' => 'Array Old SMS',
+            'type' => 'sms',
+            'version' => '1.0.0',
+            'status' => 1,
+            'config' => [
+                'app_id' => 'saved-app',
+                'endpoint' => 'https://sms.example.com',
+            ],
+        ]);
+
+        session()->flashInput([
+            'config' => [
+                'app_id' => ['polluted'],
+                'endpoint' => ['polluted'],
+            ],
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.plugins.config', $plugin->name))
+            ->assertOk()
+            ->assertSee('value="saved-app"', false)
+            ->assertSee('value="https://sms.example.com"', false)
+            ->assertDontSee('polluted');
+    }
+
+    public function test_password_type_config_field_is_treated_as_sensitive_even_when_key_name_is_generic(): void
+    {
+        $this->seed();
+        $admin = \App\Modules\Admin\Models\AdminUser::query()->where('username', 'admin')->firstOrFail();
+        $this->createPasswordFieldPlugin();
+        $plugin = Plugin::query()->create([
+            'name' => 'password_field_plugin',
+            'title' => 'Password Field Plugin',
+            'type' => 'gateway',
+            'version' => '1.0.0',
+            'status' => 1,
+            'config' => [
+                'signature' => 'saved-signature',
+                'merchant' => 'old-merchant',
+            ],
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.plugins.config', $plugin->name))
+            ->assertOk()
+            ->assertSee('已保存，留空则不修改')
+            ->assertDontSee('saved-signature');
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.plugins.config.save', $plugin->name), [
+                'config' => [
+                    'signature' => '',
+                    'merchant' => 'new-merchant',
+                ],
+            ])
+            ->assertRedirect(route('admin.plugins.config', $plugin->name));
+
+        $config = $plugin->fresh()->config;
+        $this->assertSame('saved-signature', $config['signature']);
+        $this->assertSame('new-merchant', $config['merchant']);
+    }
+
+    public function test_signature_config_key_is_treated_as_sensitive_even_when_declared_as_text(): void
+    {
+        $this->seed();
+        $admin = \App\Modules\Admin\Models\AdminUser::query()->where('username', 'admin')->firstOrFail();
+        $this->createTextSignaturePlugin();
+        $plugin = Plugin::query()->create([
+            'name' => 'text_signature_plugin',
+            'title' => 'Text Signature Plugin',
+            'type' => 'gateway',
+            'version' => '1.0.0',
+            'status' => 1,
+            'config' => [
+                'signature' => 'saved-signature',
+                'merchant' => 'old-merchant',
+            ],
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.plugins.config', $plugin->name))
+            ->assertOk()
+            ->assertSee('已保存，留空则不修改')
+            ->assertDontSee('saved-signature');
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.plugins.config.save', $plugin->name), [
+                'config' => [
+                    'signature' => '',
+                    'merchant' => 'new-merchant',
+                ],
+            ])
+            ->assertRedirect(route('admin.plugins.config', $plugin->name));
+
+        $config = $plugin->fresh()->config;
+        $this->assertSame('saved-signature', $config['signature']);
+        $this->assertSame('new-merchant', $config['merchant']);
+    }
+
+    public function test_non_super_admin_cannot_view_plugin_config_page(): void
+    {
+        $admin = AdminUser::query()->create([
+            'username' => 'plugin-limited',
+            'email' => 'plugin-limited@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 1,
+        ]);
+        Role::query()->firstOrCreate(['name' => 'support-admin', 'guard_name' => 'web']);
+        $admin->syncRoles(['support-admin']);
+        $plugin = Plugin::query()->create([
+            'name' => 'sensitive_gateway',
+            'title' => 'Sensitive Gateway',
+            'type' => 'gateway',
+            'version' => '1.0.0',
+            'status' => 1,
+            'config' => ['app_secret' => 'should-not-be-visible'],
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.plugins.config', $plugin->name))
+            ->assertForbidden();
+    }
+
     public function test_admin_plugin_actions_report_failure_when_target_missing(): void
     {
         $this->seed();
@@ -202,6 +442,21 @@ class PluginTest extends TestCase
             ->assertSessionHas('error', '插件卸载失败');
     }
 
+    public function test_plugin_enable_rejects_unloadable_plugin(): void
+    {
+        Plugin::query()->create([
+            'name' => 'missing_gateway',
+            'title' => 'Missing Gateway',
+            'type' => 'gateway',
+            'version' => '1.0.0',
+            'status' => 0,
+            'config' => [],
+        ]);
+
+        $this->assertFalse(app(PluginManager::class)->enable('missing_gateway'));
+        $this->assertSame(0, Plugin::query()->where('name', 'missing_gateway')->value('status'));
+    }
+
     public function test_non_super_admin_cannot_manage_plugins(): void
     {
         $admin = AdminUser::query()->create([
@@ -216,6 +471,23 @@ class PluginTest extends TestCase
 
         $this->actingAs($admin, 'admin')
             ->post(route('admin.plugins.enable', 'missing-plugin'))
+            ->assertForbidden();
+    }
+
+    public function test_non_plugin_admin_cannot_view_plugin_index(): void
+    {
+        $admin = AdminUser::query()->create([
+            'username' => 'plugin-index-limited',
+            'email' => 'plugin-index-limited@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 1,
+        ]);
+
+        Role::query()->firstOrCreate(['name' => 'support-admin', 'guard_name' => 'web']);
+        $admin->syncRoles(['support-admin']);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.plugins.index'))
             ->assertForbidden();
     }
 
@@ -297,6 +569,64 @@ class PluginTest extends TestCase
         $this->assertSame(1, Plugin::query()->where('name', 'manual_pay')->value('status'));
     }
 
+    public function test_gateway_plugin_disable_and_uninstall_reject_unfinished_invoice_reference(): void
+    {
+        $manager = app(PluginManager::class);
+        $manager->install('gateway', 'manual_pay');
+        $manager->enable('manual_pay');
+        $client = Client::query()->create([
+            'username' => 'gateway-invoice-ref-client',
+            'email' => 'gateway-invoice-ref-client@example.com',
+            'password' => Hash::make('client123456'),
+            'status' => 1,
+        ]);
+        Invoice::query()->create([
+            'client_id' => $client->id,
+            'invoice_number' => 'INV-GATEWAY-REF',
+            'subtotal' => 100,
+            'total' => 100,
+            'status' => 'Unpaid',
+            'payment_method' => 'manual_pay',
+        ]);
+
+        $this->assertFalse($manager->disable('manual_pay'));
+        $this->assertFalse($manager->uninstall('manual_pay'));
+        $this->assertSame(1, Plugin::query()->where('name', 'manual_pay')->value('status'));
+        $this->assertDatabaseHas('plugins', ['name' => 'manual_pay']);
+    }
+
+    public function test_gateway_plugin_disable_and_uninstall_reject_pending_payment_attempt_reference(): void
+    {
+        $manager = app(PluginManager::class);
+        $manager->install('gateway', 'manual_pay');
+        $manager->enable('manual_pay');
+        $client = Client::query()->create([
+            'username' => 'gateway-attempt-ref-client',
+            'email' => 'gateway-attempt-ref-client@example.com',
+            'password' => Hash::make('client123456'),
+            'status' => 1,
+        ]);
+        $invoice = Invoice::query()->create([
+            'client_id' => $client->id,
+            'invoice_number' => 'INV-GATEWAY-ATTEMPT',
+            'subtotal' => 100,
+            'total' => 100,
+            'status' => 'Unpaid',
+        ]);
+        PaymentAttempt::query()->create([
+            'invoice_id' => $invoice->id,
+            'client_id' => $client->id,
+            'gateway' => 'manual_pay',
+            'amount' => 100,
+            'status' => 'pending',
+        ]);
+
+        $this->assertFalse($manager->disable('manual_pay'));
+        $this->assertFalse($manager->uninstall('manual_pay'));
+        $this->assertSame(1, Plugin::query()->where('name', 'manual_pay')->value('status'));
+        $this->assertDatabaseHas('plugins', ['name' => 'manual_pay']);
+    }
+
     public function test_mail_and_sms_default_provider_references_block_disable_and_uninstall(): void
     {
         $manager = app(PluginManager::class);
@@ -319,6 +649,60 @@ class PluginTest extends TestCase
         $this->assertFalse($manager->uninstall('aliyun'));
         $this->assertSame(1, Plugin::query()->where('name', 'aliyun')->value('status'));
         $this->assertDatabaseHas('plugins', ['name' => 'aliyun']);
+    }
+
+    public function test_notification_logs_block_provider_plugin_disable_and_uninstall_until_finished(): void
+    {
+        $manager = app(PluginManager::class);
+        $manager->install('email', 'smtp');
+        $manager->enable('smtp');
+        EmailLog::query()->create([
+            'to' => 'pending@example.com',
+            'subject' => 'Pending',
+            'body' => 'body',
+            'provider' => 'smtp',
+            'status' => 'pending',
+            'success' => false,
+            'payload' => [],
+            'attempts' => 0,
+        ]);
+
+        $this->assertFalse($manager->disable('smtp'));
+        $this->assertFalse($manager->uninstall('smtp'));
+        $this->assertSame(1, Plugin::query()->where('name', 'smtp')->value('status'));
+
+        EmailLog::query()->update(['status' => 'sent', 'success' => true, 'sent_at' => now()]);
+        $this->assertTrue($manager->disable('smtp'));
+        $this->assertSame(0, Plugin::query()->where('name', 'smtp')->value('status'));
+
+        $manager->enable('smtp');
+        $this->assertTrue($manager->uninstall('smtp'));
+        $this->assertDatabaseMissing('plugins', ['name' => 'smtp']);
+
+        $manager->install('sms', 'aliyun');
+        $manager->enable('aliyun');
+        SmsLog::query()->create([
+            'phone' => '13800139999',
+            'template' => 'invoice_paid',
+            'template_code' => 'invoice_paid',
+            'content' => 'processing',
+            'provider' => 'aliyun',
+            'status' => 'processing',
+            'success' => false,
+            'payload' => [],
+            'attempts' => 0,
+        ]);
+
+        $this->assertFalse($manager->disable('aliyun'));
+        $this->assertFalse($manager->uninstall('aliyun'));
+        $this->assertSame(1, Plugin::query()->where('name', 'aliyun')->value('status'));
+
+        SmsLog::query()->update(['status' => 'failed']);
+        $this->assertFalse($manager->disable('aliyun'));
+
+        SmsLog::query()->update(['status' => 'sent', 'success' => true, 'sent_at' => now()]);
+        $this->assertTrue($manager->disable('aliyun'));
+        $this->assertSame(0, Plugin::query()->where('name', 'aliyun')->value('status'));
     }
 
     public function test_disabled_plugin_route_file_is_not_registered(): void
@@ -384,6 +768,48 @@ PHP);
         $routeFile = $pluginPath . '/routes/web.php';
         $contents = file_get_contents($routeFile);
         file_put_contents($routeFile, str_replace('plugins.demo_route_plugin.test', "plugins.{$name}.test", $contents));
+    }
+
+    private function createPasswordFieldPlugin(): void
+    {
+        $pluginPath = base_path('plugins/Gateway/password_field_plugin');
+
+        if (!is_dir($pluginPath)) {
+            mkdir($pluginPath, 0777, true);
+        }
+
+        file_put_contents($pluginPath . '/plugin.json', json_encode([
+            'name' => 'password_field_plugin',
+            'title' => 'Password Field Plugin',
+            'type' => 'gateway',
+            'version' => '1.0.0',
+            'entry' => 'MissingPlugin',
+            'config_schema' => [
+                ['key' => 'signature', 'label' => 'Signature', 'type' => 'password'],
+                ['key' => 'merchant', 'label' => 'Merchant', 'type' => 'text'],
+            ],
+        ], JSON_PRETTY_PRINT));
+    }
+
+    private function createTextSignaturePlugin(): void
+    {
+        $pluginPath = base_path('plugins/Gateway/text_signature_plugin');
+
+        if (!is_dir($pluginPath)) {
+            mkdir($pluginPath, 0777, true);
+        }
+
+        file_put_contents($pluginPath . '/plugin.json', json_encode([
+            'name' => 'text_signature_plugin',
+            'title' => 'Text Signature Plugin',
+            'type' => 'gateway',
+            'version' => '1.0.0',
+            'entry' => 'MissingPlugin',
+            'config_schema' => [
+                ['key' => 'signature', 'label' => 'Signature', 'type' => 'text'],
+                ['key' => 'merchant', 'label' => 'Merchant', 'type' => 'text'],
+            ],
+        ], JSON_PRETTY_PRINT));
     }
 
     private function bootPluginRoutesForTest(): void

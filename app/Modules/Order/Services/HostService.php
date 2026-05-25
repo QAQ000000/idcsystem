@@ -10,6 +10,7 @@ use App\Modules\Order\Models\Host;
 use App\Modules\Order\Models\Order;
 use App\Modules\Order\Models\Upgrade;
 use App\Modules\Product\Models\Product;
+use App\Modules\Product\Services\ProductService;
 use App\Modules\Product\Services\PricingService;
 use App\Services\NotificationService;
 use App\Plugins\Contracts\ServerModuleInterface;
@@ -17,17 +18,23 @@ use App\Plugins\Facades\Plugin;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 class HostService
 {
+    private const SENSITIVE_KEY_PATTERN = '/(password|secret|token|credential|access_key|private_key|key|signature|sign)$/i';
+
     private PricingService $pricingService;
 
     private InvoiceService $invoiceService;
 
-    public function __construct(?PricingService $pricingService = null, ?InvoiceService $invoiceService = null)
+    private ProductService $productService;
+
+    public function __construct(?PricingService $pricingService = null, ?InvoiceService $invoiceService = null, ?ProductService $productService = null)
     {
         $this->pricingService = $pricingService ?? new PricingService();
         $this->invoiceService = $invoiceService ?? new InvoiceService();
+        $this->productService = $productService ?? new ProductService();
     }
 
     /**
@@ -69,39 +76,68 @@ class HostService
      */
     public function provision(Host $host): bool
     {
-        if ($host->status !== 'Pending') {
-            $this->logFailure($host, 'provision', '当前服务状态不允许开通', ['status' => $host->status]);
-
-            return false;
-        }
-
         return DB::transaction(function () use ($host) {
-            $plugin = $this->serverPlugin($host);
+            $lockedHost = $this->lockHostForOperation($host);
+            if (!$lockedHost) {
+                return false;
+            }
+
+            if (!$this->canClientReceiveServiceOperation($lockedHost)) {
+                $this->logFailure($lockedHost, 'provision', '客户账号状态不允许开通服务', $this->clientStateMeta($lockedHost));
+
+                return false;
+            }
+
+            if ($lockedHost->status !== 'Pending') {
+                $this->logFailure($lockedHost, 'provision', '当前服务状态不允许开通', ['status' => $lockedHost->status]);
+
+                return false;
+            }
+
+            if (!$this->isProvisionPaid($lockedHost)) {
+                $this->logFailure($lockedHost, 'provision', '关联订单或账单未支付，不能开通服务', [
+                    'order_id' => $lockedHost->order_id,
+                    'order_status' => $lockedHost->order?->status,
+                    'invoice_id' => $lockedHost->order?->invoice_id,
+                    'invoice_status' => $lockedHost->order?->invoice?->status,
+                ]);
+
+                return false;
+            }
+
+            try {
+                $plugin = $this->serverPlugin($lockedHost);
+            } catch (RuntimeException $exception) {
+                $this->logFailure($lockedHost, 'provision', $exception->getMessage());
+
+                return false;
+            }
+
             if ($plugin) {
-                $result = $plugin->createAccount($this->serverParams($host));
+                $result = $plugin->createAccount($this->serverParams($lockedHost));
                 if (($result['success'] ?? false) !== true) {
-                    $this->log($host, 'provision_failed', $result['message'] ?? '服务开通失败', [
+                    $this->log($lockedHost, 'provision_failed', $result['message'] ?? '服务开通失败', [
                         'result' => $result,
                     ]);
 
                     return false;
                 }
 
-                $host->fill([
-                    'username' => $result['username'] ?? $host->username,
-                    'password' => $result['password'] ?? $host->password,
-                    'server_id' => $result['server_id'] ?? $host->server_id,
+                $lockedHost->fill([
+                    'username' => $result['username'] ?? $lockedHost->username,
+                    'password' => $result['password'] ?? $lockedHost->password,
+                    'server_id' => $result['server_id'] ?? $lockedHost->server_id,
                 ]);
             }
 
-            $saved = $host->fill([
+            $saved = $lockedHost->fill([
                 'status' => 'Active',
-                'registered_at' => $host->registered_at ?: now(),
+                'registered_at' => $lockedHost->registered_at ?: now(),
                 'suspend_reason' => null,
             ])->save();
 
             if ($saved) {
-                $this->log($host, 'provision', '服务已开通');
+                $this->log($lockedHost, 'provision', '服务已开通');
             }
 
             return $saved;
@@ -113,27 +149,39 @@ class HostService
      */
     public function suspend(Host $host, string $reason): bool
     {
-        if ($host->status !== 'Active') {
-            $this->logFailure($host, 'suspend', '当前服务状态不允许暂停', ['status' => $host->status]);
-
-            return false;
-        }
-
         return DB::transaction(function () use ($host, $reason) {
-            $plugin = $this->serverPlugin($host);
-            if ($plugin && !$plugin->suspendAccount($this->serverParams($host) + ['reason' => $reason])) {
-                $this->logFailure($host, 'suspend', '服务器模块暂停失败');
+            $lockedHost = $this->lockHostForOperation($host);
+            if (!$lockedHost) {
+                return false;
+            }
+
+            if ($lockedHost->status !== 'Active') {
+                $this->logFailure($lockedHost, 'suspend', '当前服务状态不允许暂停', ['status' => $lockedHost->status]);
 
                 return false;
             }
 
-            $updated = $host->update([
+            try {
+                $plugin = $this->serverPlugin($lockedHost);
+            } catch (RuntimeException $exception) {
+                $this->logFailure($lockedHost, 'suspend', $exception->getMessage());
+
+                return false;
+            }
+
+            if ($plugin && !$plugin->suspendAccount($this->serverParams($lockedHost) + ['reason' => $reason])) {
+                $this->logFailure($lockedHost, 'suspend', '服务器模块暂停失败');
+
+                return false;
+            }
+
+            $updated = $lockedHost->update([
                 'status' => 'Suspended',
                 'suspend_reason' => $reason,
             ]);
 
             if ($updated) {
-                $this->log($host, 'suspend', $reason);
+                $this->log($lockedHost, 'suspend', $reason);
             }
 
             return $updated;
@@ -145,27 +193,45 @@ class HostService
      */
     public function unsuspend(Host $host): bool
     {
-        if ($host->status !== 'Suspended') {
-            $this->logFailure($host, 'unsuspend', '当前服务状态不允许解除暂停', ['status' => $host->status]);
-
-            return false;
-        }
-
         return DB::transaction(function () use ($host) {
-            $plugin = $this->serverPlugin($host);
-            if ($plugin && !$plugin->unsuspendAccount($this->serverParams($host))) {
-                $this->logFailure($host, 'unsuspend', '服务器模块解除暂停失败');
+            $lockedHost = $this->lockHostForOperation($host);
+            if (!$lockedHost) {
+                return false;
+            }
+
+            if (!$this->canClientReceiveServiceOperation($lockedHost)) {
+                $this->logFailure($lockedHost, 'unsuspend', '客户账号状态不允许解除暂停', $this->clientStateMeta($lockedHost));
 
                 return false;
             }
 
-            $updated = $host->update([
+            if ($lockedHost->status !== 'Suspended') {
+                $this->logFailure($lockedHost, 'unsuspend', '当前服务状态不允许解除暂停', ['status' => $lockedHost->status]);
+
+                return false;
+            }
+
+            try {
+                $plugin = $this->serverPlugin($lockedHost);
+            } catch (RuntimeException $exception) {
+                $this->logFailure($lockedHost, 'unsuspend', $exception->getMessage());
+
+                return false;
+            }
+
+            if ($plugin && !$plugin->unsuspendAccount($this->serverParams($lockedHost))) {
+                $this->logFailure($lockedHost, 'unsuspend', '服务器模块解除暂停失败');
+
+                return false;
+            }
+
+            $updated = $lockedHost->update([
                 'status' => 'Active',
                 'suspend_reason' => null,
             ]);
 
             if ($updated) {
-                $this->log($host, 'unsuspend', '服务已解除暂停');
+                $this->log($lockedHost, 'unsuspend', '服务已解除暂停');
             }
 
             return $updated;
@@ -177,27 +243,39 @@ class HostService
      */
     public function terminate(Host $host): bool
     {
-        if (!in_array($host->status, ['Active', 'Suspended'], true)) {
-            $this->logFailure($host, 'terminate', '当前服务状态不允许终止', ['status' => $host->status]);
-
-            return false;
-        }
-
         return DB::transaction(function () use ($host) {
-            $plugin = $this->serverPlugin($host);
-            if ($plugin && !$plugin->terminateAccount($this->serverParams($host))) {
-                $this->logFailure($host, 'terminate', '服务器模块终止失败');
+            $lockedHost = $this->lockHostForOperation($host);
+            if (!$lockedHost) {
+                return false;
+            }
+
+            if (!in_array($lockedHost->status, ['Active', 'Suspended'], true)) {
+                $this->logFailure($lockedHost, 'terminate', '当前服务状态不允许终止', ['status' => $lockedHost->status]);
 
                 return false;
             }
 
-            $updated = $host->update([
+            try {
+                $plugin = $this->serverPlugin($lockedHost);
+            } catch (RuntimeException $exception) {
+                $this->logFailure($lockedHost, 'terminate', $exception->getMessage());
+
+                return false;
+            }
+
+            if ($plugin && !$plugin->terminateAccount($this->serverParams($lockedHost))) {
+                $this->logFailure($lockedHost, 'terminate', '服务器模块终止失败');
+
+                return false;
+            }
+
+            $updated = $lockedHost->update([
                 'status' => 'Terminated',
                 'termination_date' => now(),
             ]);
 
             if ($updated) {
-                $this->log($host, 'terminate', '服务已终止');
+                $this->log($lockedHost, 'terminate', '服务已终止');
             }
 
             return $updated;
@@ -209,57 +287,179 @@ class HostService
      */
     public function renew(Host $host, string $billingCycle): Invoice
     {
-        $amount = $this->pricingService->calculatePrice($host->product, $billingCycle, [
-            'currency_id' => $host->client->currency_id,
-        ]);
-        if ($amount <= 0) {
-            $this->logFailure($host, 'renew_invoice', '续费周期未配置有效价格', [
-                'billing_cycle' => $billingCycle,
+        $result = DB::transaction(function () use ($host, $billingCycle) {
+            $lockedHost = $this->lockHostForOperation($host);
+            if (!$lockedHost) {
+                return ['error' => '服务不存在。'];
+            }
+
+            if (!$this->canClientCreateBusiness($lockedHost)) {
+                $this->logFailure($lockedHost, 'renew_invoice', '客户账号状态不允许续费', [
+                    'client_id' => $lockedHost->client_id,
+                    'client_status' => $lockedHost->client?->status,
+                    'client_deleted' => (bool) $lockedHost->client?->trashed(),
+                ]);
+
+                return ['error' => '客户账号状态不允许续费。'];
+            }
+
+            if (in_array($lockedHost->status, ['Terminated', 'Cancelled'], true)) {
+                $this->logFailure($lockedHost, 'renew_invoice', '当前服务状态不允许续费', [
+                    'status' => $lockedHost->status,
+                    'billing_cycle' => $billingCycle,
+                ]);
+
+                return ['error' => '当前服务状态不允许续费。'];
+            }
+
+            if ($this->hasUnpaidRenewalInvoice($lockedHost)) {
+                $this->logFailure($lockedHost, 'renew_invoice', '已有未支付的续费账单', [
+                    'host_id' => $lockedHost->id,
+                    'billing_cycle' => $billingCycle,
+                ]);
+
+                return ['error' => '已有未支付的续费账单，请先完成支付或取消后再提交。'];
+            }
+
+            $amount = $this->pricingService->calculatePrice($lockedHost->product, $billingCycle, [
+                'currency_id' => $lockedHost->client->currency_id,
             ]);
+            if ($amount <= 0) {
+                $this->logFailure($lockedHost, 'renew_invoice', '续费周期未配置有效价格', [
+                    'billing_cycle' => $billingCycle,
+                ]);
 
-            throw new \RuntimeException('当前续费周期未配置有效价格。');
-        }
+                return ['error' => '当前续费周期未配置有效价格。'];
+            }
 
-        return DB::transaction(function () use ($host, $billingCycle, $amount) {
-            $invoice = $this->invoiceService->generate($host->client, [[
+            $invoice = $this->invoiceService->generate($lockedHost->client, [[
                 'type' => 'renewal',
-                'description' => $host->product->name . ' renewal (' . $billingCycle . ')',
+                'description' => $lockedHost->product->name . ' renewal (' . $billingCycle . ')',
                 'amount' => $amount,
-                'rel_id' => $host->id,
+                'rel_id' => $lockedHost->id,
             ]]);
 
-            $this->log($host, 'renew_invoice', '续费账单已生成', [
+            $this->log($lockedHost, 'renew_invoice', '续费账单已生成', [
                 'invoice_id' => $invoice->id,
                 'billing_cycle' => $billingCycle,
             ]);
 
-            app(NotificationService::class)->notifyClient($host->client, 'host_renewal_invoice_created', [
-                'client_name' => $host->client->username,
-                'product_name' => $host->product->name,
+            app(NotificationService::class)->notifyClient($lockedHost->client, 'host_renewal_invoice_created', [
+                'client_name' => $lockedHost->client->username,
+                'product_name' => $lockedHost->product->name,
                 'invoice_number' => $invoice->invoice_number,
                 'amount' => $invoice->total,
             ]);
 
-            return $invoice;
+            return ['invoice' => $invoice];
         });
+
+        if (isset($result['error'])) {
+            throw new RuntimeException($result['error']);
+        }
+
+        return $result['invoice'];
     }
 
     public function createUpgradeInvoice(Host $host, Product $targetProduct): Invoice
     {
-        return DB::transaction(function () use ($host, $targetProduct) {
-            $current = $this->pricingService->calculatePrice($host->product, $host->billing_cycle, [
-                'currency_id' => $host->client->currency_id,
+        $result = DB::transaction(function () use ($host, $targetProduct) {
+            $targetProduct = Product::query()->whereKey($targetProduct->id)->lockForUpdate()->first();
+            if (!$targetProduct) {
+                return ['error' => '升级/降配目标产品不可购买。'];
+            }
+
+            $lockedHost = $this->lockHostForOperation($host);
+            if (!$lockedHost) {
+                return ['error' => '服务不存在。'];
+            }
+
+            if (!$this->canClientCreateBusiness($lockedHost)) {
+                $this->logFailure($lockedHost, 'upgrade_invoice', '客户账号状态不允许升级/降配', [
+                    'client_id' => $lockedHost->client_id,
+                    'client_status' => $lockedHost->client?->status,
+                    'client_deleted' => (bool) $lockedHost->client?->trashed(),
+                ]);
+
+                return ['error' => '客户账号状态不允许升级/降配。'];
+            }
+
+            if ($lockedHost->status !== 'Active') {
+                $this->logFailure($lockedHost, 'upgrade_invoice', '当前服务状态不允许升级/降配', [
+                    'status' => $lockedHost->status,
+                ]);
+
+                return ['error' => '当前服务状态不允许升级/降配。'];
+            }
+
+            if (!$this->productService->isPurchasable($targetProduct)) {
+                $this->logFailure($lockedHost, 'upgrade_invoice', '升级/降配目标产品不可购买', [
+                    'to_product_id' => $targetProduct->id,
+                    'hidden' => (bool) $targetProduct->hidden,
+                    'retired' => (bool) $targetProduct->retired,
+                    'stock_control' => (bool) $targetProduct->stock_control,
+                    'stock_qty' => (int) $targetProduct->stock_qty,
+                ]);
+
+                return ['error' => '升级/降配目标产品不可购买。'];
+            }
+
+            if ((int) $targetProduct->id === (int) $lockedHost->product_id) {
+                $this->logFailure($lockedHost, 'upgrade_invoice', '目标产品不能与当前产品相同', [
+                    'product_id' => $lockedHost->product_id,
+                ]);
+
+                return ['error' => '目标产品不能与当前产品相同。'];
+            }
+
+            if (!$this->isCompatibleUpgradeTarget($lockedHost->product, $targetProduct)) {
+                $this->logFailure($lockedHost, 'upgrade_invoice', '升级/降配目标产品与当前服务不兼容', [
+                    'from_product_id' => $lockedHost->product_id,
+                    'to_product_id' => $targetProduct->id,
+                    'from_type' => $lockedHost->product?->type,
+                    'to_type' => $targetProduct->type,
+                    'from_server_type' => $lockedHost->product?->server_type,
+                    'to_server_type' => $targetProduct->server_type,
+                ]);
+
+                return ['error' => '升级/降配目标产品与当前服务不兼容。'];
+            }
+
+            if (Upgrade::query()->where('host_id', $lockedHost->id)->where('status', 'Pending')->exists()) {
+                $this->logFailure($lockedHost, 'upgrade_invoice', '已有待处理的升级/降配账单', [
+                    'host_id' => $lockedHost->id,
+                    'to_product_id' => $targetProduct->id,
+                ]);
+
+                return ['error' => '已有待处理的升级/降配账单，请先完成或取消后再提交。'];
+            }
+
+            $current = $this->pricingService->calculatePrice($lockedHost->product, $lockedHost->billing_cycle, [
+                'currency_id' => $lockedHost->client->currency_id,
             ]);
-            $target = $this->pricingService->calculatePrice($targetProduct, $host->billing_cycle, [
-                'currency_id' => $host->client->currency_id,
+            $target = $this->pricingService->calculatePrice($targetProduct, $lockedHost->billing_cycle, [
+                'currency_id' => $lockedHost->client->currency_id,
             ]);
+            if ($current <= 0 || $target <= 0) {
+                $this->logFailure($lockedHost, 'upgrade_invoice', '升级/降配目标未配置有效价格', [
+                    'from_product_id' => $lockedHost->product_id,
+                    'to_product_id' => $targetProduct->id,
+                    'billing_cycle' => $lockedHost->billing_cycle,
+                    'currency_id' => $lockedHost->client->currency_id,
+                    'current_amount' => $current,
+                    'target_amount' => $target,
+                ]);
+
+                return ['error' => '升级/降配目标未配置有效价格。'];
+            }
+
             $amount = round(max(0, $target - $current), 2);
             $type = $target >= $current ? 'upgrade' : 'downgrade';
 
             $upgrade = Upgrade::query()->create([
-                'host_id' => $host->id,
+                'host_id' => $lockedHost->id,
                 'type' => $type,
-                'from_product_id' => $host->product_id,
+                'from_product_id' => $lockedHost->product_id,
                 'to_product_id' => $targetProduct->id,
                 'amount' => $amount,
                 'status' => 'Pending',
@@ -267,38 +467,44 @@ class HostService
 
             if ($type === 'downgrade') {
                 $this->completeUpgrade($upgrade);
-                $this->log($host, 'downgrade_completed', '降配已直接生效', [
+                $this->log($lockedHost, 'downgrade_completed', '降配已直接生效', [
                     'upgrade_id' => $upgrade->id,
-                    'from_product_id' => $host->product_id,
+                    'from_product_id' => $lockedHost->product_id,
                     'to_product_id' => $targetProduct->id,
                     'recurring_amount' => $target,
                 ]);
 
-                $invoice = $this->invoiceService->generateNoPaymentRequired($host->client, [[
+                $invoice = $this->invoiceService->generateNoPaymentRequired($lockedHost->client, [[
                     'type' => 'downgrade',
-                    'description' => $host->product->name . ' to ' . $targetProduct->name . ' downgrade adjustment',
+                    'description' => $lockedHost->product->name . ' to ' . $targetProduct->name . ' downgrade adjustment',
                     'amount' => 0,
                     'rel_id' => $upgrade->id,
                 ]]);
                 $upgrade->update(['status' => 'Completed', 'completed_at' => now()]);
 
-                return $invoice->fresh(['items']);
+                return ['invoice' => $invoice->fresh(['items'])];
             }
 
-            $invoice = $this->invoiceService->generate($host->client, [[
+            $invoice = $this->invoiceService->generate($lockedHost->client, [[
                 'type' => 'upgrade',
-                'description' => $host->product->name . ' to ' . $targetProduct->name,
+                'description' => $lockedHost->product->name . ' to ' . $targetProduct->name,
                 'amount' => $amount,
                 'rel_id' => $upgrade->id,
             ]]);
 
-            $this->log($host, $type . '_invoice', '升级/降配账单已生成', [
+            $this->log($lockedHost, $type . '_invoice', '升级/降配账单已生成', [
                 'invoice_id' => $invoice->id,
                 'upgrade_id' => $upgrade->id,
             ]);
 
-            return $invoice;
+            return ['invoice' => $invoice];
         });
+
+        if (isset($result['error'])) {
+            throw new RuntimeException($result['error']);
+        }
+
+        return $result['invoice'];
     }
 
     public function applyPaidInvoice(Invoice $invoice): void
@@ -318,57 +524,103 @@ class HostService
 
     public function resetPassword(Host $host): bool
     {
-        if (!in_array($host->status, ['Active', 'Suspended'], true)) {
-            $this->logFailure($host, 'reset_password', '当前服务状态不允许重置密码', ['status' => $host->status]);
+        return DB::transaction(function () use ($host) {
+            $lockedHost = $this->lockHostForOperation($host);
+            if (!$lockedHost) {
+                return false;
+            }
 
-            return false;
-        }
+            if (!$this->canClientReceiveServiceOperation($lockedHost)) {
+                $this->logFailure($lockedHost, 'reset_password', '客户账号状态不允许重置密码', $this->clientStateMeta($lockedHost));
 
-        $password = Str::password(12);
-        $plugin = $this->serverPlugin($host);
-        if ($plugin && !$plugin->changePassword($this->serverParams($host) + ['new_password' => $password])) {
-            $this->logFailure($host, 'reset_password', '服务器模块重置密码失败');
+                return false;
+            }
 
-            return false;
-        }
+            if (!in_array($lockedHost->status, ['Active', 'Suspended'], true)) {
+                $this->logFailure($lockedHost, 'reset_password', '当前服务状态不允许重置密码', ['status' => $lockedHost->status]);
 
-        $updated = $host->update(['password' => Hash::make($password)]);
-        if ($updated) {
-            $this->log($host, 'reset_password', '服务密码已重置');
-        }
+                return false;
+            }
 
-        return $updated;
+            $password = Str::password(12);
+            try {
+                $plugin = $this->serverPlugin($lockedHost);
+            } catch (RuntimeException $exception) {
+                $this->logFailure($lockedHost, 'reset_password', $exception->getMessage());
+
+                return false;
+            }
+
+            if ($plugin && !$plugin->changePassword($this->serverParams($lockedHost) + ['new_password' => $password])) {
+                $this->logFailure($lockedHost, 'reset_password', '服务器模块重置密码失败');
+
+                return false;
+            }
+
+            $updated = $lockedHost->update(['password' => Hash::make($password)]);
+            if ($updated) {
+                $this->log($lockedHost, 'reset_password', '服务密码已重置');
+            }
+
+            return $updated;
+        });
     }
 
     public function reboot(Host $host): bool
     {
-        if ($host->status !== 'Active') {
-            $this->logFailure($host, 'reboot', '当前服务状态不允许重启', ['status' => $host->status]);
+        return DB::transaction(function () use ($host) {
+            $lockedHost = $this->lockHostForOperation($host);
+            if (!$lockedHost) {
+                return false;
+            }
 
-            return false;
-        }
+            if (!$this->canClientReceiveServiceOperation($lockedHost)) {
+                $this->logFailure($lockedHost, 'reboot', '客户账号状态不允许重启服务', $this->clientStateMeta($lockedHost));
 
-        $this->log($host, 'reboot', '服务重启请求已记录');
+                return false;
+            }
 
-        return true;
+            if ($lockedHost->status !== 'Active') {
+                $this->logFailure($lockedHost, 'reboot', '当前服务状态不允许重启', ['status' => $lockedHost->status]);
+
+                return false;
+            }
+
+            $this->log($lockedHost, 'reboot', '服务重启请求已记录');
+
+            return true;
+        });
     }
 
     public function cancelAutoRenew(Host $host): bool
     {
-        if (!$host->auto_renew) {
-            $this->logFailure($host, 'cancel_auto_renew', '自动续费已经关闭');
+        return DB::transaction(function () use ($host) {
+            $lockedHost = $this->lockHostForOperation($host);
+            if (!$lockedHost) {
+                return false;
+            }
 
-            return false;
-        }
+            if (!$this->canClientCreateBusiness($lockedHost)) {
+                $this->logFailure($lockedHost, 'cancel_auto_renew', '客户账号状态不允许取消自动续费', $this->clientStateMeta($lockedHost));
 
-        $updated = $host->update(['auto_renew' => false]);
-        if ($updated) {
-            $this->log($host, 'cancel_auto_renew', '自动续费已取消');
-        } else {
-            $this->logFailure($host, 'cancel_auto_renew', '自动续费关闭失败');
-        }
+                return false;
+            }
 
-        return $updated;
+            if (!$lockedHost->auto_renew) {
+                $this->logFailure($lockedHost, 'cancel_auto_renew', '自动续费已经关闭');
+
+                return false;
+            }
+
+            $updated = $lockedHost->update(['auto_renew' => false]);
+            if ($updated) {
+                $this->log($lockedHost, 'cancel_auto_renew', '自动续费已取消');
+            } else {
+                $this->logFailure($lockedHost, 'cancel_auto_renew', '自动续费关闭失败');
+            }
+
+            return $updated;
+        });
     }
 
     public function availableCycles(): array
@@ -385,7 +637,11 @@ class HostService
 
         $plugin = Plugin::get($serverType);
 
-        return $plugin instanceof ServerModuleInterface ? $plugin : null;
+        if (!$plugin instanceof ServerModuleInterface) {
+            throw new RuntimeException('服务器模块不可用：' . $serverType);
+        }
+
+        return $plugin;
     }
 
     private function serverParams(Host $host): array
@@ -419,6 +675,25 @@ class HostService
         };
     }
 
+    private function hasUnpaidRenewalInvoice(Host $host): bool
+    {
+        return InvoiceItem::query()
+            ->where('type', 'renewal')
+            ->where('rel_id', $host->id)
+            ->whereHas('invoice', fn ($query) => $query->where('status', 'Unpaid'))
+            ->exists();
+    }
+
+    private function isCompatibleUpgradeTarget(?Product $currentProduct, Product $targetProduct): bool
+    {
+        if (!$currentProduct) {
+            return false;
+        }
+
+        return $currentProduct->type === $targetProduct->type
+            && (string) $currentProduct->server_type === (string) $targetProduct->server_type;
+    }
+
     private function nextInvoiceDate(string $billingCycle): ?\Carbon\Carbon
     {
         $dueDate = $this->nextDueDate($billingCycle);
@@ -430,6 +705,21 @@ class HostService
     {
         $host = Host::query()->with(['client', 'product'])->find((int) $item->rel_id);
         if (!$host) {
+            return;
+        }
+
+        if (!$this->canClientCreateBusiness($host)) {
+            $this->logFailure($host, 'renew_paid', '客户账号状态不允许续费生效', $this->clientStateMeta($host));
+
+            return;
+        }
+
+        if (in_array($host->status, ['Terminated', 'Cancelled'], true)) {
+            $this->logFailure($host, 'renew_paid', '当前服务状态不允许续费生效', [
+                'status' => $host->status,
+                'invoice_item_id' => $item->id,
+            ]);
+
             return;
         }
 
@@ -454,6 +744,22 @@ class HostService
         }
 
         $host = $upgrade->host;
+        $host->loadMissing(['client', 'product']);
+        if (!$this->canClientCreateBusiness($host)) {
+            $this->logFailure($host, $upgrade->type . '_completed', '客户账号状态不允许升级/降配生效', $this->clientStateMeta($host));
+
+            return;
+        }
+
+        if ($host->status !== 'Active') {
+            $this->logFailure($host, $upgrade->type . '_completed', '当前服务状态不允许升级/降配生效', [
+                'status' => $host->status,
+                'upgrade_id' => $upgrade->id,
+            ]);
+
+            return;
+        }
+
         $this->completeUpgrade($upgrade);
         $upgrade->update([
             'status' => 'Completed',
@@ -497,18 +803,110 @@ class HostService
         };
     }
 
+    private function canClientCreateBusiness(Host $host): bool
+    {
+        $client = $host->client;
+
+        return $client !== null && !$client->trashed() && $client->isActive();
+    }
+
+    private function lockHostForOperation(Host $host): ?Host
+    {
+        return Host::query()
+            ->with(['client', 'product', 'order.invoice'])
+            ->whereKey($host->id)
+            ->lockForUpdate()
+            ->first();
+    }
+
+    private function isProvisionPaid(Host $host): bool
+    {
+        if (!$host->order_id) {
+            return true;
+        }
+
+        $host->loadMissing('order.invoice');
+        $order = $host->order;
+        if (!$order || $order->status !== 'Paid') {
+            return false;
+        }
+
+        return !$order->invoice || $order->invoice->status === 'Paid';
+    }
+
+    private function canClientReceiveServiceOperation(Host $host): bool
+    {
+        return $this->canClientCreateBusiness($host);
+    }
+
+    private function clientStateMeta(Host $host): array
+    {
+        return [
+            'client_id' => $host->client_id,
+            'client_status' => $host->client?->status,
+            'client_deleted' => (bool) $host->client?->trashed(),
+        ];
+    }
+
     private function log(Host $host, string $action, ?string $message = null, array $meta = []): void
     {
         HostActionLog::query()->create([
             'host_id' => $host->id,
             'action' => $action,
-            'message' => $message,
-            'meta' => $meta,
+            'message' => $message === null ? null : $this->maskSensitiveText($message),
+            'meta' => $this->maskSensitive($meta),
         ]);
     }
 
     private function logFailure(Host $host, string $action, string $message, array $meta = []): void
     {
         $this->log($host, $action . '_failed', $message, $meta);
+    }
+
+    private function maskSensitive(mixed $value): mixed
+    {
+        if (!is_array($value)) {
+            return is_string($value) ? $this->maskSensitiveText($value) : $value;
+        }
+
+        foreach ($value as $key => $item) {
+            if ($this->isSensitiveKey((string) $key)) {
+                $value[$key] = '[FILTERED]';
+
+                continue;
+            }
+
+            $value[$key] = $this->maskSensitive($item);
+        }
+
+        return $value;
+    }
+
+    private function isSensitiveKey(string $key): bool
+    {
+        return preg_match(self::SENSITIVE_KEY_PATTERN, $key) === 1;
+    }
+
+    private function maskSensitiveText(string $value): string
+    {
+        foreach ([
+            'password',
+            'secret',
+            'token',
+            'credential',
+            'access_key',
+            'private_key',
+            'signature',
+            'sign',
+            'key',
+        ] as $key) {
+            $value = preg_replace(
+                '/(' . preg_quote($key, '/') . ')\s*([=:])\s*([^\s,;]+)/i',
+                '$1$2[FILTERED]',
+                $value
+            ) ?? $value;
+        }
+
+        return Str::limit($value, 2000, '...');
     }
 }

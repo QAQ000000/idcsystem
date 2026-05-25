@@ -10,9 +10,14 @@ class SystemTaskController extends Controller
 {
     public function index(Request $request)
     {
+        $filters = [
+            'task_name' => $this->queryString($request, 'task_name'),
+            'status' => $this->queryString($request, 'status'),
+        ];
+
         $logs = SystemTaskLog::query()
-            ->when($request->filled('task_name'), fn ($query) => $query->where('task_name', $request->string('task_name')))
-            ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')))
+            ->when($filters['task_name'], fn ($query, string $taskName) => $query->where('task_name', $taskName))
+            ->when($filters['status'], fn ($query, string $status) => $query->where('status', $status))
             ->orderByDesc('started_at')
             ->paginate(20)
             ->withQueryString();
@@ -22,9 +27,23 @@ class SystemTaskController extends Controller
             'taskNames' => [
                 'host:sync-usage',
                 'host:send-due-reminders',
+                'notifications:recover-stale',
             ],
             'statuses' => ['running', 'success', 'failed'],
-            'filters' => $request->only(['task_name', 'status']),
+            'filters' => $filters,
         ]);
+    }
+
+    private function queryString(Request $request, string $key): ?string
+    {
+        $value = $request->query($key);
+
+        if (!is_scalar($value)) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
     }
 }

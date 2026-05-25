@@ -14,10 +14,17 @@
     <form method="post" action="{{ route('admin.sms-templates.update', $smsTemplate) }}" class="rounded bg-white p-6 shadow-sm">
         @csrf
         @method('PUT')
+        @php
+            $oldText = function (string $key, mixed $default = '') {
+                $value = old($key, $default);
+
+                return is_scalar($value) || $value === null ? $value : $default;
+            };
+        @endphp
 
         <label class="mb-4 block text-sm">
             短信内容
-            <textarea class="mt-1 w-full rounded border px-3 py-2" name="content" rows="6" required>{{ old('content', $smsTemplate->content) }}</textarea>
+            <textarea class="mt-1 w-full rounded border px-3 py-2" name="content" rows="6" required>{{ $oldText('content', $smsTemplate->content) }}</textarea>
         </label>
 
         <label class="mb-4 inline-flex items-center gap-2 text-sm">

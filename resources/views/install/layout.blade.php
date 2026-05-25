@@ -18,10 +18,34 @@
         @endif
 
         @if ($errors->any())
-            <div class="mb-6 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ $errors->first() }}</div>
+            <div class="mb-6 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <ul class="list-disc space-y-1 pl-5">
+                    @foreach ($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
         @endif
 
         @yield('content')
     </main>
+    <script>
+        document.addEventListener('submit', (event) => {
+            const form = event.target;
+            if (!(form instanceof HTMLFormElement) || !form.dataset.preventDoubleSubmit) {
+                return;
+            }
+
+            const button = form.querySelector('[data-submit-button]');
+            if (!button) {
+                return;
+            }
+
+            button.disabled = true;
+            button.dataset.originalText = button.textContent;
+            button.textContent = button.dataset.loadingText || '处理中...';
+            button.classList.add('cursor-not-allowed', 'opacity-70');
+        });
+    </script>
 </body>
 </html>

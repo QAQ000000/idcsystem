@@ -5,5 +5,11 @@
     "version": "1.0.0",
     "author": "IDC System",
     "description": "内置模拟服务器模块，用于本地开通、暂停、解除暂停、终止和重置密码流程验证。",
-    "entry": "MockServerPlugin"
+    "entry": "MockServerPlugin",
+    "config_schema": [
+        {"key": "fail_create", "label": "模拟开通失败", "type": "boolean"},
+        {"key": "fail_unsuspend", "label": "模拟解除暂停失败", "type": "boolean"},
+        {"key": "fail_usage", "label": "模拟用量采集失败", "type": "boolean"},
+        {"key": "notes", "label": "备注", "type": "textarea"}
+    ]
 }

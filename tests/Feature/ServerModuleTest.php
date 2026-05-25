@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Plugin;
+use App\Models\HostActionLog;
 use App\Modules\Admin\Models\AdminUser;
 use App\Modules\Finance\Models\Currency;
 use App\Modules\Finance\Services\PaymentService;
@@ -111,6 +112,55 @@ class ServerModuleTest extends TestCase
         $this->assertSame('mock_server', $product->fresh()->server_type);
     }
 
+    public function test_admin_cannot_delete_product_with_existing_host(): void
+    {
+        $admin = $this->admin();
+        $host = $this->host();
+        $product = $host->product;
+
+        $this->actingAs($admin, 'admin')
+            ->delete(route('admin.products.destroy', $product))
+            ->assertRedirect(route('admin.products.show', $product))
+            ->assertSessionHas('error', '产品存在关联服务，不能删除');
+
+        $this->assertDatabaseHas('products', ['id' => $product->id]);
+        $this->assertDatabaseHas('admin_action_logs', [
+            'action' => 'product.delete',
+            'target_id' => $product->id,
+            'result' => 'failed',
+            'error' => '产品存在关联服务，不能删除',
+        ]);
+    }
+
+    public function test_admin_product_delete_cleans_product_configuration_rows(): void
+    {
+        $admin = $this->admin();
+        $product = $this->product('Disposable Mock VPS', 50);
+        \DB::table('custom_fields')->insert([
+            'type' => 'product',
+            'rel_id' => $product->id,
+            'field_name' => 'hostname',
+            'field_type' => 'text',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->delete(route('admin.products.destroy', $product))
+            ->assertRedirect(route('admin.products.index'))
+            ->assertSessionHas('status', '产品已删除');
+
+        $this->assertDatabaseMissing('products', ['id' => $product->id]);
+        $this->assertDatabaseMissing('pricings', [
+            'type' => 'product',
+            'rel_id' => $product->id,
+        ]);
+        $this->assertDatabaseMissing('custom_fields', [
+            'type' => 'product',
+            'rel_id' => $product->id,
+        ]);
+    }
+
     public function test_paid_order_provisions_host_through_mock_server(): void
     {
         Mail::fake();
@@ -151,6 +201,7 @@ class ServerModuleTest extends TestCase
 
         $host = $order->hosts()->firstOrFail();
         $this->assertSame('Pending', $host->status);
+        app(PaymentService::class)->processPayment($order->invoice, 'manual_pay', []);
 
         $this->assertTrue(app(PaymentService::class)->handleCallback('manual_pay', [
             'invoice_id' => $order->invoice_id,
@@ -182,6 +233,7 @@ class ServerModuleTest extends TestCase
             'currency_id' => $client->currency_id,
         ]]);
         $host = $order->hosts()->firstOrFail();
+        app(PaymentService::class)->processPayment($order->invoice, 'manual_pay', []);
 
         $this->assertTrue(app(PaymentService::class)->handleCallback('manual_pay', [
             'invoice_id' => $order->invoice_id,
@@ -196,6 +248,68 @@ class ServerModuleTest extends TestCase
             'host_id' => $host->id,
             'action' => 'provision_failed',
             'message' => 'MockServer 模拟开通失败',
+        ]);
+    }
+
+    public function test_host_action_logs_mask_sensitive_message_and_meta(): void
+    {
+        $admin = $this->admin();
+        $host = $this->host(['status' => 'Pending']);
+
+        $log = HostActionLog::query()->create([
+            'host_id' => $host->id,
+            'action' => 'provision_failed',
+            'message' => '模块失败 password=plain-secret token:token-value',
+            'meta' => [
+                'result' => [
+                    'password' => 'result-password',
+                    'access_token' => 'result-token',
+                    'api_key' => 'result-key',
+                    'signature' => 'result-signature',
+                    'message' => 'safe message',
+                ],
+            ],
+        ]);
+
+        $log->refresh();
+        $this->assertSame('模块失败 password=[FILTERED] token:[FILTERED]', $log->message);
+        $this->assertSame('[FILTERED]', $log->meta['result']['password']);
+        $this->assertSame('[FILTERED]', $log->meta['result']['access_token']);
+        $this->assertSame('[FILTERED]', $log->meta['result']['api_key']);
+        $this->assertSame('[FILTERED]', $log->meta['result']['signature']);
+        $this->assertSame('safe message', $log->meta['result']['message']);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.hosts.show', $host))
+            ->assertOk()
+            ->assertSee('password=[FILTERED]')
+            ->assertDontSee('plain-secret')
+            ->assertDontSee('token-value')
+            ->assertDontSee('result-password')
+            ->assertDontSee('result-token')
+            ->assertDontSee('result-key')
+            ->assertDontSee('result-signature');
+    }
+
+    public function test_provision_fails_when_bound_server_module_is_disabled(): void
+    {
+        $this->installMockServer();
+        Plugin::query()->where('name', 'mock_server')->update(['status' => 0]);
+        app(PluginManager::class)->forget('mock_server', 'server');
+        $host = $this->host(['status' => 'Pending']);
+        $host->product->update(['server_type' => 'mock_server']);
+
+        $this->assertFalse(app(\App\Modules\Order\Services\HostService::class)->provision($host->fresh(['product'])));
+
+        $this->assertSame('Pending', $host->fresh()->status);
+        $this->assertDatabaseHas('host_action_logs', [
+            'host_id' => $host->id,
+            'action' => 'provision_failed',
+            'message' => '服务器模块不可用：mock_server',
+        ]);
+        $this->assertDatabaseMissing('host_action_logs', [
+            'host_id' => $host->id,
+            'action' => 'provision',
         ]);
     }
 
@@ -225,6 +339,92 @@ class ServerModuleTest extends TestCase
         $this->assertDatabaseHas('host_action_logs', ['host_id' => $host->id, 'action' => 'terminate']);
     }
 
+    public function test_admin_host_actions_reject_inactive_client_for_provision_unsuspend_and_reset_password(): void
+    {
+        $this->installMockServer();
+        $admin = $this->admin();
+        $host = $this->host(['status' => 'Suspended']);
+        $host->client->update(['status' => 2]);
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.hosts.action', $host), ['action' => 'provision'])
+            ->assertRedirect(route('admin.hosts.show', $host))
+            ->assertSessionHas('error', '服务操作失败，请查看操作日志');
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.hosts.action', $host), ['action' => 'unsuspend'])
+            ->assertRedirect(route('admin.hosts.show', $host))
+            ->assertSessionHas('error', '服务操作失败，请查看操作日志');
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.hosts.action', $host), ['action' => 'reset_password'])
+            ->assertRedirect(route('admin.hosts.show', $host))
+            ->assertSessionHas('error', '服务操作失败，请查看操作日志');
+
+        $this->assertSame('Suspended', $host->fresh()->status);
+        $this->assertDatabaseHas('host_action_logs', [
+            'host_id' => $host->id,
+            'action' => 'provision_failed',
+            'message' => '客户账号状态不允许开通服务',
+        ]);
+        $this->assertDatabaseHas('host_action_logs', [
+            'host_id' => $host->id,
+            'action' => 'unsuspend_failed',
+            'message' => '客户账号状态不允许解除暂停',
+        ]);
+        $this->assertDatabaseHas('host_action_logs', [
+            'host_id' => $host->id,
+            'action' => 'reset_password_failed',
+            'message' => '客户账号状态不允许重置密码',
+        ]);
+    }
+
+    public function test_admin_host_actions_still_allow_suspend_and_terminate_for_inactive_client(): void
+    {
+        $this->installMockServer();
+        $admin = $this->admin();
+        $host = $this->host(['status' => 'Active']);
+        $host->client->update(['status' => 2]);
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.hosts.action', $host), ['action' => 'suspend', 'reason' => '停用客户收尾'])
+            ->assertRedirect(route('admin.hosts.show', $host));
+        $this->assertSame('Suspended', $host->fresh()->status);
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.hosts.action', $host), ['action' => 'terminate'])
+            ->assertRedirect(route('admin.hosts.show', $host));
+        $this->assertSame('Terminated', $host->fresh()->status);
+    }
+
+    public function test_admin_host_detail_hides_service_recovery_actions_for_inactive_client(): void
+    {
+        $this->installMockServer();
+        $host = $this->host(['status' => 'Suspended']);
+        $host->client->update(['status' => 2]);
+
+        $this->actingAs($this->admin(), 'admin')
+            ->get(route('admin.hosts.show', $host))
+            ->assertOk()
+            ->assertSee('客户账号不可用，不能执行开通、解除暂停或重置密码。')
+            ->assertDontSee('重试开通')
+            ->assertSee('终止');
+    }
+
+    public function test_admin_host_detail_does_not_show_provision_action_for_suspended_host(): void
+    {
+        $this->installMockServer();
+        $host = $this->host(['status' => 'Suspended']);
+
+        $this->actingAs($this->admin(), 'admin')
+            ->get(route('admin.hosts.show', $host))
+            ->assertOk()
+            ->assertDontSee('开通服务')
+            ->assertDontSee('重试开通')
+            ->assertSee('解除暂停')
+            ->assertSee('终止');
+    }
+
     public function test_provision_is_not_repeated_for_active_host(): void
     {
         $this->installMockServer();
@@ -242,6 +442,81 @@ class ServerModuleTest extends TestCase
         ]);
     }
 
+    public function test_provision_rechecks_latest_host_status_before_calling_server_module(): void
+    {
+        Mail::fake();
+        $this->installMockServer();
+        $client = $this->client();
+        $product = $this->product('Stale Host VPS', 50);
+
+        $order = app(OrderService::class)->create($client, [[
+            'product_id' => $product->id,
+            'billing_cycle' => 'monthly',
+            'currency_id' => $client->currency_id,
+        ]]);
+
+        $host = $order->hosts()->firstOrFail();
+        $stale = $host->fresh();
+        $host->update(['status' => 'Active']);
+
+        $this->assertFalse(app(\App\Modules\Order\Services\HostService::class)->provision($stale));
+        $this->assertSame('Active', $host->fresh()->status);
+        $this->assertDatabaseHas('host_action_logs', [
+            'host_id' => $host->id,
+            'action' => 'provision_failed',
+        ]);
+    }
+
+    public function test_provision_rejects_unpaid_order_host(): void
+    {
+        Mail::fake();
+        $this->installMockServer();
+        $client = $this->client();
+        $product = $this->product('Unpaid Provision VPS', 50);
+
+        $order = app(OrderService::class)->create($client, [[
+            'product_id' => $product->id,
+            'billing_cycle' => 'monthly',
+            'currency_id' => $client->currency_id,
+        ]]);
+
+        $host = $order->hosts()->firstOrFail();
+
+        $this->assertFalse(app(\App\Modules\Order\Services\HostService::class)->provision($host->fresh(['client', 'product'])));
+        $this->assertSame('Pending', $host->fresh()->status);
+        $this->assertDatabaseHas('host_action_logs', [
+            'host_id' => $host->id,
+            'action' => 'provision_failed',
+            'message' => '关联订单或账单未支付，不能开通服务',
+        ]);
+        $this->assertDatabaseMissing('host_action_logs', [
+            'host_id' => $host->id,
+            'action' => 'provision',
+        ]);
+    }
+
+    public function test_admin_host_detail_hides_provision_action_for_unpaid_order_host(): void
+    {
+        Mail::fake();
+        $this->installMockServer();
+        $client = $this->client();
+        $product = $this->product('Unpaid Admin Provision VPS', 50);
+
+        $order = app(OrderService::class)->create($client, [[
+            'product_id' => $product->id,
+            'billing_cycle' => 'monthly',
+            'currency_id' => $client->currency_id,
+        ]]);
+        $host = $order->hosts()->firstOrFail();
+
+        $this->actingAs($this->admin(), 'admin')
+            ->get(route('admin.hosts.show', $host))
+            ->assertOk()
+            ->assertSee('关联订单或账单未支付，不能开通服务。')
+            ->assertDontSee('name="action" value="provision"', false)
+            ->assertDontSee('重试开通');
+    }
+
     public function test_failed_host_actions_are_logged(): void
     {
         $this->installMockServer();
@@ -255,6 +530,39 @@ class ServerModuleTest extends TestCase
         $this->assertDatabaseHas('host_action_logs', ['host_id' => $host->id, 'action' => 'suspend_failed']);
         $this->assertDatabaseHas('host_action_logs', ['host_id' => $host->id, 'action' => 'terminate_failed']);
         $this->assertDatabaseHas('host_action_logs', ['host_id' => $host->id, 'action' => 'reset_password_failed']);
+    }
+
+    public function test_host_actions_fail_cleanly_when_bound_server_module_is_disabled(): void
+    {
+        $this->installMockServer();
+        Plugin::query()->where('name', 'mock_server')->update(['status' => 0]);
+        app(PluginManager::class)->forget('mock_server', 'server');
+
+        $service = app(\App\Modules\Order\Services\HostService::class);
+        $active = $this->host(['status' => 'Active']);
+        $active->product->update(['server_type' => 'mock_server']);
+        $suspended = $this->host(['status' => 'Suspended']);
+        $suspended->product->update(['server_type' => 'mock_server']);
+
+        $this->assertFalse($service->suspend($active->fresh(['client', 'product']), '模块停用'));
+        $this->assertFalse($service->terminate($active->fresh(['client', 'product'])));
+        $this->assertFalse($service->resetPassword($active->fresh(['client', 'product'])));
+        $this->assertFalse($service->unsuspend($suspended->fresh(['client', 'product'])));
+
+        $this->assertSame('Active', $active->fresh()->status);
+        $this->assertSame('Suspended', $suspended->fresh()->status);
+        foreach (['suspend_failed', 'terminate_failed', 'reset_password_failed'] as $action) {
+            $this->assertDatabaseHas('host_action_logs', [
+                'host_id' => $active->id,
+                'action' => $action,
+                'message' => '服务器模块不可用：mock_server',
+            ]);
+        }
+        $this->assertDatabaseHas('host_action_logs', [
+            'host_id' => $suspended->id,
+            'action' => 'unsuspend_failed',
+            'message' => '服务器模块不可用：mock_server',
+        ]);
     }
 
     public function test_admin_host_detail_shows_usage_stats_and_failure_reason(): void
@@ -276,7 +584,46 @@ class ServerModuleTest extends TestCase
             ->assertSee('MockServer 模拟开通失败');
     }
 
-    public function test_admin_host_detail_shows_latest_non_provision_failure_reason(): void
+    public function test_admin_host_detail_handles_usage_stats_failure(): void
+    {
+        $this->installMockServer(['fail_usage' => true]);
+        $host = $this->host(['status' => 'Active']);
+
+        $this->actingAs($this->admin(), 'admin')
+            ->get(route('admin.hosts.show', $host))
+            ->assertOk()
+            ->assertSee('实时用量读取失败')
+            ->assertSee('MockServer 模拟用量采集失败');
+
+        $this->assertDatabaseHas('host_action_logs', [
+            'host_id' => $host->id,
+            'action' => 'usage_query_failed',
+            'message' => 'MockServer 模拟用量采集失败',
+        ]);
+    }
+
+    public function test_admin_host_detail_does_not_repeat_recent_usage_stats_failure_log(): void
+    {
+        $this->installMockServer(['fail_usage' => true]);
+        $host = $this->host(['status' => 'Active']);
+        $admin = $this->admin();
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.hosts.show', $host))
+            ->assertOk();
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.hosts.show', $host))
+            ->assertOk();
+
+        $this->assertSame(1, \App\Models\HostActionLog::query()
+            ->where('host_id', $host->id)
+            ->where('action', 'usage_query_failed')
+            ->where('message', 'MockServer 模拟用量采集失败')
+            ->count());
+    }
+
+    public function test_admin_host_detail_does_not_treat_non_provision_failure_as_provision_retry(): void
     {
         $this->installMockServer();
         $host = $this->host(['status' => 'Pending']);
@@ -290,9 +637,40 @@ class ServerModuleTest extends TestCase
         $this->actingAs($this->admin(), 'admin')
             ->get(route('admin.hosts.show', $host))
             ->assertOk()
+            ->assertDontSee('最近失败原因')
+            ->assertDontSee('重试开通')
+            ->assertSee('开通服务')
+            ->assertSee('suspend_failed');
+    }
+
+    public function test_admin_host_detail_clears_provision_failure_indicator_after_successful_retry(): void
+    {
+        $this->installMockServer();
+        $admin = $this->admin();
+        $host = $this->host(['status' => 'Pending']);
+        \App\Models\HostActionLog::query()->create([
+            'host_id' => $host->id,
+            'action' => 'provision_failed',
+            'message' => '首次开通失败',
+            'meta' => [],
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.hosts.show', $host))
+            ->assertOk()
+            ->assertSee('存在失败操作')
             ->assertSee('最近失败原因')
-            ->assertSee('suspend_failed')
-            ->assertSee('当前服务状态不允许暂停');
+            ->assertSee('重试开通');
+
+        $this->assertTrue(app(\App\Modules\Order\Services\HostService::class)->provision($host->fresh(['client', 'product'])));
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.hosts.show', $host->fresh()))
+            ->assertOk()
+            ->assertDontSee('存在失败操作')
+            ->assertDontSee('最近失败原因')
+            ->assertDontSee('重试开通')
+            ->assertSee('Active');
     }
 
     public function test_admin_host_list_can_filter_by_client_product_and_status(): void
@@ -310,6 +688,33 @@ class ServerModuleTest extends TestCase
             ->assertOk()
             ->assertSee('#' . $host->id)
             ->assertDontSee('#' . $other->id);
+    }
+
+    public function test_admin_host_list_filters_ignore_array_query_values(): void
+    {
+        $admin = $this->admin();
+        $host = $this->host(['status' => 'Active']);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.hosts.index', [
+                'client_id' => [$host->client_id],
+                'product_id' => [$host->product_id],
+                'status' => ['Active'],
+            ]))
+            ->assertOk()
+            ->assertSee('#' . $host->id);
+    }
+
+    public function test_admin_host_detail_usage_query_does_not_pass_host_password_to_server_module(): void
+    {
+        $this->installMockServer(['fail_when_usage_receives_password' => true]);
+        $admin = $this->admin();
+        $host = $this->host(['status' => 'Active']);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.hosts.show', $host))
+            ->assertOk()
+            ->assertDontSee('Usage stats should not receive host password');
     }
 
     private function installMockServer(array $config = []): void
@@ -361,6 +766,10 @@ class ServerModuleTest extends TestCase
 
     private function product(string $name, float $monthly): Product
     {
+        Currency::query()->firstOrCreate(
+            ['code' => 'CNY'],
+            ['prefix' => '¥', 'suffix' => '', 'exchange_rate' => 1, 'is_default' => true]
+        );
         $group = ProductGroup::query()->firstOrCreate(['name' => 'MockServer 产品']);
         $product = Product::query()->create([
             'group_id' => $group->id,

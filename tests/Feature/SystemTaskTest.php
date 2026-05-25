@@ -3,10 +3,13 @@
 namespace Tests\Feature;
 
 use App\Models\SystemTaskLog;
+use App\Models\EmailLog;
+use App\Models\SmsLog;
 use App\Modules\Admin\Models\AdminUser;
 use App\Services\SystemTaskService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class SystemTaskTest extends TestCase
@@ -54,6 +57,69 @@ class SystemTaskTest extends TestCase
         $this->assertSame('{"processed":2,"success":1,"failed":1}', $log->output);
     }
 
+    public function test_system_task_service_masks_sensitive_output_values(): void
+    {
+        $log = app(SystemTaskService::class)->run('demo:sensitive-output', fn () => [
+            'processed' => 1,
+            'db_password' => 'plain-secret',
+            'nested' => [
+                'access_token' => 'token-value',
+                'api_key' => 'key-value',
+                'signature' => 'sign-value',
+                'public_value' => 'visible',
+            ],
+        ]);
+
+        $this->assertSame('success', $log->status);
+        $this->assertSame(
+            '{"processed":1,"db_password":"[FILTERED]","nested":{"access_token":"[FILTERED]","api_key":"[FILTERED]","signature":"[FILTERED]","public_value":"visible"}}',
+            $log->output
+        );
+        $this->assertStringNotContainsString('plain-secret', (string) $log->output);
+        $this->assertStringNotContainsString('token-value', (string) $log->output);
+        $this->assertStringNotContainsString('key-value', (string) $log->output);
+        $this->assertStringNotContainsString('sign-value', (string) $log->output);
+    }
+
+    public function test_system_task_service_masks_sensitive_exception_messages(): void
+    {
+        $log = app(SystemTaskService::class)->run('demo:sensitive-error', function () {
+            throw new \RuntimeException('连接失败 password=plain-secret token:token-value access_key=key-value signature=sign-value');
+        });
+
+        $this->assertSame('failed', $log->status);
+        $this->assertSame('连接失败 password=[FILTERED] token:[FILTERED] access_key=[FILTERED] signature=[FILTERED]', $log->error);
+        $this->assertStringNotContainsString('plain-secret', (string) $log->error);
+        $this->assertStringNotContainsString('token-value', (string) $log->error);
+        $this->assertStringNotContainsString('key-value', (string) $log->error);
+        $this->assertStringNotContainsString('sign-value', (string) $log->error);
+    }
+
+    public function test_system_task_log_model_masks_sensitive_output_and_error_text(): void
+    {
+        $log = SystemTaskLog::query()->create([
+            'task_name' => 'demo:model-mask',
+            'status' => 'failed',
+            'started_at' => now(),
+            'finished_at' => now(),
+            'duration_ms' => 10,
+            'output' => 'output password=plain-secret token:token-value access_key=key-value signature=sign-value',
+            'error' => 'error password=plain-secret token:token-value access_key=key-value signature=sign-value',
+        ]);
+
+        $log->refresh();
+        $this->assertSame('output password=[FILTERED] token:[FILTERED] access_key=[FILTERED] signature=[FILTERED]', $log->output);
+        $this->assertSame('error password=[FILTERED] token:[FILTERED] access_key=[FILTERED] signature=[FILTERED]', $log->error);
+        $this->assertStringNotContainsString('plain-secret', (string) $log->output);
+        $this->assertStringNotContainsString('token-value', (string) $log->output);
+        $this->assertStringNotContainsString('key-value', (string) $log->output);
+        $this->assertStringNotContainsString('sign-value', (string) $log->output);
+        $this->assertStringNotContainsString('plain-secret', (string) $log->error);
+        $this->assertStringNotContainsString('token-value', (string) $log->error);
+        $this->assertStringNotContainsString('key-value', (string) $log->error);
+        $this->assertStringNotContainsString('sign-value', (string) $log->error);
+    }
+
     public function test_host_usage_command_writes_system_task_log(): void
     {
         $this->artisan('host:sync-usage')->assertExitCode(0);
@@ -83,21 +149,123 @@ class SystemTaskTest extends TestCase
             ->assertSee('测试错误');
     }
 
+    public function test_admin_system_task_filter_includes_notification_recovery_task(): void
+    {
+        SystemTaskLog::query()->create([
+            'task_name' => 'notifications:recover-stale',
+            'status' => 'success',
+            'started_at' => now(),
+            'finished_at' => now(),
+            'duration_ms' => 10,
+            'output' => '{"email":1,"sms":1}',
+        ]);
+
+        $this->actingAs($this->admin(), 'admin')
+            ->get(route('admin.system-tasks.index', ['task_name' => 'notifications:recover-stale']))
+            ->assertOk()
+            ->assertSee('notifications:recover-stale')
+            ->assertSee('{"email":1,"sms":1}');
+    }
+
+    public function test_admin_system_task_filters_ignore_array_query_values(): void
+    {
+        SystemTaskLog::query()->create([
+            'task_name' => 'host:sync-usage',
+            'status' => 'failed',
+            'started_at' => now(),
+            'finished_at' => now(),
+            'duration_ms' => 10,
+            'output' => 'array filter smoke',
+            'error' => '数组筛选测试',
+        ]);
+
+        $this->actingAs($this->admin(), 'admin')
+            ->get(route('admin.system-tasks.index', [
+                'task_name' => ['host:sync-usage'],
+                'status' => ['failed'],
+            ]))
+            ->assertOk()
+            ->assertSee('host:sync-usage');
+    }
+
+    public function test_non_system_task_admin_cannot_view_system_task_logs(): void
+    {
+        $admin = AdminUser::query()->create([
+            'username' => 'task-limited-' . random_int(1000, 9999),
+            'email' => 'task-limited-' . random_int(1000, 9999) . '@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 1,
+        ]);
+        Role::query()->firstOrCreate(['name' => 'support-admin', 'guard_name' => 'web']);
+        $admin->syncRoles(['support-admin']);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.system-tasks.index'))
+            ->assertForbidden();
+    }
+
     public function test_scheduler_contains_host_tasks(): void
     {
         $this->artisan('schedule:list')
             ->assertExitCode(0)
             ->expectsOutputToContain('host:sync-usage')
-            ->expectsOutputToContain('host:send-due-reminders');
+            ->expectsOutputToContain('host:send-due-reminders')
+            ->expectsOutputToContain('notifications:recover-stale');
+    }
+
+    public function test_notification_recovery_command_marks_stale_processing_logs_failed(): void
+    {
+        $email = EmailLog::query()->create([
+            'to' => 'stale-command@example.com',
+            'subject' => 'Stale',
+            'body' => 'body',
+            'provider' => 'smtp',
+            'status' => 'processing',
+            'success' => false,
+            'payload' => [],
+            'attempts' => 1,
+        ]);
+        $sms = SmsLog::query()->create([
+            'phone' => '13800137777',
+            'template' => 'invoice_paid',
+            'template_code' => 'invoice_paid',
+            'content' => 'stale',
+            'provider' => 'aliyun',
+            'status' => 'processing',
+            'success' => false,
+            'payload' => [],
+            'attempts' => 1,
+        ]);
+        EmailLog::query()->whereKey($email->id)->update(['updated_at' => now()->subMinutes(30)]);
+        SmsLog::query()->whereKey($sms->id)->update(['updated_at' => now()->subMinutes(30)]);
+
+        $this->artisan('notifications:recover-stale', ['--minutes' => 15])
+            ->assertExitCode(0);
+
+        $this->assertSame('failed', $email->fresh()->status);
+        $this->assertSame('Email processing timeout', $email->fresh()->error);
+        $this->assertSame(1, $email->fresh()->attempts);
+        $this->assertSame('failed', $sms->fresh()->status);
+        $this->assertSame('SMS processing timeout', $sms->fresh()->error);
+        $this->assertSame(1, $sms->fresh()->attempts);
+        $this->assertDatabaseHas('system_task_logs', [
+            'task_name' => 'notifications:recover-stale',
+            'status' => 'success',
+        ]);
     }
 
     private function admin(): AdminUser
     {
-        return AdminUser::query()->create([
+        $admin = AdminUser::query()->create([
             'username' => 'admin-task-' . random_int(1000, 9999),
             'email' => 'admin-task-' . random_int(1000, 9999) . '@example.com',
             'password' => Hash::make('admin123456'),
             'status' => 1,
         ]);
+
+        Role::query()->firstOrCreate(['name' => 'super-admin', 'guard_name' => 'web']);
+        $admin->syncRoles(['super-admin']);
+
+        return $admin;
     }
 }

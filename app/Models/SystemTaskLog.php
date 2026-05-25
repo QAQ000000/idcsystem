@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class SystemTaskLog extends Model
 {
@@ -21,4 +22,35 @@ class SystemTaskLog extends Model
         'finished_at' => 'datetime',
         'duration_ms' => 'integer',
     ];
+
+    protected static function booted(): void
+    {
+        static::saving(function (SystemTaskLog $log): void {
+            $log->output = $log->output === null ? null : static::maskSensitiveText($log->output);
+            $log->error = $log->error === null ? null : static::maskSensitiveText($log->error);
+        });
+    }
+
+    private static function maskSensitiveText(string $value): string
+    {
+        foreach ([
+            'password',
+            'secret',
+            'token',
+            'credential',
+            'access_key',
+            'private_key',
+            'signature',
+            'sign',
+            'key',
+        ] as $key) {
+            $value = preg_replace(
+                '/(' . preg_quote($key, '/') . ')\s*([=:])\s*([^\s,;]+)/i',
+                '$1$2[FILTERED]',
+                $value
+            ) ?? $value;
+        }
+
+        return Str::limit($value, 2000, '...');
+    }
 }

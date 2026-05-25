@@ -8,6 +8,8 @@ use App\Modules\Product\Models\Product;
 use App\Modules\Product\Models\ProductGroup;
 use App\Modules\User\Models\Client;
 use App\Modules\Order\Services\CartService;
+use App\Modules\Order\Services\OrderService;
+use App\Modules\Product\Services\PricingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
@@ -76,7 +78,7 @@ class CartBoundaryTest extends TestCase
         $product->update(['hidden' => true]);
 
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('购物车没有可结算的有效商品');
+        $this->expectExceptionMessage('购物车包含不可结算的商品，请移除后重试。');
 
         $cart->checkout($client);
     }
@@ -91,7 +93,7 @@ class CartBoundaryTest extends TestCase
         $product->update(['stock_qty' => 0]);
 
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('购物车没有可结算的有效商品');
+        $this->expectExceptionMessage('购物车包含不可结算的商品，请移除后重试。');
 
         $cart->checkout($client);
     }
@@ -111,6 +113,267 @@ class CartBoundaryTest extends TestCase
 
         $this->assertSame('Pending', $order->status);
         $this->assertSame(0, (int) $product->fresh()->stock_qty);
+    }
+
+    public function test_checkout_creates_one_host_for_each_quantity(): void
+    {
+        $client = $this->client();
+        $product = $this->product(['stock_control' => true, 'stock_qty' => 2]);
+        $cart = app(CartService::class);
+
+        $this->assertNotNull($cart->add($client, $product, [
+            'billing_cycle' => 'monthly',
+            'qty' => 2,
+        ]));
+
+        $order = $cart->checkout($client);
+
+        $this->assertSame(2, $order->hosts()->count());
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'amount' => 100,
+        ]);
+    }
+
+    public function test_cart_uses_client_currency_for_price_and_order_amount(): void
+    {
+        $cny = Currency::query()->firstOrCreate(
+            ['code' => 'CNY'],
+            ['prefix' => '¥', 'suffix' => '', 'exchange_rate' => 1, 'is_default' => true]
+        );
+        $usd = Currency::query()->firstOrCreate(
+            ['code' => 'USD'],
+            ['prefix' => '$', 'suffix' => '', 'exchange_rate' => 7, 'is_default' => false]
+        );
+        $client = $this->client();
+        $client->update(['currency_id' => $usd->id]);
+        $product = $this->product();
+        Pricing::query()->updateOrCreate(
+            ['type' => 'product', 'rel_id' => $product->id, 'currency_id' => $cny->id],
+            ['monthly' => 50]
+        );
+        Pricing::query()->updateOrCreate(
+            ['type' => 'product', 'rel_id' => $product->id, 'currency_id' => $usd->id],
+            ['monthly' => 9]
+        );
+
+        $cart = app(CartService::class);
+        $cart->add($client->fresh(), $product, ['billing_cycle' => 'monthly']);
+        $cartItem = $cart->getCart($client->fresh())['items'][0];
+
+        $this->assertSame(9.0, $cartItem['price']);
+        $this->assertSame($usd->id, $cartItem['currency_id']);
+
+        $order = $cart->checkout($client->fresh());
+
+        $this->assertSame($usd->id, $order->currency_id);
+        $this->assertSame('9.00', (string) $order->amount);
+        $this->assertSame('9.00', (string) $order->invoice->fresh()->total);
+        $this->assertSame('9.00', (string) $order->hosts()->firstOrFail()->first_payment_amount);
+    }
+
+    public function test_product_detail_uses_logged_in_client_currency(): void
+    {
+        $usd = Currency::query()->firstOrCreate(
+            ['code' => 'USD'],
+            ['prefix' => '$', 'suffix' => '', 'exchange_rate' => 7, 'is_default' => false]
+        );
+        $client = $this->client();
+        $client->update(['currency_id' => $usd->id]);
+        $product = $this->product();
+        Pricing::query()->updateOrCreate(
+            ['type' => 'product', 'rel_id' => $product->id, 'currency_id' => $usd->id],
+            ['monthly' => 9, 'quarterly' => 25, 'semiannually' => 48, 'annually' => 90]
+        );
+
+        $this->actingAs($client->fresh(), 'client')
+            ->get(route('client.products.show', $product))
+            ->assertOk()
+            ->assertSee('$9.00')
+            ->assertDontSee('¥50.00');
+    }
+
+    public function test_checkout_rejects_cart_when_product_price_becomes_invalid_after_add(): void
+    {
+        $client = $this->client();
+        $product = $this->product();
+        $cart = app(CartService::class);
+
+        $this->assertNotNull($cart->add($client, $product, ['billing_cycle' => 'monthly']));
+        app(PricingService::class)->setPricing('product', $product->id, Currency::query()->where('code', 'CNY')->value('id'), [
+            'monthly' => -1,
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('购物车包含不可结算的商品，请移除后重试。');
+
+        $cart->checkout($client);
+    }
+
+    public function test_checkout_rejects_mixed_cart_when_any_item_becomes_invalid_and_keeps_cart(): void
+    {
+        $client = $this->client();
+        $valid = $this->product(['name' => 'Valid Product']);
+        $hidden = $this->product(['name' => 'Hidden Later Product']);
+        $cart = app(CartService::class);
+
+        $this->assertNotNull($cart->add($client, $valid, ['billing_cycle' => 'monthly']));
+        $this->assertNotNull($cart->add($client, $hidden, ['billing_cycle' => 'monthly']));
+        $hidden->update(['hidden' => true]);
+
+        try {
+            $cart->checkout($client);
+            $this->fail('Expected mixed invalid cart checkout to fail.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('购物车包含不可结算的商品，请移除后重试。', $exception->getMessage());
+        }
+
+        $this->assertSame(2, count($cart->getCart($client)['items']));
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('invoices', 0);
+    }
+
+    public function test_client_checkout_redirects_back_when_cart_becomes_invalid(): void
+    {
+        $client = $this->client();
+        $product = $this->product();
+        $cart = app(CartService::class);
+
+        $this->assertNotNull($cart->add($client, $product, ['billing_cycle' => 'monthly']));
+        app(PricingService::class)->setPricing('product', $product->id, Currency::query()->where('code', 'CNY')->value('id'), [
+            'monthly' => -1,
+        ]);
+
+        $this->actingAs($client, 'client')
+            ->post(route('client.cart.checkout'))
+            ->assertRedirect(route('client.cart.index'))
+            ->assertSessionHasErrors('checkout');
+    }
+
+    public function test_inactive_client_cannot_add_or_checkout_cart(): void
+    {
+        $client = $this->client();
+        $product = $this->product();
+        $cart = app(CartService::class);
+
+        $client->update(['status' => 2]);
+
+        $this->assertNull($cart->add($client->fresh(), $product, ['billing_cycle' => 'monthly']));
+        $this->assertSame([], $cart->getCart($client)['items']);
+
+        $client->update(['status' => 1]);
+        $this->assertNotNull($cart->add($client->fresh(), $product, ['billing_cycle' => 'monthly']));
+        $client->update(['status' => 2]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('客户账号状态不允许结算');
+
+        $cart->checkout($client->fresh());
+    }
+
+    public function test_cart_add_rechecks_latest_client_status(): void
+    {
+        $client = $this->client();
+        $staleClient = $client->fresh();
+        $product = $this->product();
+        $client->update(['status' => 2]);
+
+        $this->assertNull(app(CartService::class)->add($staleClient, $product, ['billing_cycle' => 'monthly']));
+        $this->assertSame([], app(CartService::class)->getCart($client)['items']);
+    }
+
+    public function test_cart_add_rechecks_latest_product_state(): void
+    {
+        $client = $this->client();
+        $product = $this->product();
+        $staleProduct = $product->fresh();
+        $product->update(['hidden' => true]);
+
+        $this->assertNull(app(CartService::class)->add($client, $staleProduct, ['billing_cycle' => 'monthly']));
+        $this->assertSame([], app(CartService::class)->getCart($client)['items']);
+    }
+
+    public function test_order_service_rejects_inactive_client_order_creation(): void
+    {
+        $client = $this->client();
+        $product = $this->product();
+        $client->update(['status' => 2]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('客户账号状态不允许创建订单');
+
+        app(OrderService::class)->create($client->fresh(), [[
+            'product_id' => $product->id,
+            'billing_cycle' => 'monthly',
+            'currency_id' => $client->currency_id,
+        ]]);
+    }
+
+    public function test_order_service_rechecks_latest_client_status_before_creation(): void
+    {
+        $client = $this->client();
+        $staleClient = $client->fresh();
+        $product = $this->product();
+        $client->update(['status' => 2]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('客户账号状态不允许创建订单');
+
+        app(OrderService::class)->create($staleClient, [[
+            'product_id' => $product->id,
+            'billing_cycle' => 'monthly',
+            'currency_id' => $staleClient->currency_id,
+        ]]);
+    }
+
+    public function test_order_service_rejects_hidden_product_order_creation(): void
+    {
+        $client = $this->client();
+        $product = $this->product(['hidden' => true]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('订单包含不可购买商品');
+
+        app(OrderService::class)->create($client, [[
+            'product_id' => $product->id,
+            'billing_cycle' => 'monthly',
+            'currency_id' => $client->currency_id,
+        ]]);
+    }
+
+    public function test_order_service_rechecks_latest_product_state_when_model_is_passed(): void
+    {
+        $client = $this->client();
+        $product = $this->product();
+        $staleProduct = $product->fresh();
+        $product->update(['hidden' => true]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('订单包含不可购买商品');
+
+        app(OrderService::class)->create($client, [[
+            'product' => $staleProduct,
+            'billing_cycle' => 'monthly',
+            'currency_id' => $client->currency_id,
+        ]]);
+    }
+
+    public function test_order_service_rejects_invalid_price_order_creation(): void
+    {
+        $client = $this->client();
+        $product = $this->product();
+        app(PricingService::class)->setPricing('product', $product->id, $client->currency_id, [
+            'monthly' => -1,
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('订单商品价格无效');
+
+        app(OrderService::class)->create($client, [[
+            'product_id' => $product->id,
+            'billing_cycle' => 'monthly',
+            'currency_id' => $client->currency_id,
+        ]]);
     }
 
     private function client(): Client

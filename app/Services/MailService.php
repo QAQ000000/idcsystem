@@ -7,10 +7,14 @@ use App\Models\EmailLog;
 use App\Models\EmailTemplate;
 use App\Plugins\Contracts\EmailProviderInterface;
 use App\Plugins\Facades\Plugin;
+use Illuminate\Support\Str;
 use Throwable;
 
 class MailService
 {
+    private const PROCESSING_TIMEOUT_MINUTES = 15;
+    private const SUBJECT_MAX_LENGTH = 255;
+
     public function __construct(
         private ?SettingsService $settings = null
     ) {
@@ -73,35 +77,74 @@ class MailService
 
     public function retry(EmailLog $log, bool $async = true): bool
     {
-        if ($log->status !== 'failed') {
-            return false;
-        }
+        $this->recoverStaleProcessingLog($log);
 
-        $log = $this->refreshTemplateLog($log);
-        if (!$log) {
-            return false;
-        }
+        return $this->retryLog($log, $async, function (EmailLog $lockedLog) {
+            return $this->refreshTemplateLog($lockedLog);
+        }, function (EmailLog $lockedLog) use ($async) {
+            if ($async) {
+                try {
+                    SendEmailJob::dispatch($lockedLog->id);
+                } catch (Throwable) {
+                    $this->markFailed($lockedLog->fresh(), 'Email retry dispatch failed');
 
-        $log->update([
-            'status' => 'pending',
-            'success' => false,
-            'error' => null,
-            'sent_at' => null,
-        ]);
+                    return false;
+                }
 
-        if ($async) {
-            try {
-                SendEmailJob::dispatch($log->id);
-            } catch (Throwable) {
-                $this->markFailed($log->fresh(), 'Email retry dispatch failed');
+                return true;
+            }
 
+            return $this->sendLog($lockedLog->fresh());
+        });
+    }
+
+    public function recoverStaleProcessing(int $minutes = self::PROCESSING_TIMEOUT_MINUTES): int
+    {
+        return EmailLog::query()
+            ->where('status', 'processing')
+            ->where('updated_at', '<=', now()->subMinutes($minutes))
+            ->update([
+                'status' => 'failed',
+                'success' => false,
+                'error' => 'Email processing timeout',
+            ]);
+    }
+
+    private function retryLog(EmailLog $log, bool $async, callable $refresh, callable $dispatch): bool
+    {
+        return \DB::transaction(function () use ($log, $refresh, $dispatch) {
+            $lockedLog = EmailLog::query()->whereKey($log->id)->lockForUpdate()->first();
+            if (!$lockedLog || !in_array($lockedLog->status, ['failed', 'pending'], true)) {
                 return false;
             }
 
-            return true;
-        }
+            $lockedLog = $lockedLog->status === 'failed' ? $refresh($lockedLog) : $lockedLog;
+            if (!$lockedLog) {
+                return false;
+            }
 
-        return $this->sendLog($log->fresh());
+            $lockedLog->update([
+                'status' => 'pending',
+                'success' => false,
+                'error' => null,
+                'sent_at' => null,
+            ]);
+
+            return $dispatch($lockedLog->fresh());
+        });
+    }
+
+    private function recoverStaleProcessingLog(EmailLog $log): void
+    {
+        EmailLog::query()
+            ->whereKey($log->id)
+            ->where('status', 'processing')
+            ->where('updated_at', '<=', now()->subMinutes(self::PROCESSING_TIMEOUT_MINUTES))
+            ->update([
+                'status' => 'failed',
+                'success' => false,
+                'error' => 'Email processing timeout',
+            ]);
     }
 
     private function refreshTemplateLog(EmailLog $log): ?EmailLog
@@ -123,7 +166,7 @@ class MailService
 
         $variables = $this->templateVariables($log->payload ?? []);
         $log->update([
-            'subject' => $this->render($template->subject, $variables),
+            'subject' => $this->normalizeSubject($this->render($template->subject, $variables)),
             'body' => $this->render($template->body, $variables),
             'payload' => array_merge($log->payload ?? [], ['payload' => $variables]),
         ]);
@@ -165,10 +208,21 @@ class MailService
     public function render(string $content, array $variables): string
     {
         foreach ($variables as $key => $value) {
-            $content = str_replace('{{' . $key . '}}', (string) $value, $content);
+            $content = str_replace('{{' . $key . '}}', $this->stringifyVariable($value), $content);
         }
 
         return $content;
+    }
+
+    private function stringifyVariable(mixed $value): string
+    {
+        if (is_scalar($value) || $value === null) {
+            return (string) $value;
+        }
+
+        $encoded = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        return $encoded === false ? '' : $encoded;
     }
 
     public function mailQueueEnabled(): bool
@@ -185,10 +239,14 @@ class MailService
         $status = (string) ($options['status'] ?? 'pending');
         $success = $status === 'sent' || (bool) ($options['success'] ?? false);
         $providerName = (string) ($options['provider'] ?? $this->settings->get('default_email_provider', 'smtp'));
+        $normalizedSubject = $this->normalizeSubject($subject);
+        if ($normalizedSubject !== $subject) {
+            $options['original_subject'] = $subject;
+        }
 
         return EmailLog::query()->create([
             'to' => $to,
-            'subject' => $subject,
+            'subject' => $normalizedSubject,
             'body' => $body,
             'template' => $options['template'] ?? null,
             'provider' => $providerName,
@@ -201,24 +259,37 @@ class MailService
         ]);
     }
 
+    private function normalizeSubject(string $subject): string
+    {
+        if (Str::length($subject) <= self::SUBJECT_MAX_LENGTH) {
+            return $subject;
+        }
+
+        return Str::substr($subject, 0, self::SUBJECT_MAX_LENGTH);
+    }
+
     private function markSent(EmailLog $log): void
     {
+        $attempts = $log->status === 'processing' ? $log->attempts : $log->attempts + 1;
+
         $log->update([
             'status' => 'sent',
             'success' => true,
             'error' => null,
-            'attempts' => $log->attempts + 1,
+            'attempts' => $attempts,
             'sent_at' => now(),
         ]);
     }
 
     private function markFailed(EmailLog $log, string $error): void
     {
+        $attempts = $log->status === 'processing' ? $log->attempts : $log->attempts + 1;
+
         $log->update([
             'status' => 'failed',
             'success' => false,
             'error' => $error,
-            'attempts' => $log->attempts + 1,
+            'attempts' => $attempts,
         ]);
     }
 }

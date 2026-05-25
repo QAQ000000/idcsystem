@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 class PluginConfigService
 {
-    private const SENSITIVE_KEY_PATTERN = '/(secret|password|passwd|token|key)$/i';
+    private const SENSITIVE_KEY_PATTERN = '/(password|passwd|secret|token|credential|access_key|private_key|key|signature|sign)$/i';
 
     public function get(string $name): array
     {
@@ -18,8 +18,14 @@ class PluginConfigService
     public function save(string $name, array $config): Plugin
     {
         $plugin = $this->plugin($name);
-        $plugin->update(['config' => $this->mergeConfig($plugin->config ?? [], $config)]);
-        app(PluginManager::class)->forget($plugin->name, $plugin->type);
+        $manager = app(PluginManager::class);
+        $fields = $this->configFieldsByKey($plugin, $manager);
+        $plugin->update(['config' => $this->mergeConfig(
+            $plugin->config ?? [],
+            $this->filterAllowedConfig($plugin, $config, $manager),
+            $fields->all()
+        )]);
+        $manager->forget($plugin->name, $plugin->type);
 
         return $plugin->fresh();
     }
@@ -35,19 +41,20 @@ class PluginConfigService
         return $plugin;
     }
 
-    private function mergeConfig(array $current, array $incoming): array
+    private function mergeConfig(array $current, array $incoming, array $fields = []): array
     {
         foreach ($incoming as $key => $value) {
             if (is_array($value)) {
                 $current[$key] = $this->mergeConfig(
                     is_array($current[$key] ?? null) ? $current[$key] : [],
-                    $value
+                    $value,
+                    $fields
                 );
 
                 continue;
             }
 
-            if ($this->isSensitiveKey((string) $key) && $this->isBlank($value)) {
+            if ($this->isSensitiveField((string) $key, $fields[$key] ?? []) && $this->isBlank($value)) {
                 continue;
             }
 
@@ -57,9 +64,62 @@ class PluginConfigService
         return $current;
     }
 
+    private function filterAllowedConfig(Plugin $plugin, array $config, PluginManager $manager): array
+    {
+        $fields = $this->configFieldsByKey($plugin, $manager);
+
+        if ($fields->isEmpty()) {
+            return [];
+        }
+
+        $filtered = array_intersect_key($config, array_flip($fields->keys()->all()));
+
+        foreach ($filtered as $key => $value) {
+            $type = $fields[$key]['type'] ?? 'text';
+
+            if ($type === 'boolean') {
+                $filtered[$key] = in_array($value, [true, 1, '1', 'true', 'on'], true);
+
+                continue;
+            }
+
+            if (is_array($value) || is_object($value)) {
+                unset($filtered[$key]);
+
+                continue;
+            }
+
+            if ($type === 'number') {
+                if (is_numeric($value)) {
+                    $filtered[$key] = $value + 0;
+                } else {
+                    unset($filtered[$key]);
+                }
+
+                continue;
+            }
+
+            $filtered[$key] = (string) $value;
+        }
+
+        return $filtered;
+    }
+
     private function isSensitiveKey(string $key): bool
     {
         return preg_match(self::SENSITIVE_KEY_PATTERN, $key) === 1;
+    }
+
+    private function isSensitiveField(string $key, array $field = []): bool
+    {
+        return ($field['type'] ?? null) === 'password' || $this->isSensitiveKey($key);
+    }
+
+    private function configFieldsByKey(Plugin $plugin, PluginManager $manager): \Illuminate\Support\Collection
+    {
+        return collect($manager->configFields($plugin))
+            ->filter(fn ($field) => is_array($field) && !empty($field['key']))
+            ->keyBy(fn ($field) => (string) $field['key']);
     }
 
     private function isBlank(mixed $value): bool

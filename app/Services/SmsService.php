@@ -11,6 +11,8 @@ use Throwable;
 
 class SmsService
 {
+    private const PROCESSING_TIMEOUT_MINUTES = 15;
+
     public function __construct(
         private ?SettingsService $settings = null
     ) {
@@ -95,35 +97,74 @@ class SmsService
 
     public function retry(SmsLog $log, bool $async = true): bool
     {
-        if ($log->status !== 'failed') {
-            return false;
-        }
+        $this->recoverStaleProcessingLog($log);
 
-        $log = $this->refreshTemplateLog($log);
-        if (!$log) {
-            return false;
-        }
+        return $this->retryLog($log, function (SmsLog $lockedLog) {
+            return $this->refreshTemplateLog($lockedLog);
+        }, function (SmsLog $lockedLog) use ($async) {
+            if ($async) {
+                try {
+                    SendSmsJob::dispatch($lockedLog->id);
+                } catch (Throwable) {
+                    $this->markFailed($lockedLog->fresh(), 'SMS retry dispatch failed');
 
-        $log->update([
-            'status' => 'pending',
-            'success' => false,
-            'error' => null,
-            'sent_at' => null,
-        ]);
+                    return false;
+                }
 
-        if ($async) {
-            try {
-                SendSmsJob::dispatch($log->id);
-            } catch (Throwable) {
-                $this->markFailed($log->fresh(), 'SMS retry dispatch failed');
+                return true;
+            }
 
+            return $this->sendLog($lockedLog->fresh());
+        });
+    }
+
+    public function recoverStaleProcessing(int $minutes = self::PROCESSING_TIMEOUT_MINUTES): int
+    {
+        return SmsLog::query()
+            ->where('status', 'processing')
+            ->where('updated_at', '<=', now()->subMinutes($minutes))
+            ->update([
+                'status' => 'failed',
+                'success' => false,
+                'error' => 'SMS processing timeout',
+            ]);
+    }
+
+    private function retryLog(SmsLog $log, callable $refresh, callable $dispatch): bool
+    {
+        return \DB::transaction(function () use ($log, $refresh, $dispatch) {
+            $lockedLog = SmsLog::query()->whereKey($log->id)->lockForUpdate()->first();
+            if (!$lockedLog || !in_array($lockedLog->status, ['failed', 'pending'], true)) {
                 return false;
             }
 
-            return true;
-        }
+            $lockedLog = $lockedLog->status === 'failed' ? $refresh($lockedLog) : $lockedLog;
+            if (!$lockedLog) {
+                return false;
+            }
 
-        return $this->sendLog($log->fresh());
+            $lockedLog->update([
+                'status' => 'pending',
+                'success' => false,
+                'error' => null,
+                'sent_at' => null,
+            ]);
+
+            return $dispatch($lockedLog->fresh());
+        });
+    }
+
+    private function recoverStaleProcessingLog(SmsLog $log): void
+    {
+        SmsLog::query()
+            ->whereKey($log->id)
+            ->where('status', 'processing')
+            ->where('updated_at', '<=', now()->subMinutes(self::PROCESSING_TIMEOUT_MINUTES))
+            ->update([
+                'status' => 'failed',
+                'success' => false,
+                'error' => 'SMS processing timeout',
+            ]);
     }
 
     private function refreshTemplateLog(SmsLog $log): ?SmsLog
@@ -154,10 +195,21 @@ class SmsService
     public function render(string $content, array $variables): string
     {
         foreach ($variables as $key => $value) {
-            $content = str_replace('{{' . $key . '}}', (string) $value, $content);
+            $content = str_replace('{{' . $key . '}}', $this->stringifyVariable($value), $content);
         }
 
         return $content;
+    }
+
+    private function stringifyVariable(mixed $value): string
+    {
+        if (is_scalar($value) || $value === null) {
+            return (string) $value;
+        }
+
+        $encoded = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        return $encoded === false ? '' : $encoded;
     }
 
     public function smsQueueEnabled(): bool
@@ -188,22 +240,26 @@ class SmsService
 
     private function markSent(SmsLog $log): void
     {
+        $attempts = $log->status === 'processing' ? $log->attempts : $log->attempts + 1;
+
         $log->update([
             'status' => 'sent',
             'success' => true,
             'error' => null,
-            'attempts' => $log->attempts + 1,
+            'attempts' => $attempts,
             'sent_at' => now(),
         ]);
     }
 
     private function markFailed(SmsLog $log, string $error): void
     {
+        $attempts = $log->status === 'processing' ? $log->attempts : $log->attempts + 1;
+
         $log->update([
             'status' => 'failed',
             'success' => false,
             'error' => $error,
-            'attempts' => $log->attempts + 1,
+            'attempts' => $attempts,
         ]);
     }
 }

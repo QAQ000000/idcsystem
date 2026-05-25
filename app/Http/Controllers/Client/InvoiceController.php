@@ -66,4 +66,11 @@ class InvoiceController extends Controller
 
         return redirect()->route('client.invoices.show', $invoice)->with('status', $result['message'] ?? '支付已发起');
     }
+
+    public function callback(Request $request, string $gateway, PaymentService $payments)
+    {
+        $handled = $payments->handleCallback($gateway, $request->all());
+
+        return response($handled ? 'ok' : 'failed', $handled ? 200 : 400);
+    }
 }

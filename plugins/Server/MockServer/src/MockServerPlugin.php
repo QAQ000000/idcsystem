@@ -83,6 +83,11 @@ class MockServerPlugin extends AbstractPlugin implements ServerModuleInterface
             throw new \RuntimeException('MockServer 模拟用量采集失败');
         }
 
+        if (($this->getConfig()['fail_when_usage_receives_password'] ?? false) === true
+            && array_key_exists('password', $params)) {
+            throw new \RuntimeException('Usage stats should not receive host password');
+        }
+
         $seed = max(1, (int) ($params['host_id'] ?? 1));
 
         return [

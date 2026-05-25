@@ -5,16 +5,19 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Modules\Finance\Models\Currency;
 use App\Services\AdminAuditService;
+use App\Services\NotificationService;
 use App\Services\SettingsService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class SettingController extends Controller
 {
     public function index(SettingsService $settings)
     {
         return view('admin.settings.index', [
-            'settings' => $settings->all(),
+            'settings' => $settings,
             'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->get(),
+            'notificationEvents' => NotificationService::events(),
         ]);
     }
 
@@ -25,7 +28,7 @@ class SettingController extends Controller
             'site_url' => ['required', 'url', 'max:255'],
             'default_currency' => ['required', 'string', 'max:10'],
             'maintenance_mode' => ['nullable', 'boolean'],
-            'auto_setup_policy' => ['required', 'string', 'max:50'],
+            'auto_setup_policy' => ['required', 'string', Rule::in(['manual', 'paid', 'instant'])],
             'invoice_due_days' => ['required', 'integer', 'min:0', 'max:365'],
             'renewal_reminder_days' => ['required', 'integer', 'min:0', 'max:365'],
             'mail_from_name' => ['nullable', 'string', 'max:100'],
@@ -34,7 +37,7 @@ class SettingController extends Controller
             'smtp_port' => ['nullable', 'integer', 'min:1', 'max:65535'],
             'smtp_username' => ['nullable', 'string', 'max:255'],
             'smtp_password' => ['nullable', 'string', 'max:255'],
-            'smtp_encryption' => ['nullable', 'string', 'max:20'],
+            'smtp_encryption' => ['nullable', 'string', Rule::in(['', 'tls', 'ssl'])],
             'default_email_provider' => ['nullable', 'string', 'max:100'],
             'mail_queue_enabled' => ['nullable', 'boolean'],
             'notify_invoice_created_mail' => ['nullable', 'boolean'],
@@ -67,11 +70,14 @@ class SettingController extends Controller
             'smtp_host' => $data['smtp_host'] ?? '',
             'smtp_port' => $data['smtp_port'] ?? '',
             'smtp_username' => $data['smtp_username'] ?? '',
-            'smtp_password' => $data['smtp_password'] ?? '',
             'smtp_encryption' => $data['smtp_encryption'] ?? '',
             'default_email_provider' => $data['default_email_provider'] ?? 'smtp',
             'mail_queue_enabled' => $request->boolean('mail_queue_enabled'),
         ], 'mail');
+
+        if (($data['smtp_password'] ?? '') !== '') {
+            $settings->set('smtp_password', $data['smtp_password'], 'mail');
+        }
 
         $settings->setMany([
             'default_sms_provider' => $data['default_sms_provider'] ?? 'aliyun',
@@ -79,14 +85,7 @@ class SettingController extends Controller
             'sms_queue_enabled' => $request->boolean('sms_queue_enabled'),
         ], 'sms');
 
-        $settings->setMany([
-            'notify_invoice_created_mail' => $request->boolean('notify_invoice_created_mail', true),
-            'notify_invoice_created_sms' => $request->boolean('notify_invoice_created_sms', true),
-            'notify_invoice_paid_mail' => $request->boolean('notify_invoice_paid_mail', true),
-            'notify_invoice_paid_sms' => $request->boolean('notify_invoice_paid_sms', true),
-            'notify_ticket_replied_mail' => $request->boolean('notify_ticket_replied_mail', true),
-            'notify_ticket_replied_sms' => $request->boolean('notify_ticket_replied_sms', true),
-        ], 'notification');
+        $settings->setMany($this->notificationSettings($request), 'notification');
         $audit->record($request, 'settings.update', null, 'success', $data + [
             'maintenance_mode' => $request->boolean('maintenance_mode'),
             'mail_queue_enabled' => $request->boolean('mail_queue_enabled'),
@@ -94,5 +93,19 @@ class SettingController extends Controller
         ]);
 
         return redirect()->route('admin.settings.index')->with('status', '系统设置已保存');
+    }
+
+    private function notificationSettings(Request $request): array
+    {
+        $settings = [];
+
+        foreach (array_keys(NotificationService::events()) as $event) {
+            foreach (['mail', 'sms'] as $channel) {
+                $key = "notify_{$event}_{$channel}";
+                $settings[$key] = $request->boolean($key);
+            }
+        }
+
+        return $settings;
     }
 }

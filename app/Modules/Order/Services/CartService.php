@@ -31,29 +31,38 @@ class CartService
      */
     public function add(Client $client, Product $product, array $config): ?array
     {
-        $qty = max(1, (int) ($config['qty'] ?? 1));
-        if (!$this->productService->isPurchasable($product, $qty)) {
+        $freshClient = Client::query()->whereKey($client->id)->first();
+        $freshProduct = Product::query()->whereKey($product->id)->first();
+
+        if (!$freshClient || !$freshProduct || !$this->canClientCreateBusiness($freshClient)) {
             return null;
         }
 
-        $cart = $this->getCart($client);
+        $qty = max(1, (int) ($config['qty'] ?? 1));
+        if (!$this->productService->isPurchasable($freshProduct, $qty)) {
+            return null;
+        }
+
+        $cart = $this->getCart($freshClient);
         $billingCycle = (string) ($config['billing_cycle'] ?? 'monthly');
-        $price = $this->pricingService->calculatePrice($product, $billingCycle, $config);
+        $config['currency_id'] = (int) ($config['currency_id'] ?? $freshClient->currency_id ?? $this->pricingService->defaultCurrencyId());
+        $price = $this->pricingService->calculatePrice($freshProduct, $billingCycle, $config);
         if ($price <= 0) {
             return null;
         }
 
         $cart['items'][] = [
             'id' => $this->nextItemId($cart),
-            'product_id' => $product->id,
-            'product_name' => $product->name,
+            'product_id' => $freshProduct->id,
+            'product_name' => $freshProduct->name,
             'billing_cycle' => $billingCycle,
             'qty' => $qty,
             'price' => $price,
             'config' => $config,
+            'currency_id' => $config['currency_id'],
         ];
 
-        $this->putCart($client, $cart);
+        $this->putCart($freshClient, $cart);
 
         return $cart;
     }
@@ -97,8 +106,12 @@ class CartService
     {
         return Cache::lock($this->checkoutLockKey($client), 10)->block(3, function () use ($client) {
             return DB::transaction(function () use ($client) {
+                if (!$this->canClientCreateBusiness($client)) {
+                    throw new RuntimeException('客户账号状态不允许结算。');
+                }
+
                 $cart = $this->getCart($client);
-                $items = array_filter(array_map(function (array $item) {
+                $items = array_map(function (array $item) use ($client) {
                     $product = Product::query()
                         ->where('hidden', false)
                         ->where('retired', false)
@@ -106,25 +119,36 @@ class CartService
 
                     $qty = max(1, (int) ($item['qty'] ?? 1));
                     if (!$product || !$this->productService->isPurchasable($product, $qty)) {
-                        return null;
+                        throw new RuntimeException('购物车包含不可结算的商品，请移除后重试。');
                     }
 
-                    if (!$this->productService->decrementStock($product, $qty)) {
-                        return null;
+                    $billingCycle = (string) ($item['billing_cycle'] ?? 'monthly');
+                    $item['currency_id'] = (int) ($item['currency_id'] ?? $client->currency_id ?? $this->pricingService->defaultCurrencyId());
+                    $price = $this->pricingService->calculatePrice($product, $billingCycle, $item);
+                    if ($price <= 0) {
+                        throw new RuntimeException('购物车包含不可结算的商品，请移除后重试。');
                     }
 
                     return ($item['config'] ?? []) + [
                         'product_id' => $item['product_id'],
-                        'billing_cycle' => $item['billing_cycle'],
+                        'billing_cycle' => $billingCycle,
+                        'currency_id' => $item['currency_id'],
                         'qty' => $qty,
+                        'price' => $price,
                     ];
-                }, $cart['items']));
+                }, $cart['items']);
 
                 if ($items === []) {
                     throw new RuntimeException('购物车没有可结算的有效商品。');
                 }
 
                 $order = $this->orderService->create($client, $items);
+                foreach ($items as $item) {
+                    $product = Product::query()->find((int) $item['product_id']);
+                    if (!$product || !$this->productService->decrementStock($product, (int) $item['qty'])) {
+                        throw new RuntimeException('购物车包含不可结算的商品，请移除后重试。');
+                    }
+                }
                 $this->clear($client);
 
                 return $order;
@@ -135,6 +159,11 @@ class CartService
     private function putCart(Client $client, array $cart): void
     {
         Cache::put($this->cacheKey($client), $cart, now()->addDays(7));
+    }
+
+    private function canClientCreateBusiness(Client $client): bool
+    {
+        return !$client->trashed() && $client->isActive();
     }
 
     private function cacheKey(Client $client): string

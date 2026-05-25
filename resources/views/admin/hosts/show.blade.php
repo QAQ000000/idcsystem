@@ -3,6 +3,10 @@
 @section('title', '服务详情')
 
 @section('content')
+    @php($clientUnavailable = !$host->client || $host->client->trashed() || !$host->client->isActive())
+    @php($adminUser = auth('admin')->user())
+    @php($canAdmin = fn (string $permission): bool => $adminUser && ($adminUser->hasRole('super-admin') || $adminUser->can($permission)))
+
     <div class="mb-6 flex items-center justify-between">
         <h1 class="text-2xl font-semibold">服务 #{{ $host->id }}</h1>
         <a class="rounded border px-4 py-2 text-sm" href="{{ route('admin.hosts.index') }}">返回列表</a>
@@ -16,7 +20,15 @@
         <section class="rounded bg-white p-5 shadow-sm lg:col-span-2">
             <h2 class="mb-4 font-semibold">服务信息</h2>
             <dl class="grid gap-3 text-sm md:grid-cols-2">
-                <div><dt class="text-slate-500">客户</dt><dd>{{ $host->client?->username }} / {{ $host->client?->email }}</dd></div>
+                <div>
+                    <dt class="text-slate-500">客户</dt>
+                    <dd>
+                        {{ $host->client?->username }} / {{ $host->client?->email }}
+                        @if ($host->client?->trashed())
+                            <span class="ml-1 inline-flex rounded bg-slate-200 px-2 py-0.5 text-xs text-slate-700">已删除</span>
+                        @endif
+                    </dd>
+                </div>
                 <div><dt class="text-slate-500">产品</dt><dd>{{ $host->product?->name }}</dd></div>
                 <div><dt class="text-slate-500">服务器模块</dt><dd>{{ $host->product?->server_type ?: '未绑定' }}</dd></div>
                 <div>
@@ -39,48 +51,67 @@
 
         <section class="rounded bg-white p-5 shadow-sm">
             <h2 class="mb-4 font-semibold">后台操作</h2>
-            <div class="space-y-3 text-sm">
-                @if (in_array($host->status, ['Pending', 'Suspended'], true))
-                    <form method="post" action="{{ route('admin.hosts.action', $host) }}">
-                        @csrf
-                        <input type="hidden" name="action" value="provision">
-                        <button class="w-full rounded bg-slate-900 px-4 py-2 text-white">{{ $failureLog ? '重试开通' : '开通服务' }}</button>
-                    </form>
-                @endif
-                @if ($host->status === 'Active')
-                    <form method="post" action="{{ route('admin.hosts.action', $host) }}">
-                        @csrf
-                        <input type="hidden" name="action" value="suspend">
-                        <input class="mb-2 w-full rounded border px-3 py-2" name="reason" placeholder="暂停原因">
-                        <button class="w-full rounded bg-amber-600 px-4 py-2 text-white">暂停</button>
-                    </form>
-                @endif
-                @if ($host->status === 'Suspended')
-                    <form method="post" action="{{ route('admin.hosts.action', $host) }}">
-                        @csrf
-                        <input type="hidden" name="action" value="unsuspend">
-                        <button class="w-full rounded bg-emerald-700 px-4 py-2 text-white">解除暂停</button>
-                    </form>
-                @endif
-                @if (in_array($host->status, ['Active', 'Suspended'], true))
-                    <form method="post" action="{{ route('admin.hosts.action', $host) }}">
-                        @csrf
-                        <input type="hidden" name="action" value="reset_password">
-                        <button class="w-full rounded border px-4 py-2">重置密码</button>
-                    </form>
-                    <form method="post" action="{{ route('admin.hosts.action', $host) }}">
-                        @csrf
-                        <input type="hidden" name="action" value="terminate">
-                        <button class="w-full rounded bg-red-600 px-4 py-2 text-white">终止</button>
-                    </form>
-                @endif
-            </div>
+            @if (!$canAdmin('host.manage'))
+                <p class="text-sm text-slate-500">当前账号没有服务操作权限。</p>
+            @elseif ($clientUnavailable)
+                <p class="mb-3 rounded bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    客户账号不可用，不能执行开通、解除暂停或重置密码。
+                </p>
+            @elseif ($host->status === 'Pending' && !$provisionPayable)
+                <p class="mb-3 rounded bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    关联订单或账单未支付，不能开通服务。
+                </p>
+            @endif
+            @if ($canAdmin('host.manage'))
+                <div class="space-y-3 text-sm">
+                    @if (!$clientUnavailable && $provisionPayable && $host->status === 'Pending')
+                        <form method="post" action="{{ route('admin.hosts.action', $host) }}">
+                            @csrf
+                            <input type="hidden" name="action" value="provision">
+                            <button class="w-full rounded bg-slate-900 px-4 py-2 text-white">{{ $failureLog ? '重试开通' : '开通服务' }}</button>
+                        </form>
+                    @endif
+                    @if ($host->status === 'Active')
+                        <form method="post" action="{{ route('admin.hosts.action', $host) }}">
+                            @csrf
+                            <input type="hidden" name="action" value="suspend">
+                            <input class="mb-2 w-full rounded border px-3 py-2" name="reason" placeholder="暂停原因">
+                            <button class="w-full rounded bg-amber-600 px-4 py-2 text-white">暂停</button>
+                        </form>
+                    @endif
+                    @if (!$clientUnavailable && $host->status === 'Suspended')
+                        <form method="post" action="{{ route('admin.hosts.action', $host) }}">
+                            @csrf
+                            <input type="hidden" name="action" value="unsuspend">
+                            <button class="w-full rounded bg-emerald-700 px-4 py-2 text-white">解除暂停</button>
+                        </form>
+                    @endif
+                    @if (in_array($host->status, ['Active', 'Suspended'], true))
+                        @if (!$clientUnavailable)
+                            <form method="post" action="{{ route('admin.hosts.action', $host) }}">
+                                @csrf
+                                <input type="hidden" name="action" value="reset_password">
+                                <button class="w-full rounded border px-4 py-2">重置密码</button>
+                            </form>
+                        @endif
+                        <form method="post" action="{{ route('admin.hosts.action', $host) }}">
+                            @csrf
+                            <input type="hidden" name="action" value="terminate">
+                            <button class="w-full rounded bg-red-600 px-4 py-2 text-white">终止</button>
+                        </form>
+                    @endif
+                </div>
+            @endif
         </section>
     </div>
 
     <section class="mt-6 rounded bg-white p-5 shadow-sm">
         <h2 class="mb-4 font-semibold">用量统计</h2>
-        @if (!empty($usageStats))
+        @if (!empty($usageError))
+            <div class="rounded border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                实时用量读取失败：{{ $usageError }}
+            </div>
+        @elseif (!empty($usageStats))
             <dl class="grid gap-3 text-sm md:grid-cols-4">
                 <div><dt class="text-slate-500">CPU</dt><dd>{{ $usageStats['cpu'] ?? '-' }}%</dd></div>
                 <div><dt class="text-slate-500">内存</dt><dd>{{ $usageStats['memory'] ?? '-' }} MB</dd></div>

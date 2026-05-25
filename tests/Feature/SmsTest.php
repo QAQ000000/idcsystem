@@ -85,6 +85,41 @@ class SmsTest extends TestCase
         ]);
     }
 
+    public function test_sms_log_masks_sensitive_payload_and_error_text(): void
+    {
+        $log = SmsLog::query()->create([
+            'phone' => '13800138999',
+            'template' => 'invoice_paid',
+            'template_code' => 'invoice_paid',
+            'content' => '支付成功',
+            'provider' => 'aliyun',
+            'status' => 'failed',
+            'success' => false,
+            'payload' => [
+                'access_token' => 'sms-token',
+                'nested' => [
+                    'api_key' => 'sms-key',
+                    'message' => 'visible',
+                ],
+            ],
+            'error' => 'sms failed password=plain-secret token:token-value signature=sign-value',
+            'attempts' => 0,
+        ]);
+
+        $log->refresh();
+        $this->assertSame('[FILTERED]', $log->payload['access_token']);
+        $this->assertSame('[FILTERED]', $log->payload['nested']['api_key']);
+        $this->assertSame('visible', $log->payload['nested']['message']);
+        $this->assertStringContainsString('password=[FILTERED]', $log->error);
+        $this->assertStringContainsString('token:[FILTERED]', $log->error);
+        $this->assertStringContainsString('signature=[FILTERED]', $log->error);
+        $this->assertStringNotContainsString('sms-token', json_encode($log->payload));
+        $this->assertStringNotContainsString('sms-key', json_encode($log->payload));
+        $this->assertStringNotContainsString('plain-secret', $log->error);
+        $this->assertStringNotContainsString('token-value', $log->error);
+        $this->assertStringNotContainsString('sign-value', $log->error);
+    }
+
     public function test_send_sms_job_marks_log_as_sent(): void
     {
         $this->installSms();
@@ -106,6 +141,7 @@ class SmsTest extends TestCase
             'id' => $log->id,
             'status' => 'sent',
             'success' => true,
+            'attempts' => 1,
         ]);
     }
 
@@ -159,6 +195,7 @@ class SmsTest extends TestCase
             'id' => $log->id,
             'status' => 'failed',
             'success' => false,
+            'attempts' => 1,
         ]);
         $this->assertNotNull(SmsLog::query()->findOrFail($log->id)->error);
     }
@@ -171,6 +208,16 @@ class SmsTest extends TestCase
         );
 
         $this->assertSame('您好 王五，账单 INV003 金额 66.00', $rendered);
+    }
+
+    public function test_template_render_safely_serializes_array_variables(): void
+    {
+        $rendered = app(SmsService::class)->render(
+            '配置 {{config}}',
+            ['config' => ['cpu' => 2, 'memory' => '4G']]
+        );
+
+        $this->assertSame('配置 {"cpu":2,"memory":"4G"}', $rendered);
     }
 
     public function test_invoice_payment_and_ticket_actions_trigger_sms_logs(): void
@@ -194,6 +241,7 @@ class SmsTest extends TestCase
         ]);
 
         $this->installManualPay();
+        app(PaymentService::class)->processPayment($invoice->fresh(), 'manual_pay', []);
         app(PaymentService::class)->handleCallback('manual_pay', [
             'invoice_id' => $invoice->id,
             'amount' => 100,
@@ -247,6 +295,56 @@ class SmsTest extends TestCase
             ->assertRedirect(route('admin.sms-logs.show', $log));
     }
 
+    public function test_admin_sms_log_filters_ignore_array_query_values(): void
+    {
+        $admin = $this->admin();
+        SmsLog::query()->create([
+            'phone' => '13800138888',
+            'template' => 'invoice_paid',
+            'template_code' => 'invoice_paid',
+            'content' => '数组筛选',
+            'provider' => 'aliyun',
+            'status' => 'failed',
+            'success' => false,
+            'error' => 'test error',
+            'payload' => [],
+            'attempts' => 1,
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.sms-logs.index', ['status' => ['failed']]))
+            ->assertOk()
+            ->assertSee('13800138888');
+    }
+
+    public function test_admin_sms_log_detail_masks_sensitive_content_text(): void
+    {
+        $admin = $this->admin();
+        $log = SmsLog::query()->create([
+            'phone' => '13800138005',
+            'template' => 'invoice_paid',
+            'template_code' => 'invoice_paid',
+            'content' => '短信内容 password=plain-secret token:token-value signature=sign-value',
+            'provider' => 'aliyun',
+            'status' => 'failed',
+            'success' => false,
+            'payload' => [],
+            'attempts' => 0,
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.sms-logs.show', $log))
+            ->assertOk()
+            ->assertSee('password=[FILTERED]', false)
+            ->assertSee('token:[FILTERED]', false)
+            ->assertSee('signature=[FILTERED]', false)
+            ->assertDontSee('plain-secret')
+            ->assertDontSee('token-value')
+            ->assertDontSee('sign-value');
+
+        $this->assertSame('短信内容 password=plain-secret token:token-value signature=sign-value', $log->fresh()->content);
+    }
+
     public function test_retry_failed_template_sms_rerenders_current_template(): void
     {
         $this->installSms();
@@ -294,6 +392,97 @@ class SmsTest extends TestCase
         $this->assertFalse(app(SmsService::class)->retry($log, false));
         $this->assertSame('sent', $log->fresh()->status);
         $this->assertSame(1, $log->fresh()->attempts);
+    }
+
+    public function test_pending_sms_log_can_be_requeued_from_admin_retry(): void
+    {
+        Bus::fake();
+        $log = SmsLog::query()->create([
+            'phone' => '13800138888',
+            'template' => 'invoice_paid',
+            'template_code' => 'invoice_paid',
+            'content' => '待发送短信',
+            'provider' => 'aliyun',
+            'status' => 'pending',
+            'success' => false,
+            'payload' => [],
+            'attempts' => 0,
+        ]);
+
+        $this->assertTrue(app(SmsService::class)->retry($log));
+
+        $log->refresh();
+        $this->assertSame('pending', $log->status);
+        $this->assertSame(0, $log->attempts);
+        Bus::assertDispatched(SendSmsJob::class);
+    }
+
+    public function test_stale_processing_sms_log_can_be_recovered_and_retried(): void
+    {
+        $this->seed(\Database\Seeders\SmsTemplateSeeder::class);
+        $this->installSms();
+        $log = SmsLog::query()->create([
+            'phone' => '13800138998',
+            'template' => 'invoice_paid',
+            'template_code' => 'invoice_paid',
+            'content' => '支付成功',
+            'provider' => 'aliyun',
+            'status' => 'processing',
+            'success' => false,
+            'payload' => [],
+            'attempts' => 0,
+        ]);
+        SmsLog::query()->whereKey($log->id)->update(['updated_at' => now()->subMinutes(20)]);
+        $log->refresh();
+
+        $this->assertTrue(app(SmsService::class)->retry($log, false));
+
+        $log->refresh();
+        $this->assertSame('sent', $log->status);
+        $this->assertTrue($log->success);
+        $this->assertSame(1, $log->attempts);
+    }
+
+    public function test_fresh_processing_sms_log_cannot_be_retried(): void
+    {
+        $log = SmsLog::query()->create([
+            'phone' => '13800138997',
+            'template' => 'invoice_paid',
+            'template_code' => 'invoice_paid',
+            'content' => '支付成功',
+            'provider' => 'aliyun',
+            'status' => 'processing',
+            'success' => false,
+            'payload' => [],
+            'attempts' => 0,
+        ]);
+
+        $this->assertFalse(app(SmsService::class)->retry($log, false));
+        $this->assertSame('processing', $log->fresh()->status);
+        $this->assertSame(0, $log->fresh()->attempts);
+    }
+
+    public function test_admin_sms_log_detail_hides_retry_button_while_processing(): void
+    {
+        $admin = $this->admin();
+        $log = SmsLog::query()->create([
+            'phone' => '13800138996',
+            'template' => 'invoice_paid',
+            'template_code' => 'invoice_paid',
+            'content' => '发送中短信',
+            'provider' => 'aliyun',
+            'status' => 'processing',
+            'success' => false,
+            'payload' => [],
+            'attempts' => 0,
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.sms-logs.show', $log))
+            ->assertOk()
+            ->assertSee('发送中')
+            ->assertDontSee('重新发送')
+            ->assertDontSee(route('admin.sms-logs.retry', $log), false);
     }
 
     public function test_admin_cannot_retry_sent_sms_log_by_posting_directly(): void

@@ -12,7 +12,7 @@
         <div class="grid gap-4 md:grid-cols-2">
             <label class="block text-sm">
                 用户名
-                <input class="mt-1 w-full rounded border px-3 py-2" name="username" value="{{ old('username', $client->username) }}" required>
+                <input class="mt-1 w-full rounded border bg-zinc-100 px-3 py-2" value="{{ $client->username }}" disabled>
             </label>
             <label class="block text-sm">
                 邮箱

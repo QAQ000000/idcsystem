@@ -169,4 +169,70 @@ class ServicesGoalTest extends TestCase
             ->where('rel_id', $host->id)
             ->count());
     }
+
+    public function test_recurring_invoice_generation_skips_inactive_clients(): void
+    {
+        $currency = Currency::create([
+            'code' => 'CNY',
+            'prefix' => '¥',
+            'suffix' => '',
+            'exchange_rate' => 1,
+            'is_default' => true,
+        ]);
+
+        $client = Client::create([
+            'username' => 'inactive-billing-client',
+            'email' => 'inactive-billing-client@example.com',
+            'password' => 'secret',
+            'status' => 2,
+            'currency_id' => $currency->id,
+        ]);
+
+        $group = ProductGroup::create(['name' => 'VPS']);
+        $product = Product::create([
+            'group_id' => $group->id,
+            'name' => 'Inactive Billing VPS',
+            'type' => 'vps',
+            'status' => 'Active',
+        ]);
+
+        $pricingService = new PricingService();
+        $pricingService->setPricing('product', $product->id, $currency->id, [
+            'monthly' => 50,
+        ]);
+
+        $order = Order::create([
+            'client_id' => $client->id,
+            'order_number' => 'ORD-INACTIVE-BILLING-1',
+            'status' => 'Paid',
+            'amount' => 50,
+            'currency_id' => $currency->id,
+        ]);
+
+        $host = Host::create([
+            'client_id' => $client->id,
+            'order_id' => $order->id,
+            'product_id' => $product->id,
+            'billing_cycle' => 'monthly',
+            'first_payment_amount' => 50,
+            'recurring_amount' => 50,
+            'next_due_date' => now()->addDays(5),
+            'next_invoice_date' => now()->subDay(),
+            'status' => 'Active',
+            'auto_renew' => true,
+        ]);
+
+        $billingService = new BillingService(new HostService($pricingService, new InvoiceService()));
+
+        $this->assertSame(0, $billingService->generateRecurringInvoices());
+        $this->assertDatabaseMissing('invoice_items', [
+            'type' => 'renewal',
+            'rel_id' => $host->id,
+        ]);
+        $this->assertDatabaseHas('host_action_logs', [
+            'host_id' => $host->id,
+            'action' => 'renew_invoice_failed',
+            'message' => '客户账号状态不允许自动续费',
+        ]);
+    }
 }

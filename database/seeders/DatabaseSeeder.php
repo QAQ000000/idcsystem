@@ -15,6 +15,7 @@ class DatabaseSeeder extends Seeder
             CurrencySeeder::class,
             TicketStatusSeeder::class,
             TicketDepartmentSeeder::class,
+            AdminPermissionSeeder::class,
             AdminUserSeeder::class,
             ClientGroupSeeder::class,
             EmailTemplateSeeder::class,

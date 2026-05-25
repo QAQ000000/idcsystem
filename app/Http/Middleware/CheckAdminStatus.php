@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Modules\Admin\Models\AdminUser;
 use App\Services\AdminAuditService;
 use Closure;
 use Illuminate\Http\Request;
@@ -18,10 +19,13 @@ class CheckAdminStatus
             return redirect()->route('admin.login');
         }
 
-        if (!$admin->isActive()) {
+        // 每次请求重新读取管理员状态，避免后台停用账号后旧会话继续访问。
+        $freshAdmin = AdminUser::query()->whereKey($admin->getAuthIdentifier())->first();
+
+        if (!$freshAdmin || !$freshAdmin->isActive()) {
             app(AdminAuditService::class)->record($request, 'admin.status.denied', null, 'failed', [
                 'admin_user_id' => $admin->id,
-                'status' => $admin->status,
+                'status' => $freshAdmin?->status,
                 'method' => $request->method(),
                 'path' => $request->path(),
             ], '管理员账号已被停用。');
@@ -32,6 +36,8 @@ class CheckAdminStatus
                 'username' => '管理员账号已被停用。',
             ]);
         }
+
+        Auth::guard('admin')->setUser($freshAdmin);
 
         return $next($request);
     }

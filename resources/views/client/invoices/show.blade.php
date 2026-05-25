@@ -21,7 +21,7 @@
             <div class="mt-5 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ $errors->first() }}</div>
         @endif
 
-        @if ($invoice->status !== 'Paid')
+        @if ($invoice->status === 'Unpaid')
             <form method="post" action="{{ route('client.invoices.pay', $invoice) }}" class="mt-5 flex flex-wrap items-end gap-3" onsubmit="const button = this.querySelector('[data-pay-submit]'); if (button) { button.disabled = true; button.textContent = '处理中'; }">
                 @csrf
                 <label class="block text-sm">

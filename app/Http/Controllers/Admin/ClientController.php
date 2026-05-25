@@ -13,8 +13,10 @@ class ClientController extends Controller
 {
     public function index(Request $request)
     {
+        $keyword = $this->queryString($request, 'keyword');
+
         $clients = Client::query()
-            ->when($request->string('keyword')->toString(), function ($query, string $keyword) {
+            ->when($keyword, function ($query, string $keyword) {
                 $query->where('username', 'like', "%{$keyword}%")
                     ->orWhere('email', 'like', "%{$keyword}%");
             })
@@ -56,17 +58,35 @@ class ClientController extends Controller
             'status' => ['nullable', 'integer', Rule::in([0, 1, 2])],
         ]);
 
-        $filtered = array_filter($data, fn ($value) => $value !== null && $value !== '');
+        $filtered = collect($data)
+            ->reject(fn ($value, string $key) => $key === 'password' && ($value === null || $value === ''))
+            ->all();
         $clients->update($client, $filtered);
         $audit->record($request, 'client.update', $client, 'success', $filtered);
 
         return redirect()->route('admin.clients.show', $client)->with('status', '客户已更新');
     }
 
-    public function destroy(Request $request, Client $client, AdminAuditService $audit)
+    public function destroy(Request $request, Client $client, ClientService $clients, AdminAuditService $audit)
     {
         $clientId = $client->id;
-        $client->delete();
+
+        if (!$clients->delete($client)) {
+            $blockingStatuses = $client->hosts()
+                ->whereIn('status', ClientService::BLOCKING_HOST_STATUSES)
+                ->pluck('status')
+                ->unique()
+                ->values()
+                ->all();
+
+            $audit->record($request, 'client.delete', $client, 'failed', [
+                'client_id' => $clientId,
+                'blocking_host_statuses' => $blockingStatuses,
+            ], '客户存在未完结服务，不能删除');
+
+            return redirect()->route('admin.clients.show', $client)->with('error', '客户存在未完结服务，不能删除');
+        }
+
         $audit->record($request, 'client.delete', $client, 'success', ['client_id' => $clientId]);
 
         return redirect()->route('admin.clients.index')->with('status', '客户已删除');
@@ -79,12 +99,30 @@ class ClientController extends Controller
             'description' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $clients->addCredit($client, (float) $data['amount'], $data['description'] ?? '后台充值');
-        $audit->record($request, 'client.add_credit', $client, 'success', [
+        $success = $clients->addCredit($client, (float) $data['amount'], $data['description'] ?? '后台充值');
+        $audit->record($request, 'client.add_credit', $client, $success ? 'success' : 'failed', [
             'amount' => (float) $data['amount'],
             'description' => $data['description'] ?? '后台充值',
-        ]);
+            'client_status' => $client->fresh()->status,
+        ], $success ? null : '客户状态不允许充值');
+
+        if (!$success) {
+            return redirect()->route('admin.clients.show', $client)->with('error', '客户状态不允许充值');
+        }
 
         return redirect()->route('admin.clients.show', $client)->with('status', '余额已充值');
+    }
+
+    private function queryString(Request $request, string $key): ?string
+    {
+        $value = $request->query($key);
+
+        if (!is_scalar($value)) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
     }
 }

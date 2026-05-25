@@ -31,7 +31,10 @@ class TicketController extends Controller
         }
 
         return view('client.tickets.create', [
-            'departments' => TicketDepartment::query()->orderBy('sort_order')->get(),
+            'departments' => TicketDepartment::query()
+                ->where('allow_client_open', true)
+                ->orderBy('sort_order')
+                ->get(),
         ]);
     }
 
@@ -49,7 +52,13 @@ class TicketController extends Controller
             'message' => ['required', 'string'],
         ]);
 
-        $ticket = $tickets->create($client, (int) $data['department_id'], $data['subject'], $data['message']);
+        try {
+            $ticket = $tickets->create($client, (int) $data['department_id'], $data['subject'], $data['message']);
+        } catch (\RuntimeException $exception) {
+            return redirect()->route('client.tickets.create')->withErrors([
+                'department_id' => $exception->getMessage(),
+            ]);
+        }
 
         return redirect()->route('client.tickets.show', $ticket)->with('status', '工单已创建');
     }

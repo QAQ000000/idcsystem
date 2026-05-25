@@ -67,20 +67,34 @@ class ProductController extends Controller
     public function destroy(Request $request, Product $product, ProductService $products, AdminAuditService $audit)
     {
         $productId = $product->id;
-        $products->delete($product);
-        $audit->record($request, 'product.delete', $product, 'success', ['product_id' => $productId]);
+        $success = $products->delete($product);
+        $audit->record($request, 'product.delete', $product, $success ? 'success' : 'failed', [
+            'product_id' => $productId,
+        ], $success ? null : '产品存在关联服务，不能删除');
+
+        if (!$success) {
+            return redirect()->route('admin.products.show', $product)->with('error', '产品存在关联服务，不能删除');
+        }
 
         return redirect()->route('admin.products.index')->with('status', '产品已删除');
     }
 
-    public function pricing(Product $product)
+    public function pricing(Request $request, Product $product)
     {
         $product->load('pricings');
+        $currencies = Currency::query()->orderByDesc('is_default')->orderBy('code')->get();
+        $defaultCurrencyId = (int) (Currency::query()->where('is_default', true)->value('id') ?: $currencies->first()?->id ?: 0);
+        $selectedCurrencyId = $this->queryInteger($request, 'currency_id') ?: $defaultCurrencyId;
+
+        if (!$currencies->contains('id', $selectedCurrencyId)) {
+            $selectedCurrencyId = $defaultCurrencyId;
+        }
 
         return view('admin.products.pricing', [
             'product' => $product,
-            'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->get(),
-            'pricing' => $product->pricings()->where('currency_id', Currency::query()->where('is_default', true)->value('id') ?: 1)->first(),
+            'currencies' => $currencies,
+            'selectedCurrencyId' => $selectedCurrencyId,
+            'pricing' => $product->pricings()->where('currency_id', $selectedCurrencyId)->first(),
         ]);
     }
 
@@ -113,7 +127,9 @@ class ProductController extends Controller
             'pricing' => $data,
         ]);
 
-        return redirect()->route('admin.products.pricing', $product)->with('status', '产品价格已保存');
+        return redirect()
+            ->route('admin.products.pricing', [$product, 'currency_id' => $currencyId])
+            ->with('status', '产品价格已保存');
     }
 
     private function validatedProduct(Request $request, ?Product $product = null): array
@@ -181,5 +197,22 @@ class ProductController extends Controller
                     }
                 });
         });
+    }
+
+    private function queryInteger(Request $request, string $key): ?int
+    {
+        $value = $request->query($key);
+
+        if (!is_scalar($value)) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        if ($value === '' || !ctype_digit($value)) {
+            return null;
+        }
+
+        return (int) $value;
     }
 }

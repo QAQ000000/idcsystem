@@ -32,6 +32,20 @@ class BillingService
             ->chunkById(100, function ($hosts) use (&$count) {
                 foreach ($hosts as $host) {
                     DB::transaction(function () use ($host, &$count) {
+                        if (!$host->client || $host->client->trashed() || !$host->client->isActive()) {
+                            $host->actionLogs()->create([
+                                'action' => 'renew_invoice_failed',
+                                'message' => '客户账号状态不允许自动续费',
+                                'meta' => [
+                                    'client_id' => $host->client_id,
+                                    'client_status' => $host->client?->status,
+                                    'client_deleted' => (bool) $host->client?->trashed(),
+                                ],
+                            ]);
+
+                            return;
+                        }
+
                         if ($this->hasUnpaidRenewalInvoice($host)) {
                             return;
                         }

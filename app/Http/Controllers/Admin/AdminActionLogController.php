@@ -10,10 +10,15 @@ class AdminActionLogController extends Controller
 {
     public function index(Request $request)
     {
+        $filters = [
+            'action' => $this->queryString($request, 'action'),
+            'result' => $this->queryString($request, 'result'),
+        ];
+
         $logs = AdminActionLog::query()
             ->with('admin')
-            ->when($request->string('action')->toString(), fn ($query, string $action) => $query->where('action', $action))
-            ->when($request->string('result')->toString(), fn ($query, string $result) => $query->where('result', $result))
+            ->when($filters['action'], fn ($query, string $action) => $query->where('action', $action))
+            ->when($filters['result'], fn ($query, string $result) => $query->where('result', $result))
             ->latest()
             ->paginate(20)
             ->withQueryString();
@@ -22,7 +27,7 @@ class AdminActionLogController extends Controller
             'logs' => $logs,
             'actions' => AdminActionLog::query()->distinct()->orderBy('action')->pluck('action'),
             'results' => ['success', 'failed'],
-            'filters' => $request->only(['action', 'result']),
+            'filters' => $filters,
         ]);
     }
 
@@ -31,5 +36,18 @@ class AdminActionLogController extends Controller
         $adminActionLog->load('admin');
 
         return view('admin.admin-action-logs.show', ['log' => $adminActionLog]);
+    }
+
+    private function queryString(Request $request, string $key): ?string
+    {
+        $value = $request->query($key);
+
+        if (!is_scalar($value)) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
     }
 }

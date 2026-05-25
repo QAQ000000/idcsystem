@@ -38,9 +38,8 @@ abstract class AbstractPlugin implements PluginInterface
 
     public function getConfig(): array
     {
-        if ($this->model === null) {
-            $this->model = Plugin::where('name', $this->getName())->first();
-        }
+        $this->model = Plugin::where('name', $this->getName())->first();
+
         return $this->model ? ($this->model->config ?? []) : [];
     }
 

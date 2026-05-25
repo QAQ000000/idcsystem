@@ -21,7 +21,7 @@ class HostMonitoringService
                 return $this->snapshot($host, [], 'Server module unavailable');
             }
 
-            $stats = $plugin->getUsageStats($this->serverParams($host));
+            $stats = $plugin->getUsageStats($this->usageStatsParams($host));
 
             return $this->snapshot($host, $stats);
         } catch (Throwable $exception) {
@@ -52,7 +52,7 @@ class HostMonitoringService
 
     public function sendDueReminders(int $days = 7): array
     {
-        $result = ['processed' => 0, 'notified' => 0];
+        $result = ['processed' => 0, 'notified' => 0, 'failed' => 0];
 
         Host::query()
             ->with(['client', 'product'])
@@ -68,25 +68,30 @@ class HostMonitoringService
                         continue;
                     }
 
-                    $notification = app(NotificationService::class)->notifyClient($host->client, 'host_due_reminder', [
-                        'client_name' => $host->client->username,
-                        'product_name' => $host->product?->name ?? '服务',
-                        'due_date' => $host->next_due_date?->format('Y-m-d'),
-                    ]);
+                    try {
+                        $notification = app(NotificationService::class)->notifyClient($host->client, 'host_due_reminder', [
+                            'client_name' => $host->client->username,
+                            'product_name' => $host->product?->name ?? '服务',
+                            'due_date' => $host->next_due_date?->format('Y-m-d'),
+                        ]);
 
-                    $sent = ($notification['mail'] ?? false) === true || ($notification['sms'] ?? false) === true;
-                    HostActionLog::query()->create([
-                        'host_id' => $host->id,
-                        'action' => $sent ? 'due_reminder' : 'due_reminder_failed',
-                        'message' => $sent ? '服务到期提醒已触发' : '服务到期提醒发送失败',
-                        'meta' => [
+                        $sent = ($notification['mail'] ?? false) === true || ($notification['sms'] ?? false) === true;
+                        $this->logDueReminder($host, $sent, [
                             'due_date' => $host->next_due_date?->toDateTimeString(),
                             'notification' => $notification,
-                        ],
-                    ]);
+                        ]);
 
-                    if ($sent) {
-                        $result['notified']++;
+                        if ($sent) {
+                            $result['notified']++;
+                        } else {
+                            $result['failed']++;
+                        }
+                    } catch (Throwable $exception) {
+                        $result['failed']++;
+                        $this->logDueReminder($host, false, [
+                            'due_date' => $host->next_due_date?->toDateTimeString(),
+                            'error' => $exception->getMessage(),
+                        ]);
                     }
                 }
             });
@@ -111,9 +116,19 @@ class HostMonitoringService
     {
         return HostActionLog::query()
             ->where('host_id', $host->id)
-            ->where('action', 'due_reminder')
+            ->whereIn('action', ['due_reminder', 'due_reminder_failed'])
             ->where('created_at', '>=', now()->subDay())
             ->exists();
+    }
+
+    private function logDueReminder(Host $host, bool $sent, array $meta): void
+    {
+        HostActionLog::query()->create([
+            'host_id' => $host->id,
+            'action' => $sent ? 'due_reminder' : 'due_reminder_failed',
+            'message' => $sent ? '服务到期提醒已触发' : '服务到期提醒发送失败',
+            'meta' => $meta,
+        ]);
     }
 
     private function serverPlugin(Host $host): ?ServerModuleInterface
@@ -128,7 +143,7 @@ class HostMonitoringService
         return $plugin instanceof ServerModuleInterface ? $plugin : null;
     }
 
-    private function serverParams(Host $host): array
+    private function usageStatsParams(Host $host): array
     {
         return [
             'host_id' => $host->id,
@@ -136,7 +151,6 @@ class HostMonitoringService
             'product_id' => $host->product_id,
             'domain' => $host->domain,
             'username' => $host->username,
-            'password' => $host->password,
             'billing_cycle' => $host->billing_cycle,
             'server_id' => $host->server_id,
             'config' => is_array($host->notes) ? $host->notes : [],

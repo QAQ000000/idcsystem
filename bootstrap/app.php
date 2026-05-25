@@ -24,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withSchedule(function (Schedule $schedule): void {
         $schedule->command('host:sync-usage')->everyFiveMinutes()->withoutOverlapping();
         $schedule->command('host:send-due-reminders --days=7')->daily()->withoutOverlapping();
+        $schedule->command('notifications:recover-stale --minutes=15')->everyTenMinutes()->withoutOverlapping();
     })
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([

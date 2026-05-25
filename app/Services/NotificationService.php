@@ -25,6 +25,12 @@ class NotificationService
             'errors' => [],
         ];
 
+        if ($client->trashed() || !$client->isActive()) {
+            $result['errors']['client'] = '客户账号未启用或已删除，跳过通知。';
+
+            return $result;
+        }
+
         if ($this->enabled($event, 'mail') && !empty($client->email)) {
             try {
                 $result['mail'] = $this->mail->sendTemplate($event, (string) $client->email, $variables);

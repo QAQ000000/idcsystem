@@ -12,20 +12,33 @@ class InvoiceController extends Controller
 {
     public function index(Request $request)
     {
+        $status = $this->queryString($request, 'status');
+        $keyword = $this->queryString($request, 'keyword');
+
         $invoices = Invoice::query()
             ->with('client')
-            ->when($request->string('status')->toString(), fn ($query, string $status) => $query->where('status', $status))
+            ->when($status, fn ($query, string $status) => $query->where('status', $status))
+            ->when($keyword, function ($query, string $keyword) {
+                $query->where(function ($query) use ($keyword) {
+                    $query->where('invoice_number', 'like', "%{$keyword}%")
+                        ->orWhereHas('client', function ($query) use ($keyword) {
+                            $query->where('username', 'like', "%{$keyword}%")
+                                ->orWhere('email', 'like', "%{$keyword}%");
+                        });
+                });
+            })
             ->latest()
             ->paginate(20);
 
         return view('admin.invoices.index', compact('invoices'));
     }
 
-    public function show(Invoice $invoice)
+    public function show(Invoice $invoice, InvoiceService $invoices)
     {
         $invoice->load(['client', 'items', 'accounts', 'order']);
+        $remainingRefundableAmount = $invoices->remainingRefundableAmount($invoice);
 
-        return view('admin.invoices.show', compact('invoice'));
+        return view('admin.invoices.show', compact('invoice', 'remainingRefundableAmount'));
     }
 
     public function markPaid(Request $request, Invoice $invoice, InvoiceService $invoices, AdminAuditService $audit)
@@ -66,5 +79,18 @@ class InvoiceController extends Controller
         }
 
         return redirect()->route('admin.invoices.show', $invoice)->with('status', '退款已记录');
+    }
+
+    private function queryString(Request $request, string $key): ?string
+    {
+        $value = $request->query($key);
+
+        if (!is_scalar($value)) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
     }
 }

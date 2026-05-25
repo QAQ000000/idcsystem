@@ -24,7 +24,10 @@ class SendSmsJob implements ShouldQueue
         $claimed = SmsLog::query()
             ->whereKey($this->smsLogId)
             ->whereIn('status', ['pending', 'failed'])
-            ->update(['status' => 'processing']);
+            ->update([
+                'status' => 'processing',
+                'attempts' => \DB::raw('attempts + 1'),
+            ]);
         if ($claimed !== 1) {
             return;
         }

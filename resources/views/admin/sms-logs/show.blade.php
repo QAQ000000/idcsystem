@@ -15,7 +15,7 @@
         <section class="rounded bg-white p-6 shadow-sm lg:col-span-2">
             <h2 class="mb-4 font-semibold">{{ $smsLog->template ?: '普通短信' }}</h2>
             <div class="rounded border bg-slate-50 p-4 text-sm leading-7">
-                {{ $smsLog->content }}
+                {{ $smsLog->maskedContent() }}
             </div>
         </section>
 
@@ -23,7 +23,7 @@
             <dl class="space-y-3">
                 <div>
                     <dt class="text-slate-500">状态</dt>
-                    <dd>{{ ['pending' => '待发送', 'sent' => '已发送', 'failed' => '发送失败'][$smsLog->status] ?? $smsLog->status }}</dd>
+                    <dd>{{ ['pending' => '待发送', 'processing' => '发送中', 'sent' => '已发送', 'failed' => '发送失败'][$smsLog->status] ?? $smsLog->status }}</dd>
                 </div>
                 <div>
                     <dt class="text-slate-500">模板编码</dt>
@@ -43,7 +43,7 @@
                 </div>
             </dl>
 
-            @if ($smsLog->status !== 'sent')
+            @if (in_array($smsLog->status, ['failed', 'pending'], true))
                 <form method="post" action="{{ route('admin.sms-logs.retry', $smsLog) }}" class="mt-6">
                     @csrf
                     <button class="w-full rounded bg-slate-900 px-4 py-2 text-white">重新发送</button>

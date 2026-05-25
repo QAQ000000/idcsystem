@@ -14,27 +14,43 @@
     <form method="post" action="{{ route('admin.plugins.config.save', $plugin->name) }}" class="rounded bg-white p-6 shadow-sm">
         @csrf
 
-        @php($config = $plugin->config ?? [])
-        @php($sensitivePattern = '/(secret|password|passwd|token|key)$/i')
-        @foreach (['app_id' => '应用 ID', 'app_secret' => '应用密钥', 'endpoint' => '接口地址', 'callback_url' => '回调地址'] as $key => $label)
-            @php($isSensitive = preg_match($sensitivePattern, $key) === 1)
+        @php
+            $sensitivePattern = '/(password|passwd|secret|token|credential|access_key|private_key|key|signature|sign)$/i';
+            $config = $plugin->config ?? [];
+            $oldConfigValue = function (string $key, mixed $default = '') {
+                $value = old('config.' . $key, $default);
+
+                return is_scalar($value) || $value === null ? $value : $default;
+            };
+        @endphp
+        @foreach ($configFields as $field)
+            @php($key = $field['key'])
+            @php($label = $field['label'])
+            @php($type = $field['type'] ?? 'text')
+            @php($isSensitive = $type === 'password' || preg_match($sensitivePattern, $key) === 1)
+            @php($savedValue = $config[$key] ?? '')
+            @php($savedValue = is_scalar($savedValue) ? $savedValue : '')
             <label class="mb-4 block text-sm">
                 {{ $label }}
-                <input
-                    class="mt-1 w-full rounded border px-3 py-2"
-                    name="config[{{ $key }}]"
-                    type="{{ $isSensitive ? 'password' : 'text' }}"
-                    value="{{ old('config.' . $key, $isSensitive ? '' : ($config[$key] ?? '')) }}"
-                    placeholder="{{ $isSensitive && !empty($config[$key] ?? '') ? '已保存，留空则不修改' : '' }}"
-                    autocomplete="off"
-                >
+                @if ($type === 'textarea')
+                    <textarea class="mt-1 w-full rounded border px-3 py-2" name="config[{{ $key }}]" rows="4">{{ $oldConfigValue($key, $isSensitive ? '' : $savedValue) }}</textarea>
+                @elseif ($type === 'boolean')
+                    <select class="mt-1 w-full rounded border px-3 py-2" name="config[{{ $key }}]">
+                        <option value="0" @selected((string) $oldConfigValue($key, (string) (int) (bool) $savedValue) === '0')>否</option>
+                        <option value="1" @selected((string) $oldConfigValue($key, (string) (int) (bool) $savedValue) === '1')>是</option>
+                    </select>
+                @else
+                    <input
+                        class="mt-1 w-full rounded border px-3 py-2"
+                        name="config[{{ $key }}]"
+                        type="{{ $isSensitive || $type === 'password' ? 'password' : ($type === 'number' ? 'number' : 'text') }}"
+                        value="{{ $oldConfigValue($key, $isSensitive ? '' : $savedValue) }}"
+                        placeholder="{{ $isSensitive && !empty($config[$key] ?? '') ? '已保存，留空则不修改' : ($field['placeholder'] ?? '') }}"
+                        autocomplete="off"
+                    >
+                @endif
             </label>
         @endforeach
-
-        <label class="mb-4 block text-sm">
-            备注
-            <textarea class="mt-1 w-full rounded border px-3 py-2" name="config[notes]" rows="4">{{ old('config.notes', $config['notes'] ?? '') }}</textarea>
-        </label>
 
         @if ($errors->any())
             <div class="mb-4 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ $errors->first() }}</div>

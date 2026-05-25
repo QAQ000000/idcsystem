@@ -3,7 +3,10 @@
 namespace App\Plugins\Core;
 
 use App\Models\Plugin;
+use App\Models\PaymentAttempt;
 use App\Models\Setting;
+use App\Models\EmailLog;
+use App\Models\SmsLog;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\File;
 
@@ -111,6 +114,45 @@ class PluginManager
         return $plugins;
     }
 
+    public function manifest(string $type, string $name): array
+    {
+        $pluginJsonPath = $this->pluginPath($type, $name) . '/plugin.json';
+
+        if (!File::exists($pluginJsonPath)) {
+            return [];
+        }
+
+        return json_decode(File::get($pluginJsonPath), true) ?: [];
+    }
+
+    public function configFields(Plugin $plugin): array
+    {
+        $fields = $this->manifest($plugin->type, $plugin->name)['config_schema'] ?? [];
+
+        if (!is_array($fields) || $fields === []) {
+            return [
+                ['key' => 'app_id', 'label' => '应用 ID', 'type' => 'text'],
+                ['key' => 'app_secret', 'label' => '应用密钥', 'type' => 'password'],
+                ['key' => 'endpoint', 'label' => '接口地址', 'type' => 'text'],
+                ['key' => 'callback_url', 'label' => '回调地址', 'type' => 'text'],
+                ['key' => 'notes', 'label' => '备注', 'type' => 'textarea'],
+            ];
+        }
+
+        return collect($fields)
+            ->filter(fn ($field) => is_array($field) && !empty($field['key']))
+            ->map(fn ($field) => [
+                'key' => (string) $field['key'],
+                'label' => (string) ($field['label'] ?? $field['key']),
+                'type' => in_array(($field['type'] ?? 'text'), ['text', 'password', 'textarea', 'number', 'boolean'], true)
+                    ? (string) ($field['type'] ?? 'text')
+                    : 'text',
+                'placeholder' => (string) ($field['placeholder'] ?? ''),
+            ])
+            ->values()
+            ->all();
+    }
+
     public function install(string $type, string $name): bool
     {
         $pluginPath = $this->pluginPath($type, $name);
@@ -137,8 +179,10 @@ class PluginManager
             return false;
         }
 
+        $existing = Plugin::query()->where('name', $pluginName)->first();
+
         $instance = new $fullClass();
-        if (method_exists($instance, 'install')) {
+        if (!$existing && method_exists($instance, 'install')) {
             $instance->install();
         }
 
@@ -150,8 +194,8 @@ class PluginManager
                 'version' => $pluginJson['version'] ?? '1.0.0',
                 'author' => $pluginJson['author'] ?? null,
                 'description' => $pluginJson['description'] ?? '',
-                'status' => 0,
-                'config' => Plugin::query()->where('name', $pluginName)->value('config') ?? [],
+                'status' => $existing?->status ?? 0,
+                'config' => $existing?->config ?? [],
             ]
         );
         $this->forget($pluginName, $pluginType);
@@ -189,6 +233,10 @@ class PluginManager
     {
         $plugin = Plugin::query()->where('name', $name)->first();
         if (!$plugin) {
+            return false;
+        }
+
+        if (!$this->loadPlugin($plugin)) {
             return false;
         }
 
@@ -283,15 +331,31 @@ class PluginManager
                 ->exists(),
             'gateway' => \App\Modules\Finance\Models\Account::query()
                 ->where('payment_method', $plugin->name)
-                ->exists(),
+                ->exists()
+                || \App\Modules\Finance\Models\Invoice::query()
+                    ->where('payment_method', $plugin->name)
+                    ->whereIn('status', ['Unpaid', 'Paid', 'Partially Refunded'])
+                    ->exists()
+                || PaymentAttempt::query()
+                    ->where('gateway', $plugin->name)
+                    ->where('status', 'pending')
+                    ->exists(),
             'email' => Setting::query()
                 ->where('key', 'default_email_provider')
                 ->where('value', $plugin->name)
-                ->exists(),
+                ->exists()
+                || EmailLog::query()
+                    ->where('provider', $plugin->name)
+                    ->whereIn('status', ['pending', 'processing', 'failed'])
+                    ->exists(),
             'sms' => Setting::query()
                 ->where('key', 'default_sms_provider')
                 ->where('value', $plugin->name)
-                ->exists(),
+                ->exists()
+                || SmsLog::query()
+                    ->where('provider', $plugin->name)
+                    ->whereIn('status', ['pending', 'processing', 'failed'])
+                    ->exists(),
             default => false,
         };
     }

@@ -79,7 +79,13 @@ class CartController extends Controller
             return redirect()->route('client.cart.index')->with('status', '购物车为空，无法结算');
         }
 
-        $order = $cart->checkout($client);
+        try {
+            $order = $cart->checkout($client);
+        } catch (\RuntimeException $exception) {
+            return redirect()->route('client.cart.index')->withErrors([
+                'checkout' => $exception->getMessage(),
+            ]);
+        }
 
         return redirect()->route('client.invoices.show', $order->invoice_id)->with('status', '订单已创建');
     }

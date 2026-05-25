@@ -12,8 +12,10 @@ class SmsLogController extends Controller
 {
     public function index(Request $request)
     {
+        $status = $this->queryString($request, 'status');
+
         $logs = SmsLog::query()
-            ->when($request->string('status')->toString(), fn ($query, string $status) => $query->where('status', $status))
+            ->when($status, fn ($query, string $status) => $query->where('status', $status))
             ->latest()
             ->paginate(20);
 
@@ -37,5 +39,18 @@ class SmsLogController extends Controller
         }
 
         return redirect()->route('admin.sms-logs.show', $smsLog)->with('status', '短信已重新提交处理');
+    }
+
+    private function queryString(Request $request, string $key): ?string
+    {
+        $value = $request->query($key);
+
+        if (!is_scalar($value)) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
     }
 }

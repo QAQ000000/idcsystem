@@ -11,13 +11,16 @@ use App\Modules\Finance\Models\Invoice;
 use App\Modules\Finance\Models\InvoiceItem;
 use App\Modules\Finance\Services\InvoiceService;
 use App\Modules\Finance\Services\PaymentService;
+use App\Modules\Order\Models\Host;
 use App\Modules\Order\Models\Order;
 use App\Modules\Order\Services\OrderService;
 use App\Modules\User\Models\Client;
 use App\Plugins\Core\PluginManager;
 use App\Modules\Admin\Models\AdminUser;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Hash;
+use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -64,6 +67,70 @@ class PaymentTest extends TestCase
         $this->assertSame($invoice->id, $result['invoice_id']);
     }
 
+    public function test_payment_attempt_masks_sensitive_gateway_result(): void
+    {
+        $invoice = $this->invoice($this->client(), 88.00);
+
+        $attempt = PaymentAttempt::query()->create([
+            'invoice_id' => $invoice->id,
+            'client_id' => $invoice->client_id,
+            'gateway' => 'manual_pay',
+            'amount' => $invoice->total,
+            'status' => 'pending',
+            'result' => [
+                'success' => true,
+                'pay_url' => 'https://pay.example.com/checkout',
+                'access_token' => 'gateway-token',
+                'signature' => 'gateway-signature',
+                'nested' => [
+                    'api_key' => 'gateway-key',
+                    'message' => 'visible',
+                ],
+            ],
+        ]);
+
+        $attempt->refresh();
+        $this->assertSame('[FILTERED]', $attempt->result['access_token']);
+        $this->assertSame('[FILTERED]', $attempt->result['signature']);
+        $this->assertSame('[FILTERED]', $attempt->result['nested']['api_key']);
+        $this->assertSame('visible', $attempt->result['nested']['message']);
+        $this->assertStringNotContainsString('gateway-token', json_encode($attempt->result));
+        $this->assertStringNotContainsString('gateway-signature', json_encode($attempt->result));
+        $this->assertStringNotContainsString('gateway-key', json_encode($attempt->result));
+    }
+
+    public function test_payment_refund_request_masks_sensitive_error_text(): void
+    {
+        $invoice = $this->invoice($this->client(), 88.00);
+        $account = Account::query()->create([
+            'invoice_id' => $invoice->id,
+            'client_id' => $invoice->client_id,
+            'type' => 'credit',
+            'amount' => 88.00,
+            'payment_method' => 'manual_pay',
+            'gateway_trans_id' => 'REFUND-MASK-001',
+            'refunded' => 0,
+        ]);
+
+        $request = PaymentRefundRequest::query()->create([
+            'account_id' => $account->id,
+            'invoice_id' => $invoice->id,
+            'gateway' => 'manual_pay',
+            'gateway_trans_id' => 'REFUND-MASK-001',
+            'amount' => 88.00,
+            'status' => 'failed',
+            'error' => 'gateway error password=plain-secret token:token-value signature=sign-value',
+        ]);
+
+        $request->refresh();
+        $this->assertStringContainsString('password=[FILTERED]', $request->error);
+        $this->assertStringContainsString('token:[FILTERED]', $request->error);
+        $this->assertStringContainsString('signature=[FILTERED]', $request->error);
+        $this->assertStringNotContainsString('plain-secret', $request->error);
+        $this->assertStringNotContainsString('token-value', $request->error);
+        $this->assertStringNotContainsString('sign-value', $request->error);
+    }
+
     public function test_payment_service_reuses_pending_payment_attempt_for_same_invoice_gateway(): void
     {
         $this->installManualPay();
@@ -74,7 +141,7 @@ class PaymentTest extends TestCase
         $second = $service->processPayment($invoice->fresh(), 'manual_pay', []);
 
         $this->assertTrue($first['success']);
-        $this->assertTrue($second['success']);
+        $this->assertTrue($second['success'], json_encode($second, JSON_UNESCAPED_UNICODE));
         $this->assertTrue($second['reused'] ?? false);
         $this->assertSame(1, PaymentAttempt::query()
             ->where('invoice_id', $invoice->id)
@@ -83,22 +150,70 @@ class PaymentTest extends TestCase
             ->count());
     }
 
-    public function test_payment_service_reuses_failed_payment_attempt_for_same_invoice_gateway(): void
+    public function test_payment_service_expires_pending_attempt_when_invoice_amount_changes(): void
+    {
+        $this->installManualPay();
+        $invoice = $this->invoice($this->client(), 88.00);
+        $service = app(PaymentService::class);
+
+        $first = $service->processPayment($invoice, 'manual_pay', []);
+        $this->assertTrue($first['success']);
+
+        $invoice->update([
+            'subtotal' => 99.00,
+            'tax' => 0,
+            'total' => 99.00,
+        ]);
+
+        $second = $service->processPayment($invoice->fresh(), 'manual_pay', []);
+
+        $this->assertTrue($second['success'], json_encode($second, JSON_UNESCAPED_UNICODE));
+        $this->assertFalse($second['reused'] ?? false);
+        $this->assertSame(99.00, $second['amount']);
+        $this->assertSame(1, PaymentAttempt::query()
+            ->where('invoice_id', $invoice->id)
+            ->where('gateway', 'manual_pay')
+            ->where('amount', 88.00)
+            ->where('status', 'expired')
+            ->count());
+        $this->assertSame(1, PaymentAttempt::query()
+            ->where('invoice_id', $invoice->id)
+            ->where('gateway', 'manual_pay')
+            ->where('amount', 99.00)
+            ->where('status', 'pending')
+            ->count());
+    }
+
+    public function test_payment_service_expires_failed_attempt_and_allows_retry_after_gateway_config_is_fixed(): void
     {
         $this->installManualPay(['pay_should_fail' => true]);
         $invoice = $this->invoice($this->client(), 88.00);
         $service = app(PaymentService::class);
 
         $first = $service->processPayment($invoice, 'manual_pay', []);
-        $second = $service->processPayment($invoice->fresh(), 'manual_pay', []);
-
         $this->assertFalse($first['success']);
-        $this->assertFalse($second['success']);
-        $this->assertTrue($second['reused'] ?? false);
+
+        Plugin::query()->where('name', 'manual_pay')->update([
+            'config' => [
+                'instructions' => '请转账到测试账户。',
+                'bank_name' => '测试银行',
+            ],
+        ]);
+        Facade::clearResolvedInstance('plugin.manager');
+        $this->app->forgetInstance('plugin.manager');
+        $second = app(PaymentService::class)->processPayment($invoice->fresh(), 'manual_pay', []);
+
+        $this->assertTrue($second['success'], json_encode($second, JSON_UNESCAPED_UNICODE));
+        $this->assertFalse($second['reused'] ?? false);
         $this->assertSame(1, PaymentAttempt::query()
             ->where('invoice_id', $invoice->id)
             ->where('gateway', 'manual_pay')
-            ->where('status', 'failed')
+            ->where('status', 'expired')
+            ->count());
+        $this->assertSame(1, PaymentAttempt::query()
+            ->where('invoice_id', $invoice->id)
+            ->where('gateway', 'manual_pay')
+            ->where('status', 'pending')
             ->count());
     }
 
@@ -112,6 +227,54 @@ class PaymentTest extends TestCase
 
         $this->assertFalse(app(PaymentService::class)->processPayment($paid->fresh(), 'manual_pay', [])['success']);
         $this->assertFalse(app(PaymentService::class)->processPayment($zero, 'manual_pay', [])['success']);
+    }
+
+    public function test_client_invoice_show_only_displays_payment_form_for_unpaid_invoices(): void
+    {
+        $this->installManualPay();
+        $client = $this->client();
+        $unpaid = $this->invoice($client, 88.00);
+        $refunded = $this->invoice($client, 88.00);
+        $refunded->update(['status' => 'Refunded']);
+
+        $this->actingAs($client, 'client')
+            ->get(route('client.invoices.show', $unpaid))
+            ->assertOk()
+            ->assertSee('发起支付');
+
+        $this->actingAs($client, 'client')
+            ->get(route('client.invoices.show', $refunded))
+            ->assertOk()
+            ->assertDontSee('发起支付')
+            ->assertDontSee('payment_method');
+    }
+
+    public function test_inactive_or_deleted_client_invoice_cannot_be_paid(): void
+    {
+        $this->installManualPay();
+        $inactive = $this->client('pay-inactive', 'pay-inactive@example.com');
+        $inactiveInvoice = $this->invoice($inactive, 100);
+        $inactive->update(['status' => 2]);
+        $deleted = $this->client('pay-deleted', 'pay-deleted@example.com');
+        $deletedInvoice = $this->invoice($deleted, 100);
+        $deleted->delete();
+
+        $this->assertSame(
+            'Client account is not payable',
+            app(PaymentService::class)->processPayment($inactiveInvoice->fresh(), 'manual_pay', [])['message']
+        );
+        $this->assertFalse(app(PaymentService::class)->handleCallback('manual_pay', [
+            'invoice_id' => $inactiveInvoice->id,
+            'amount' => 100,
+            'status' => 'paid',
+            'trans_id' => 'INACTIVE-CALLBACK-1',
+        ]));
+        $this->assertFalse(app(InvoiceService::class)->markAsPaid($deletedInvoice->fresh(), 'manual', 'DELETED-MARK-PAID-1'));
+
+        $this->assertSame('Unpaid', $inactiveInvoice->fresh()->status);
+        $this->assertSame('Unpaid', $deletedInvoice->fresh()->status);
+        $this->assertDatabaseMissing('accounts', ['gateway_trans_id' => 'INACTIVE-CALLBACK-1']);
+        $this->assertDatabaseMissing('accounts', ['gateway_trans_id' => 'DELETED-MARK-PAID-1']);
     }
 
     public function test_cancelled_order_invoice_cannot_be_paid_or_callback_paid(): void
@@ -136,6 +299,51 @@ class PaymentTest extends TestCase
         $this->assertSame('Cancelled', $order->fresh()->status);
         $this->assertSame('Cancelled', $invoice->fresh()->status);
         $this->assertDatabaseMissing('accounts', ['gateway_trans_id' => 'CANCELLED-CALLBACK-1']);
+    }
+
+    public function test_payment_service_rechecks_order_status_inside_transaction(): void
+    {
+        $this->installManualPay();
+        $client = $this->client();
+        $invoice = $this->invoice($client, 100);
+        $order = $this->order($client, $invoice);
+        $invoice->load('order');
+
+        $order->update(['status' => 'Cancelled']);
+
+        $result = app(PaymentService::class)->processPayment($invoice, 'manual_pay', []);
+
+        $this->assertFalse($result['success']);
+        $this->assertSame('Order is not payable', $result['message']);
+        $this->assertSame('Cancelled', $order->fresh()->status);
+        $this->assertSame('Unpaid', $invoice->fresh()->status);
+        $this->assertDatabaseMissing('payment_attempts', [
+            'invoice_id' => $invoice->id,
+            'gateway' => 'manual_pay',
+            'status' => 'pending',
+        ]);
+    }
+
+    public function test_payment_service_rechecks_latest_invoice_amount_inside_transaction(): void
+    {
+        $this->installManualPay();
+        $invoice = $this->invoice($this->client(), 100);
+        $staleInvoice = $invoice->fresh();
+        $invoice->update([
+            'subtotal' => 0,
+            'tax' => 0,
+            'total' => 0,
+        ]);
+
+        $result = app(PaymentService::class)->processPayment($staleInvoice, 'manual_pay', []);
+
+        $this->assertFalse($result['success']);
+        $this->assertSame('Invoice amount must be greater than zero', $result['message']);
+        $this->assertDatabaseMissing('payment_attempts', [
+            'invoice_id' => $invoice->id,
+            'gateway' => 'manual_pay',
+            'status' => 'pending',
+        ]);
     }
 
     public function test_invoice_generation_rejects_negative_amount_items(): void
@@ -194,6 +402,7 @@ class PaymentTest extends TestCase
     {
         $this->installManualPay();
         $invoice = $this->invoice($this->client(), 88.00);
+        app(PaymentService::class)->processPayment($invoice, 'manual_pay', []);
 
         $result = app(PaymentService::class)->handleCallback('manual_pay', [
             'invoice_id' => $invoice->id,
@@ -205,6 +414,24 @@ class PaymentTest extends TestCase
         $this->assertTrue($result);
         $this->assertSame('Paid', $invoice->fresh()->status);
         $this->assertDatabaseHas('accounts', ['invoice_id' => $invoice->id, 'gateway_trans_id' => 'MANUAL-001']);
+    }
+
+    public function test_payment_callback_route_marks_invoice_paid(): void
+    {
+        $this->installManualPay();
+        $invoice = $this->invoice($this->client(), 88.00);
+        app(PaymentService::class)->processPayment($invoice, 'manual_pay', []);
+
+        $this->post(route('payment.callback', 'manual_pay'), [
+            'invoice_id' => $invoice->id,
+            'amount' => 88.00,
+            'status' => 'paid',
+            'trans_id' => 'MANUAL-HTTP-001',
+        ])->assertOk()
+            ->assertSee('ok');
+
+        $this->assertSame('Paid', $invoice->fresh()->status);
+        $this->assertDatabaseHas('accounts', ['invoice_id' => $invoice->id, 'gateway_trans_id' => 'MANUAL-HTTP-001']);
     }
 
     public function test_payment_callback_completes_pending_attempts(): void
@@ -237,6 +464,7 @@ class PaymentTest extends TestCase
     {
         $this->installManualPay();
         $invoice = $this->invoice($this->client(), 88.00);
+        app(PaymentService::class)->processPayment($invoice, 'manual_pay', []);
 
         $result = app(PaymentService::class)->handleCallback('manual_pay', [
             'invoice_id' => $invoice->id,
@@ -247,6 +475,46 @@ class PaymentTest extends TestCase
 
         $this->assertFalse($result);
         $this->assertSame('Unpaid', $invoice->fresh()->status);
+    }
+
+    public function test_payment_callback_rejects_without_pending_payment_attempt(): void
+    {
+        $this->installManualPay();
+        $invoice = $this->invoice($this->client(), 88.00);
+
+        $result = app(PaymentService::class)->handleCallback('manual_pay', [
+            'invoice_id' => $invoice->id,
+            'amount' => 88.00,
+            'status' => 'paid',
+            'trans_id' => 'MANUAL-NO-ATTEMPT-001',
+        ]);
+
+        $this->assertFalse($result);
+        $this->assertSame('Unpaid', $invoice->fresh()->status);
+        $this->assertDatabaseMissing('accounts', ['gateway_trans_id' => 'MANUAL-NO-ATTEMPT-001']);
+    }
+
+    public function test_payment_callback_rejects_array_payload_fields(): void
+    {
+        $this->installManualPay();
+        $invoice = $this->invoice($this->client(), 1.00);
+        app(PaymentService::class)->processPayment($invoice, 'manual_pay', []);
+
+        $result = app(PaymentService::class)->handleCallback('manual_pay', [
+            'invoice_id' => [$invoice->id],
+            'amount' => [1.00],
+            'status' => 'paid',
+            'trans_id' => ['MANUAL-ARRAY-001'],
+        ]);
+
+        $this->assertFalse($result);
+        $this->assertSame('Unpaid', $invoice->fresh()->status);
+        $this->assertDatabaseMissing('accounts', ['gateway_trans_id' => 'MANUAL-ARRAY-001']);
+        $this->assertDatabaseHas('payment_attempts', [
+            'invoice_id' => $invoice->id,
+            'gateway' => 'manual_pay',
+            'status' => 'pending',
+        ]);
     }
 
     public function test_payment_callback_rejects_disabled_gateway(): void
@@ -273,6 +541,8 @@ class PaymentTest extends TestCase
         $client = $this->client();
         $first = $this->invoice($client, 88.00);
         $second = $this->invoice($client, 88.00);
+        app(PaymentService::class)->processPayment($first, 'manual_pay', []);
+        app(PaymentService::class)->processPayment($second, 'manual_pay', []);
 
         $this->assertTrue(app(PaymentService::class)->handleCallback('manual_pay', [
             'invoice_id' => $first->id,
@@ -329,19 +599,91 @@ class PaymentTest extends TestCase
         ]);
     }
 
-    public function test_repeated_partial_invoice_refund_is_rejected(): void
+    public function test_payment_refund_allows_multiple_partial_refunds_for_same_account_until_fully_refunded(): void
+    {
+        $this->installManualPay();
+        $client = $this->client();
+        $invoice = $this->invoice($client, 100);
+        $invoice->update(['status' => 'Paid']);
+        $account = Account::query()->create([
+            'client_id' => $client->id,
+            'invoice_id' => $invoice->id,
+            'type' => 'credit',
+            'amount' => 100,
+            'fee' => 0,
+            'payment_method' => 'manual_pay',
+            'gateway_trans_id' => 'REFUND-PARTIAL-SAME-1',
+            'refunded' => 0,
+        ]);
+        $service = app(PaymentService::class);
+
+        $this->assertTrue($service->refund($account, 40));
+        $this->assertSame(0, $account->fresh()->refunded);
+        $this->assertSame('Partially Refunded', $invoice->fresh()->status);
+
+        $this->assertTrue($service->refund($account->fresh(), 40));
+        $this->assertSame(0, $account->fresh()->refunded);
+        $this->assertSame('Partially Refunded', $invoice->fresh()->status);
+
+        $this->assertTrue($service->refund($account->fresh(), 20));
+        $this->assertSame(1, $account->fresh()->refunded);
+        $this->assertSame('Refunded', $invoice->fresh()->status);
+
+        $this->assertFalse($service->refund($account->fresh(), 1));
+        $this->assertSame('Refunded', $invoice->fresh()->status);
+        $this->assertSame(3, PaymentRefundRequest::query()
+            ->where('account_id', $account->id)
+            ->where('status', 'succeeded')
+            ->count());
+    }
+
+    public function test_payment_refund_rejects_non_payment_account(): void
+    {
+        $this->installManualPay();
+        $invoice = $this->invoice($this->client(), 100);
+        $invoice->update(['status' => 'Paid']);
+        $refundAccount = Account::query()->create([
+            'client_id' => $invoice->client_id,
+            'invoice_id' => $invoice->id,
+            'type' => 'debit',
+            'amount' => 100,
+            'payment_method' => 'manual_pay',
+            'gateway_trans_id' => 'REFUND-DEBIT-ACCOUNT-1',
+            'refunded' => 0,
+        ]);
+
+        $this->assertFalse(app(PaymentService::class)->refund($refundAccount, 100));
+
+        $this->assertSame('Paid', $invoice->fresh()->status);
+        $this->assertSame(0, $refundAccount->fresh()->refunded);
+        $this->assertDatabaseMissing('payment_refund_requests', [
+            'account_id' => $refundAccount->id,
+            'gateway_trans_id' => 'REFUND-DEBIT-ACCOUNT-1',
+        ]);
+        $this->assertDatabaseMissing('accounts', [
+            'invoice_id' => $invoice->id,
+            'type' => 'debit',
+            'description' => 'Invoice refund ' . $invoice->invoice_number,
+        ]);
+    }
+
+    public function test_multiple_partial_invoice_refunds_are_limited_by_remaining_amount(): void
     {
         $invoice = $this->invoice($this->client(), 100);
         $invoice->update(['status' => 'Paid']);
 
         $this->assertTrue(app(InvoiceService::class)->refund($invoice->fresh(), 40));
-        $this->assertFalse(app(InvoiceService::class)->refund($invoice->fresh(), 40));
+        $this->assertTrue(app(InvoiceService::class)->refund($invoice->fresh(), 40));
+        $this->assertFalse(app(InvoiceService::class)->refund($invoice->fresh(), 30));
 
         $this->assertSame('Partially Refunded', $invoice->fresh()->status);
-        $this->assertSame(1, Account::query()
+        $this->assertSame(2, Account::query()
             ->where('invoice_id', $invoice->id)
             ->where('type', 'debit')
             ->count());
+        $this->assertTrue(app(InvoiceService::class)->refund($invoice->fresh(), 20));
+        $this->assertSame('Refunded', $invoice->fresh()->status);
+        $this->assertFalse(app(InvoiceService::class)->refund($invoice->fresh(), 1));
     }
 
     public function test_invoice_refund_updates_linked_order_status(): void
@@ -362,6 +704,45 @@ class PaymentTest extends TestCase
 
         $this->assertTrue(app(InvoiceService::class)->refund($secondInvoice->fresh(), 100));
         $this->assertSame('Refunded', $secondOrder->fresh()->status);
+    }
+
+    public function test_partial_refund_logs_host_review_without_changing_service_state(): void
+    {
+        $client = $this->client();
+        $invoice = $this->invoice($client, 100);
+        $invoice->update(['status' => 'Paid']);
+        $order = $this->order($client, $invoice);
+        $order->update(['status' => 'Paid']);
+        $host = $this->host($client, $order, ['status' => 'Active']);
+
+        $this->assertTrue(app(InvoiceService::class)->refund($invoice->fresh(), 40));
+
+        $this->assertSame('Active', $host->fresh()->status);
+        $this->assertDatabaseHas('host_action_logs', [
+            'host_id' => $host->id,
+            'action' => 'refund_partial',
+            'message' => '订单账单已部分退款，请人工确认服务是否需要调整',
+        ]);
+    }
+
+    public function test_full_refund_terminates_active_or_suspended_order_hosts(): void
+    {
+        $client = $this->client();
+        $invoice = $this->invoice($client, 100);
+        $invoice->update(['status' => 'Paid']);
+        $order = $this->order($client, $invoice);
+        $order->update(['status' => 'Paid']);
+        $active = $this->host($client, $order, ['status' => 'Active']);
+        $suspended = $this->host($client, $order, ['status' => 'Suspended']);
+        $pending = $this->host($client, $order, ['status' => 'Pending']);
+
+        $this->assertTrue(app(InvoiceService::class)->refund($invoice->fresh(), 100));
+
+        $this->assertSame('Terminated', $active->fresh()->status);
+        $this->assertSame('Terminated', $suspended->fresh()->status);
+        $this->assertSame('Pending', $pending->fresh()->status);
+        $this->assertDatabaseHas('host_action_logs', ['host_id' => $active->id, 'action' => 'terminate']);
+        $this->assertDatabaseHas('host_action_logs', ['host_id' => $suspended->id, 'action' => 'terminate']);
     }
 
     public function test_payment_refund_does_not_mark_account_when_invoice_refund_fails(): void
@@ -446,7 +827,40 @@ class PaymentTest extends TestCase
         ]);
     }
 
-    public function test_failed_payment_refund_request_is_not_recreated_on_repeat_submit(): void
+    public function test_payment_refund_fails_when_gateway_plugin_is_unavailable(): void
+    {
+        $this->installManualPay();
+        $client = $this->client();
+        $invoice = $this->invoice($client, 100);
+        $invoice->update(['status' => 'Paid']);
+        $account = Account::query()->create([
+            'client_id' => $client->id,
+            'invoice_id' => $invoice->id,
+            'type' => 'credit',
+            'amount' => 100,
+            'fee' => 0,
+            'payment_method' => 'manual_pay',
+            'gateway_trans_id' => 'REFUND-GATEWAY-MISSING-1',
+            'refunded' => 0,
+        ]);
+        Plugin::query()->where('name', 'manual_pay')->update(['status' => 0]);
+
+        $this->assertFalse(app(PaymentService::class)->refund($account, 100));
+
+        $this->assertSame(0, $account->fresh()->refunded);
+        $this->assertSame('Paid', $invoice->fresh()->status);
+        $this->assertDatabaseHas('payment_refund_requests', [
+            'account_id' => $account->id,
+            'status' => 'failed',
+            'error' => '支付网关不可用',
+        ]);
+        $this->assertDatabaseMissing('accounts', [
+            'invoice_id' => $invoice->id,
+            'type' => 'debit',
+        ]);
+    }
+
+    public function test_failed_payment_refund_request_allows_retry_after_gateway_config_is_fixed(): void
     {
         $this->installManualPay(['refund_should_fail' => true]);
         $client = $this->client();
@@ -472,8 +886,30 @@ class PaymentTest extends TestCase
             ->where('gateway_trans_id', 'REFUND-REPEAT-FAILED-1')
             ->where('amount', 100)
             ->count());
+        $this->assertSame(1, PaymentRefundRequest::query()
+            ->where('account_id', $account->id)
+            ->where('status', 'failed')
+            ->count());
         $this->assertSame(0, $account->fresh()->refunded);
         $this->assertSame('Paid', $invoice->fresh()->status);
+
+        Plugin::query()->where('name', 'manual_pay')->update(['config' => []]);
+
+        $this->assertTrue($service->refund($account->fresh(), 100));
+
+        $this->assertSame(1, PaymentRefundRequest::query()
+            ->where('account_id', $account->id)
+            ->where('gateway_trans_id', 'REFUND-REPEAT-FAILED-1')
+            ->where('amount', 100)
+            ->count());
+        $this->assertSame(1, $account->fresh()->refunded);
+        $this->assertSame('Refunded', $invoice->fresh()->status);
+        $this->assertDatabaseHas('payment_refund_requests', [
+            'account_id' => $account->id,
+            'status' => 'succeeded',
+            'amount' => 100,
+            'error' => null,
+        ]);
     }
 
     public function test_payment_refund_records_successful_refund_request(): void
@@ -585,6 +1021,39 @@ class PaymentTest extends TestCase
         ]);
     }
 
+    public function test_failed_gateway_refund_retry_rechecks_local_refundability_before_gateway_call(): void
+    {
+        $this->installManualPay(['refund_should_fail' => true]);
+        $client = $this->client();
+        $invoice = $this->invoice($client, 100);
+        $invoice->update(['status' => 'Paid']);
+        $account = Account::query()->create([
+            'client_id' => $client->id,
+            'invoice_id' => $invoice->id,
+            'type' => 'credit',
+            'amount' => 100,
+            'fee' => 0,
+            'payment_method' => 'manual_pay',
+            'gateway_trans_id' => 'REFUND-RECHECK-1',
+            'refunded' => 0,
+        ]);
+
+        $this->assertFalse(app(PaymentService::class)->refund($account, 100));
+        $invoice->update(['status' => 'Cancelled']);
+        Plugin::query()->where('name', 'manual_pay')->update(['config' => []]);
+
+        $this->assertFalse(app(PaymentService::class)->refund($account->fresh(), 100));
+
+        $this->assertSame(0, $account->fresh()->refunded);
+        $this->assertSame('Cancelled', $invoice->fresh()->status);
+        $this->assertDatabaseHas('payment_refund_requests', [
+            'account_id' => $account->id,
+            'gateway_trans_id' => 'REFUND-RECHECK-1',
+            'status' => 'failed',
+            'error' => '网关退款失败',
+        ]);
+    }
+
     public function test_invoice_refund_requires_paid_status(): void
     {
         $invoice = $this->invoice($this->client(), 100);
@@ -666,6 +1135,53 @@ class PaymentTest extends TestCase
         $this->assertSame('Unpaid', $invoice->fresh()->status);
     }
 
+    public function test_admin_order_show_hides_actions_without_permission_or_invalid_status(): void
+    {
+        $client = $this->client();
+        $invoice = $this->invoice($client, 100);
+        $order = $this->order($client, $invoice);
+        $admin = AdminUser::query()->create([
+            'username' => 'order-view-only',
+            'email' => 'order-view-only@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 1,
+        ]);
+        Role::query()->firstOrCreate(['name' => 'order-viewer', 'guard_name' => 'web']);
+        $admin->syncRoles(['order-viewer']);
+        $admin->givePermissionTo(Permission::query()->firstOrCreate(['name' => 'order.view', 'guard_name' => 'web']));
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.orders.show', $order))
+            ->assertOk()
+            ->assertDontSee('审核并标记支付')
+            ->assertDontSee('取消订单')
+            ->assertSee('当前没有可执行的订单操作');
+
+        $order->update(['status' => 'Paid']);
+        $this->actingAs($this->superAdmin(), 'admin')
+            ->get(route('admin.orders.show', $order->fresh()))
+            ->assertOk()
+            ->assertDontSee('审核并标记支付')
+            ->assertDontSee('取消订单')
+            ->assertSee('当前没有可执行的订单操作');
+    }
+
+    public function test_admin_order_show_hides_approve_for_deleted_client(): void
+    {
+        $client = $this->client();
+        $invoice = $this->invoice($client, 100);
+        $order = $this->order($client, $invoice);
+        $client->delete();
+
+        $this->actingAs($this->superAdmin(), 'admin')
+            ->get(route('admin.orders.show', $order))
+            ->assertOk()
+            ->assertSee('已删除')
+            ->assertSee('客户已删除，不能审核并标记支付该订单。')
+            ->assertDontSee('value="ADMIN-' . $order->id . '"', false)
+            ->assertSee('取消订单');
+    }
+
     public function test_non_super_admin_cannot_mark_invoice_paid_or_refund(): void
     {
         $admin = AdminUser::query()->create([
@@ -689,6 +1205,78 @@ class PaymentTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_admin_invoice_show_hides_actions_without_permission_or_invalid_status(): void
+    {
+        $invoice = $this->invoice($this->client(), 100);
+        $admin = AdminUser::query()->create([
+            'username' => 'invoice-view-only',
+            'email' => 'invoice-view-only@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 1,
+        ]);
+        Role::query()->firstOrCreate(['name' => 'invoice-viewer', 'guard_name' => 'web']);
+        $admin->syncRoles(['invoice-viewer']);
+        $admin->givePermissionTo(Permission::query()->firstOrCreate(['name' => 'invoice.view', 'guard_name' => 'web']));
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.invoices.show', $invoice))
+            ->assertOk()
+            ->assertDontSee('标记已支付')
+            ->assertDontSee('记录退款')
+            ->assertSee('当前没有可执行的账单操作');
+
+        $invoice->update(['status' => 'Cancelled']);
+        $this->actingAs($this->superAdmin(), 'admin')
+            ->get(route('admin.invoices.show', $invoice->fresh()))
+            ->assertOk()
+            ->assertDontSee('标记已支付')
+            ->assertDontSee('记录退款')
+            ->assertSee('当前没有可执行的账单操作');
+    }
+
+    public function test_admin_invoice_show_defaults_refund_amount_to_remaining_refundable_amount(): void
+    {
+        $invoice = $this->invoice($this->client(), 100);
+        $invoice->update(['status' => 'Paid']);
+        $this->assertTrue(app(InvoiceService::class)->refund($invoice->fresh(), 40));
+
+        $this->actingAs($this->superAdmin(), 'admin')
+            ->get(route('admin.invoices.show', $invoice->fresh()))
+            ->assertOk()
+            ->assertSee('剩余可退：60.00')
+            ->assertSee('max="60.00"', false)
+            ->assertSee('value="60.00"', false)
+            ->assertDontSee('value="100"', false);
+    }
+
+    public function test_admin_invoice_show_does_not_show_empty_action_message_when_partial_refund_can_continue(): void
+    {
+        $invoice = $this->invoice($this->client(), 100);
+        $invoice->update(['status' => 'Paid']);
+        $this->assertTrue(app(InvoiceService::class)->refund($invoice->fresh(), 40));
+
+        $this->actingAs($this->superAdmin(), 'admin')
+            ->get(route('admin.invoices.show', $invoice->fresh()))
+            ->assertOk()
+            ->assertSee('记录退款')
+            ->assertDontSee('当前没有可执行的账单操作');
+    }
+
+    public function test_admin_invoice_show_hides_mark_paid_for_deleted_client(): void
+    {
+        $client = $this->client();
+        $invoice = $this->invoice($client, 100);
+        $client->delete();
+
+        $this->actingAs($this->superAdmin(), 'admin')
+            ->get(route('admin.invoices.show', $invoice))
+            ->assertOk()
+            ->assertSee('已删除')
+            ->assertSee('客户已删除，不能标记支付该账单。')
+            ->assertDontSee('value="ADMIN-' . $invoice->id . '"', false)
+            ->assertSee('当前没有可执行的账单操作');
+    }
+
     private function installManualPay(array $config = []): void
     {
         $manager = app(PluginManager::class);
@@ -702,7 +1290,22 @@ class PaymentTest extends TestCase
         ]);
     }
 
-    private function client(): Client
+    private function superAdmin(): AdminUser
+    {
+        $admin = AdminUser::query()->create([
+            'username' => 'super-finance-' . random_int(1000, 9999),
+            'email' => 'super-finance-' . random_int(1000, 9999) . '@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 1,
+        ]);
+
+        Role::query()->firstOrCreate(['name' => 'super-admin', 'guard_name' => 'web']);
+        $admin->syncRoles(['super-admin']);
+
+        return $admin;
+    }
+
+    private function client(string $username = 'pay-client', string $email = 'pay-client@example.com'): Client
     {
         Currency::query()->firstOrCreate(
             ['code' => 'CNY'],
@@ -710,8 +1313,8 @@ class PaymentTest extends TestCase
         );
 
         return Client::query()->create([
-            'username' => 'pay-client',
-            'email' => 'pay-client@example.com',
+            'username' => $username,
+            'email' => $email,
             'password' => Hash::make('client123456'),
             'status' => 1,
             'currency_id' => 1,
@@ -752,5 +1355,26 @@ class PaymentTest extends TestCase
             'currency_id' => $client->currency_id,
             'invoice_id' => $invoice->id,
         ]);
+    }
+
+    private function host(Client $client, Order $order, array $overrides = []): Host
+    {
+        $group = \App\Modules\Product\Models\ProductGroup::query()->firstOrCreate(['name' => '支付退款服务产品']);
+        $product = \App\Modules\Product\Models\Product::query()->create([
+            'group_id' => $group->id,
+            'name' => 'Refund Host Product ' . random_int(1000, 9999),
+            'type' => 'vps',
+        ]);
+
+        return Host::query()->create(array_merge([
+            'client_id' => $client->id,
+            'order_id' => $order->id,
+            'product_id' => $product->id,
+            'billing_cycle' => 'monthly',
+            'first_payment_amount' => 100,
+            'recurring_amount' => 100,
+            'status' => 'Active',
+            'auto_renew' => true,
+        ], $overrides));
     }
 }

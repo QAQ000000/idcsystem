@@ -74,9 +74,7 @@
         <h2 class="mb-4 font-semibold">服务操作</h2>
         <div class="flex flex-wrap gap-3 text-sm">
             @foreach ([
-                'provision' => ['开通', $host->status === 'Pending' && ($host->order?->status === 'Paid' || $host->order?->invoice?->status === 'Paid')],
-                'suspend' => ['暂停', $host->status === 'Active'],
-                'unsuspend' => ['解除暂停', $host->status === 'Suspended'],
+                'provision' => ['开通', $host->status === 'Pending' && $host->order?->status === 'Paid' && (!$host->order?->invoice || $host->order->invoice->status === 'Paid')],
                 'reboot' => ['重启', $host->status === 'Active'],
                 'reset_password' => ['重置密码', in_array($host->status, ['Active', 'Suspended'], true)],
                 'cancel_auto_renew' => ['取消自动续费', $host->auto_renew],

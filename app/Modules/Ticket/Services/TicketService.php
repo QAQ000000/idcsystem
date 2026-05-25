@@ -2,7 +2,9 @@
 
 namespace App\Modules\Ticket\Services;
 
+use App\Modules\Admin\Models\AdminUser;
 use App\Modules\Ticket\Models\Ticket;
+use App\Modules\Ticket\Models\TicketDepartment;
 use App\Modules\Ticket\Models\TicketReply;
 use App\Modules\Ticket\Models\TicketStatus;
 use App\Modules\User\Models\Client;
@@ -17,6 +19,14 @@ class TicketService
      */
     public function create(Client $client, int $departmentId, string $subject, string $message): Ticket
     {
+        if (!$this->canClientUseTicket($client)) {
+            throw new \RuntimeException('客户账号状态不允许创建工单。');
+        }
+
+        if (!$this->canClientOpenDepartment($departmentId)) {
+            throw new \RuntimeException('当前部门不允许客户创建工单。');
+        }
+
         return DB::transaction(function () use ($client, $departmentId, $subject, $message) {
             return Ticket::create([
                 'ticket_number' => $this->nextTicketNumber(),
@@ -35,13 +45,27 @@ class TicketService
      */
     public function reply(Ticket $ticket, string $authorType, int $authorId, string $message): ?TicketReply
     {
-        if ($this->isClosed($ticket)) {
+        $ticket->loadMissing('client');
+        if (!$ticket->client || !$this->canClientUseTicket($ticket->client)) {
             return null;
         }
 
         $reply = DB::transaction(function () use ($ticket, $authorType, $authorId, $message) {
+            $lockedTicket = Ticket::query()
+                ->with(['client', 'status'])
+                ->whereKey($ticket->id)
+                ->lockForUpdate()
+                ->first();
+            if (!$lockedTicket || !$lockedTicket->client || !$this->canClientUseTicket($lockedTicket->client)) {
+                return null;
+            }
+
+            if ($this->isClosed($lockedTicket)) {
+                return null;
+            }
+
             $reply = TicketReply::create([
-                'ticket_id' => $ticket->id,
+                'ticket_id' => $lockedTicket->id,
                 'author_type' => $authorType,
                 'author_id' => $authorId,
                 'message' => $message,
@@ -50,14 +74,13 @@ class TicketService
             $statusName = $authorType === 'admin' ? 'Answered' : 'Customer Reply';
             $statusId = TicketStatus::query()->where('name', $statusName)->value('id');
             if ($statusId) {
-                $ticket->update(['status_id' => $statusId]);
+                $lockedTicket->update(['status_id' => $statusId]);
             }
 
             return $reply;
         });
 
-        $ticket->loadMissing('client');
-        if ($ticket->client) {
+        if ($reply && $ticket->client) {
             app(NotificationService::class)->notifyClient($ticket->client, 'ticket_replied', [
                 'client_name' => $ticket->client->username,
                 'ticket_number' => $ticket->ticket_number,
@@ -77,11 +100,18 @@ class TicketService
             return false;
         }
 
-        if ($this->isClosed($ticket) && !$this->isClosedStatusId($statusId)) {
-            return false;
-        }
+        return DB::transaction(function () use ($ticket, $statusId) {
+            $lockedTicket = $this->lockTicket($ticket);
+            if (!$lockedTicket) {
+                return false;
+            }
 
-        return $ticket->update(['status_id' => $statusId]);
+            if ($this->isClosed($lockedTicket) && !$this->isClosedStatusId($statusId)) {
+                return false;
+            }
+
+            return $lockedTicket->update(['status_id' => $statusId]);
+        });
     }
 
     /**
@@ -89,7 +119,18 @@ class TicketService
      */
     public function assign(Ticket $ticket, int $adminId): bool
     {
-        return $ticket->update(['assigned_to' => $adminId]);
+        if (!AdminUser::query()->whereKey($adminId)->where('status', 1)->exists()) {
+            return false;
+        }
+
+        return DB::transaction(function () use ($ticket, $adminId) {
+            $lockedTicket = $this->lockTicket($ticket);
+            if (!$lockedTicket || $this->isClosed($lockedTicket)) {
+                return false;
+            }
+
+            return $lockedTicket->update(['assigned_to' => $adminId]);
+        });
     }
 
     /**
@@ -102,7 +143,18 @@ class TicketService
             return false;
         }
 
-        return $ticket->update(['status_id' => $statusId]);
+        return DB::transaction(function () use ($ticket, $statusId) {
+            $lockedTicket = $this->lockTicket($ticket);
+            if (!$lockedTicket) {
+                return false;
+            }
+
+            if ($this->isClosed($lockedTicket)) {
+                return true;
+            }
+
+            return $lockedTicket->update(['status_id' => $statusId]);
+        });
     }
 
     /**
@@ -122,6 +174,28 @@ class TicketService
         $ticket->loadMissing('status');
 
         return $ticket->status?->name === 'Closed';
+    }
+
+    private function lockTicket(Ticket $ticket): ?Ticket
+    {
+        return Ticket::query()
+            ->with('status')
+            ->whereKey($ticket->id)
+            ->lockForUpdate()
+            ->first();
+    }
+
+    private function canClientUseTicket(Client $client): bool
+    {
+        return !$client->trashed() && $client->isActive();
+    }
+
+    private function canClientOpenDepartment(int $departmentId): bool
+    {
+        return TicketDepartment::query()
+            ->whereKey($departmentId)
+            ->where('allow_client_open', true)
+            ->exists();
     }
 
     private function isClosedStatusId(int $statusId): bool

@@ -1,0 +1,19 @@
+{
+    "name": "text_signature_plugin",
+    "title": "Text Signature Plugin",
+    "type": "gateway",
+    "version": "1.0.0",
+    "entry": "MissingPlugin",
+    "config_schema": [
+        {
+            "key": "signature",
+            "label": "Signature",
+            "type": "text"
+        },
+        {
+            "key": "merchant",
+            "label": "Merchant",
+            "type": "text"
+        }
+    ]
+}

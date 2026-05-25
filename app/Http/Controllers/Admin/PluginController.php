@@ -88,8 +88,9 @@ class PluginController extends Controller
     public function config(string $name)
     {
         $plugin = PluginModel::query()->where('name', $name)->firstOrFail();
+        $configFields = app(PluginManager::class)->configFields($plugin);
 
-        return view('admin.plugins.config', compact('plugin'));
+        return view('admin.plugins.config', compact('plugin', 'configFields'));
     }
 
     public function saveConfig(Request $request, string $name, PluginConfigService $configs, AdminAuditService $audit)

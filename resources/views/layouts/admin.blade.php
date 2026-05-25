@@ -11,22 +11,48 @@
         <header class="border-b bg-white">
             <div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
                 <a href="{{ route('admin.dashboard') }}" class="text-lg font-semibold">IDC 管理后台</a>
+                @php($adminUser = auth('admin')->user())
+                @php($canAdmin = fn (string $permission): bool => $adminUser && ($adminUser->hasRole('super-admin') || $adminUser->can($permission)))
                 <nav class="flex gap-4 text-sm text-slate-600">
-                    <a href="{{ route('admin.clients.index') }}">客户</a>
-                    <a href="{{ route('admin.products.index') }}">产品</a>
-                    <a href="{{ route('admin.hosts.index') }}">服务</a>
-                    <a href="{{ route('admin.orders.index') }}">订单</a>
-                    <a href="{{ route('admin.invoices.index') }}">账单</a>
-                    <a href="{{ route('admin.tickets.index') }}">工单</a>
-                    <a href="{{ route('admin.notifications.index') }}">通知中心</a>
-                    <a href="{{ route('admin.system-tasks.index') }}">系统任务</a>
-                    <a href="{{ route('admin.admin-action-logs.index') }}">后台审计</a>
-                    <a href="{{ route('admin.email-logs.index') }}">邮件日志</a>
-                    <a href="{{ route('admin.sms-logs.index') }}">短信日志</a>
-                    <a href="{{ route('admin.email-templates.index') }}">邮件模板</a>
-                    <a href="{{ route('admin.sms-templates.index') }}">短信模板</a>
-                    <a href="{{ route('admin.plugins.index') }}">插件</a>
-                    <a href="{{ route('admin.settings.index') }}">设置</a>
+                    @if ($canAdmin('client.view'))
+                        <a href="{{ route('admin.clients.index') }}">客户</a>
+                    @endif
+                    @if ($canAdmin('product.view'))
+                        <a href="{{ route('admin.products.index') }}">产品</a>
+                    @endif
+                    @if ($canAdmin('host.view'))
+                        <a href="{{ route('admin.hosts.index') }}">服务</a>
+                    @endif
+                    @if ($canAdmin('order.view'))
+                        <a href="{{ route('admin.orders.index') }}">订单</a>
+                    @endif
+                    @if ($canAdmin('invoice.view'))
+                        <a href="{{ route('admin.invoices.index') }}">账单</a>
+                    @endif
+                    @if ($canAdmin('ticket.view'))
+                        <a href="{{ route('admin.tickets.index') }}">工单</a>
+                    @endif
+                    @if ($canAdmin('notification.manage'))
+                        <a href="{{ route('admin.notifications.index') }}">通知中心</a>
+                        <a href="{{ route('admin.email-logs.index') }}">邮件日志</a>
+                        <a href="{{ route('admin.sms-logs.index') }}">短信日志</a>
+                    @endif
+                    @if ($canAdmin('notification.template'))
+                        <a href="{{ route('admin.email-templates.index') }}">邮件模板</a>
+                        <a href="{{ route('admin.sms-templates.index') }}">短信模板</a>
+                    @endif
+                    @if ($canAdmin('system_task.view'))
+                        <a href="{{ route('admin.system-tasks.index') }}">系统任务</a>
+                    @endif
+                    @if ($canAdmin('admin_action_log.view'))
+                        <a href="{{ route('admin.admin-action-logs.index') }}">后台审计</a>
+                    @endif
+                    @if ($canAdmin('plugin.manage'))
+                        <a href="{{ route('admin.plugins.index') }}">插件</a>
+                    @endif
+                    @if ($canAdmin('setting.manage'))
+                        <a href="{{ route('admin.settings.index') }}">设置</a>
+                    @endif
                     <form method="post" action="{{ route('admin.logout') }}">
                         @csrf
                         <button>退出</button>

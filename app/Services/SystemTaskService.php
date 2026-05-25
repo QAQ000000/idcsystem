@@ -3,10 +3,13 @@
 namespace App\Services;
 
 use App\Models\SystemTaskLog;
+use Illuminate\Support\Str;
 use Throwable;
 
 class SystemTaskService
 {
+    private const SENSITIVE_KEY_PATTERN = '/(password|secret|token|credential|access_key|private_key|key|signature|sign)$/i';
+
     public function run(string $taskName, callable $callback): SystemTaskLog
     {
         $startedAt = now();
@@ -36,7 +39,7 @@ class SystemTaskService
                 'finished_at' => now(),
                 'duration_ms' => (int) round((microtime(true) - $startedAtFloat) * 1000),
                 'output' => $log->output,
-                'error' => $exception->getMessage(),
+                'error' => $this->maskSensitiveText($exception->getMessage()),
             ]);
         }
 
@@ -50,13 +53,60 @@ class SystemTaskService
         }
 
         if (is_string($value)) {
-            return $value;
+            return $this->maskSensitiveText($value);
         }
 
         if (is_scalar($value)) {
-            return (string) $value;
+            return $this->maskSensitiveText((string) $value);
         }
 
-        return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        return json_encode($this->maskSensitive($value), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    private function maskSensitive(mixed $value): mixed
+    {
+        if (!is_array($value)) {
+            return is_string($value) ? $this->maskSensitiveText($value) : $value;
+        }
+
+        foreach ($value as $key => $item) {
+            if ($this->isSensitiveKey((string) $key)) {
+                $value[$key] = '[FILTERED]';
+
+                continue;
+            }
+
+            $value[$key] = $this->maskSensitive($item);
+        }
+
+        return $value;
+    }
+
+    private function isSensitiveKey(string $key): bool
+    {
+        return preg_match(self::SENSITIVE_KEY_PATTERN, $key) === 1;
+    }
+
+    private function maskSensitiveText(string $value): string
+    {
+        foreach ([
+            'password',
+            'secret',
+            'token',
+            'credential',
+            'access_key',
+            'private_key',
+            'signature',
+            'sign',
+            'key',
+        ] as $key) {
+            $value = preg_replace(
+                '/(' . preg_quote($key, '/') . ')\s*([=:])\s*([^\s,;]+)/i',
+                '$1$2[FILTERED]',
+                $value
+            ) ?? $value;
+        }
+
+        return Str::limit($value, 2000, '...');
     }
 }

@@ -7,6 +7,7 @@ use App\Modules\Finance\Models\Currency;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Services\PricingService;
 use App\Modules\Product\Services\ProductService;
+use Illuminate\Support\Facades\Auth;
 
 class ProductController extends Controller
 {
@@ -23,7 +24,8 @@ class ProductController extends Controller
 
         $product->load(['group', 'pricings']);
 
-        $currencyId = $pricing->defaultCurrencyId();
+        $client = Auth::guard('client')->user();
+        $currencyId = (int) ($client?->currency_id ?: $pricing->defaultCurrencyId());
 
         return view('client.products.show', [
             'product' => $product,

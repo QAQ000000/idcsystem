@@ -5,5 +5,13 @@
   "version": "1.0.0",
   "author": "IDC System",
   "description": "内置阿里云短信发送插件。",
-  "entry": "AliyunSmsPlugin"
+  "entry": "AliyunSmsPlugin",
+  "config_schema": [
+    {"key": "endpoint", "label": "接口地址", "type": "text"},
+    {"key": "access_key_id", "label": "AccessKey ID", "type": "password"},
+    {"key": "access_key_secret", "label": "AccessKey Secret", "type": "password"},
+    {"key": "sign_name", "label": "短信签名", "type": "text"},
+    {"key": "mock", "label": "模拟发送", "type": "boolean"},
+    {"key": "notes", "label": "备注", "type": "textarea"}
+  ]
 }

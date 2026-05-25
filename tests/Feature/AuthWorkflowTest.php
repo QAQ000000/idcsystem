@@ -35,8 +35,10 @@ class AuthWorkflowTest extends TestCase
 
         $product = $this->createDemoProduct();
 
+        $currencyId = Currency::query()->where('code', 'CNY')->value('id');
+
         $this->post(route('admin.products.pricing.update', $product), [
-            'currency_id' => Currency::query()->where('code', 'CNY')->value('id'),
+            'currency_id' => $currencyId,
             'monthly' => 66,
             'monthly_setup' => 0,
             'quarterly' => 180,
@@ -52,7 +54,7 @@ class AuthWorkflowTest extends TestCase
             'onetime' => -1,
             'hourly' => -1,
             'daily' => -1,
-        ])->assertRedirect(route('admin.products.pricing', $product));
+        ])->assertRedirect(route('admin.products.pricing', [$product, 'currency_id' => $currencyId]));
 
         $this->post(route('client.register.store'), [
             'username' => 'workflow-client',
@@ -110,11 +112,106 @@ class AuthWorkflowTest extends TestCase
         $this->actingAs($client, 'client')->get(route('client.dashboard'))->assertRedirect(route('client.login'));
     }
 
+    public function test_client_status_middleware_rechecks_latest_database_status(): void
+    {
+        $client = Client::query()->create([
+            'username' => 'stale-disabled-client',
+            'email' => 'stale-disabled-client@example.com',
+            'password' => Hash::make('client123456'),
+            'status' => 1,
+            'company_name' => 'Before Disable',
+        ]);
+        $staleClient = $client->fresh();
+
+        $client->update(['status' => 2]);
+
+        $this->actingAs($staleClient, 'client')
+            ->put(route('client.account.profile.update'), [
+                'company_name' => 'Updated After Disable',
+            ])
+            ->assertRedirect(route('client.login'));
+
+        $this->assertGuest('client');
+        $this->assertSame('Before Disable', $client->fresh()->company_name);
+    }
+
     public function test_auth_entrypoints_are_rate_limited(): void
     {
         $this->assertContains('throttle:10,1', \Illuminate\Support\Facades\Route::getRoutes()->getByName('admin.login.store')->middleware());
         $this->assertContains('throttle:10,1', \Illuminate\Support\Facades\Route::getRoutes()->getByName('client.login.store')->middleware());
         $this->assertContains('throttle:5,1', \Illuminate\Support\Facades\Route::getRoutes()->getByName('client.register.store')->middleware());
+    }
+
+    public function test_admin_product_pricing_page_uses_selected_currency(): void
+    {
+        $this->seed();
+        $this->actingAs(AdminUser::query()->where('username', 'admin')->firstOrFail(), 'admin');
+        $product = $this->createDemoProduct();
+        $cnyId = (int) Currency::query()->where('code', 'CNY')->value('id');
+        $usd = Currency::query()->firstOrCreate(
+            ['code' => 'USD'],
+            ['prefix' => '$', 'suffix' => '', 'exchange_rate' => 7, 'is_default' => false]
+        );
+        Pricing::query()->create([
+            'type' => 'product',
+            'rel_id' => $product->id,
+            'currency_id' => $usd->id,
+            'monthly' => 9,
+            'quarterly' => 25,
+            'semiannually' => 48,
+            'annually' => 90,
+        ]);
+
+        $this->get(route('admin.products.pricing', [$product, 'currency_id' => $usd->id]))
+            ->assertOk()
+            ->assertSee('value="' . $usd->id . '" selected', false)
+            ->assertSee('value="9.00"', false)
+            ->assertDontSee('value="66.00"', false);
+
+        $this->post(route('admin.products.pricing.update', $product), [
+            'currency_id' => $usd->id,
+            'monthly' => 10,
+            'monthly_setup' => 0,
+            'quarterly' => 27,
+            'quarterly_setup' => 0,
+            'semiannually' => 52,
+            'semiannually_setup' => 0,
+            'annually' => 96,
+            'annually_setup' => 0,
+            'biennially' => -1,
+            'biennially_setup' => 0,
+            'triennially' => -1,
+            'triennially_setup' => 0,
+            'onetime' => -1,
+            'hourly' => -1,
+            'daily' => -1,
+        ])->assertRedirect(route('admin.products.pricing', [$product, 'currency_id' => $usd->id]));
+
+        $this->assertDatabaseHas('pricings', [
+            'type' => 'product',
+            'rel_id' => $product->id,
+            'currency_id' => $usd->id,
+            'monthly' => 10,
+        ]);
+        $this->assertDatabaseHas('pricings', [
+            'type' => 'product',
+            'rel_id' => $product->id,
+            'currency_id' => $cnyId,
+            'monthly' => 66,
+        ]);
+    }
+
+    public function test_admin_product_pricing_page_ignores_array_currency_query_value(): void
+    {
+        $this->seed();
+        $this->actingAs(AdminUser::query()->where('username', 'admin')->firstOrFail(), 'admin');
+        $product = $this->createDemoProduct();
+        $defaultCurrencyId = (int) Currency::query()->where('is_default', true)->value('id');
+
+        $this->get(route('admin.products.pricing', [$product, 'currency_id' => [$defaultCurrencyId]]))
+            ->assertOk()
+            ->assertSee('value="' . $defaultCurrencyId . '" selected', false)
+            ->assertSee('value="66.00"', false);
     }
 
     private function createDemoProduct(): Product

@@ -20,7 +20,7 @@ class NotificationCenterController extends Controller
             'emailTemplateCount' => EmailTemplate::query()->count(),
             'smsTemplateCount' => SmsTemplate::query()->count(),
             'events' => NotificationService::events(),
-            'settings' => $settings->all(),
+            'settings' => $settings,
         ]);
     }
 }

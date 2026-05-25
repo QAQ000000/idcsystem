@@ -7,7 +7,7 @@
         <h1 class="text-2xl font-semibold">邮件日志</h1>
         <form method="get" class="flex items-center gap-2 text-sm">
             <select class="rounded border px-3 py-2" name="status">
-                @foreach (['' => '全部状态', 'pending' => '待发送', 'sent' => '已发送', 'failed' => '发送失败'] as $value => $label)
+                @foreach (['' => '全部状态', 'pending' => '待发送', 'processing' => '发送中', 'sent' => '已发送', 'failed' => '发送失败'] as $value => $label)
                     <option value="{{ $value }}" @selected(request('status') === $value)>{{ $label }}</option>
                 @endforeach
             </select>
@@ -36,7 +36,7 @@
                         <td class="px-4 py-3">{{ $log->subject }}</td>
                         <td class="px-4 py-3">{{ $log->template ?: '-' }}</td>
                         <td class="px-4 py-3">{{ $log->provider ?: '-' }}</td>
-                        <td class="px-4 py-3">{{ ['pending' => '待发送', 'sent' => '已发送', 'failed' => '发送失败'][$log->status] ?? $log->status }}</td>
+                        <td class="px-4 py-3">{{ ['pending' => '待发送', 'processing' => '发送中', 'sent' => '已发送', 'failed' => '发送失败'][$log->status] ?? $log->status }}</td>
                         <td class="px-4 py-3">{{ $log->attempts }}</td>
                         <td class="px-4 py-3">{{ $log->created_at?->format('Y-m-d H:i') }}</td>
                         <td class="px-4 py-3">

@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Hash;
 use RuntimeException;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 use Throwable;
 
 class InstallService
@@ -19,23 +21,65 @@ class InstallService
     private const REQUIRED_INSTALL_TABLES = [
         'migrations',
         'users',
+        'password_reset_tokens',
+        'sessions',
+        'cache',
+        'cache_locks',
         'jobs',
         'job_batches',
         'failed_jobs',
+        'permissions',
+        'roles',
+        'model_has_permissions',
+        'model_has_roles',
+        'role_has_permissions',
+        'personal_access_tokens',
         'admin_users',
+        'admin_action_logs',
         'settings',
+        'hooks',
+        'hook_listeners',
         'plugins',
+        'currencies',
+        'client_groups',
         'clients',
+        'contacts',
+        'client_oauth',
+        'product_groups',
         'products',
+        'pricings',
+        'config_groups',
+        'config_options',
+        'config_option_subs',
+        'custom_fields',
+        'custom_field_values',
+        'promo_codes',
         'orders',
         'hosts',
+        'host_config_options',
+        'host_action_logs',
+        'host_usage_snapshots',
+        'upgrades',
         'invoices',
         'invoice_items',
         'accounts',
+        'credits',
+        'ticket_departments',
+        'ticket_statuses',
         'tickets',
         'ticket_replies',
         'email_templates',
+        'email_logs',
         'sms_templates',
+        'sms_logs',
+        'client_login_logs',
+        'system_task_logs',
+        'payment_refund_requests',
+        'payment_attempts',
+    ];
+
+    private const PARTIAL_INSTALL_IGNORED_TABLES = [
+        'migrations',
     ];
 
     public function isInstalled(): bool
@@ -72,7 +116,7 @@ class InstallService
         $paths = [
             'storage' => storage_path(),
             'bootstrap_cache' => base_path('bootstrap/cache'),
-            'env_file' => base_path('.env'),
+            'env_file' => $this->envPath(),
         ];
 
         return [
@@ -242,9 +286,17 @@ class InstallService
     {
         $this->ensureNotInstalled();
         $this->ensureMigrationRepository();
-        if ($this->hasPartialInstallSchema()) {
-            throw new RuntimeException('数据库已存在部分安装数据，请清空后重新安装。');
+
+        if ($this->databaseInitialized()) {
+            $this->repairMigrationRepository();
+            Artisan::call('db:seed', ['--force' => true]);
+
+            return;
         }
+
+        // 安装过程中断线或页面重试时，数据库里可能已经落了一部分迁移。
+        // 这里先修复 migration 仓库，让已经存在的表对应的迁移不再重复执行，
+        // 再继续跑剩余迁移，避免 "table already exists" 直接中断安装。
         $this->repairMigrationRepository();
         Artisan::call('migrate', ['--force' => true, '--database' => 'mysql']);
         Artisan::call('db:seed', ['--force' => true]);
@@ -278,8 +330,9 @@ class InstallService
     {
         $this->ensureNotInstalled();
         $this->applyStoredDatabaseConfig();
+        $role = $this->ensureSuperAdminRole();
 
-        return AdminUser::query()->updateOrCreate(
+        $admin = AdminUser::query()->updateOrCreate(
             ['username' => $data['username']],
             [
                 'email' => $data['email'],
@@ -288,6 +341,9 @@ class InstallService
                 'status' => 1,
             ]
         );
+        $admin->syncRoles([$role]);
+
+        return $admin;
     }
 
     public function markInstalled(array $context = []): void
@@ -323,7 +379,7 @@ class InstallService
 
     private function writeEnv(array $values): void
     {
-        $path = base_path('.env');
+        $path = $this->envPath();
         $content = File::exists($path) ? File::get($path) : '';
 
         foreach ($values as $key => $value) {
@@ -338,6 +394,11 @@ class InstallService
         if (File::put($path, ltrim($content)) === false) {
             throw new RuntimeException('.env 配置写入失败。');
         }
+    }
+
+    private function envPath(): string
+    {
+        return (string) config('installer.env_path', base_path('.env'));
     }
 
     private function encodeEnvValue(string $value): string
@@ -383,6 +444,10 @@ class InstallService
         $existing = [];
 
         foreach (self::REQUIRED_INSTALL_TABLES as $table) {
+            if (in_array($table, self::PARTIAL_INSTALL_IGNORED_TABLES, true)) {
+                continue;
+            }
+
             if (Schema::connection('mysql')->hasTable($table)) {
                 $existing[] = $table;
             }
@@ -453,5 +518,15 @@ class InstallService
         } catch (Throwable) {
             // 安装锁仍是最终兜底标记；数据库标记失败不能让完成页卡死在半安装状态。
         }
+    }
+
+    private function ensureSuperAdminRole(): Role
+    {
+        $role = Role::query()->firstOrCreate(['name' => 'super-admin', 'guard_name' => 'web']);
+        if (Schema::hasTable('permissions')) {
+            $role->syncPermissions(Permission::query()->where('guard_name', 'web')->get());
+        }
+
+        return $role;
     }
 }

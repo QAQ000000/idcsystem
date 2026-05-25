@@ -5,6 +5,8 @@ namespace App\Modules\Finance\Services;
 use App\Modules\Finance\Models\Account;
 use App\Modules\Finance\Models\Invoice;
 use App\Modules\Finance\Models\InvoiceItem;
+use App\Modules\Order\Models\Host;
+use App\Modules\Order\Models\Upgrade;
 use App\Modules\Order\Services\HostService;
 use App\Modules\User\Models\Client;
 use App\Services\NotificationService;
@@ -137,13 +139,17 @@ class InvoiceService
     public function markAsPaid(Invoice $invoice, string $paymentMethod, string $transId): bool
     {
         $paid = DB::transaction(function () use ($invoice, $paymentMethod, $transId) {
-            $orderId = Invoice::query()->whereKey($invoice->id)->value('order_id');
+            $orderId = $invoice->order()->value('id');
             if ($orderId) {
                 \App\Modules\Order\Models\Order::query()->whereKey($orderId)->lockForUpdate()->first();
             }
 
-            $lockedInvoice = Invoice::query()->whereKey($invoice->id)->with('order')->lockForUpdate()->first();
+            $lockedInvoice = Invoice::query()->whereKey($invoice->id)->with(['client', 'order'])->lockForUpdate()->first();
             if (!$lockedInvoice) {
+                return false;
+            }
+
+            if (!$lockedInvoice->client || $lockedInvoice->client->trashed() || !$lockedInvoice->client->isActive()) {
                 return false;
             }
 
@@ -155,7 +161,13 @@ class InvoiceService
                 return false;
             }
 
-            if ($lockedInvoice->order && $lockedInvoice->order->status !== 'Pending') {
+            if (!$this->serviceItemsArePayable($lockedInvoice)) {
+                return false;
+            }
+
+            if ($lockedInvoice->order
+                && $lockedInvoice->order->status !== 'Pending'
+                && !$this->isRenewalInvoice($lockedInvoice)) {
                 return false;
             }
 
@@ -230,8 +242,8 @@ class InvoiceService
      */
     public function refund(Invoice $invoice, float $amount): bool
     {
-        return DB::transaction(function () use ($invoice, $amount) {
-            $orderId = Invoice::query()->whereKey($invoice->id)->value('order_id');
+        $refunded = DB::transaction(function () use ($invoice, $amount) {
+            $orderId = $invoice->order()->value('id');
             if ($orderId) {
                 \App\Modules\Order\Models\Order::query()->whereKey($orderId)->lockForUpdate()->first();
             }
@@ -241,13 +253,17 @@ class InvoiceService
                 return false;
             }
 
+            $refundedTotal = $this->refundedAmount($lockedInvoice);
+            $newRefundedTotal = round($refundedTotal + $amount, 2);
+            $fullyRefunded = $newRefundedTotal >= round((float) $lockedInvoice->total, 2);
+
             $lockedInvoice->update([
-                'status' => $amount >= (float) $lockedInvoice->total ? 'Refunded' : 'Partially Refunded',
+                'status' => $fullyRefunded ? 'Refunded' : 'Partially Refunded',
             ]);
 
             if ($lockedInvoice->order) {
                 $lockedInvoice->order->update([
-                    'status' => $amount >= (float) $lockedInvoice->total ? 'Refunded' : 'Partially Refunded',
+                    'status' => $fullyRefunded ? 'Refunded' : 'Partially Refunded',
                 ]);
             }
 
@@ -265,6 +281,12 @@ class InvoiceService
 
             return true;
         });
+
+        if ($refunded) {
+            $this->syncRefundedHosts($invoice->fresh(['order.hosts.product']));
+        }
+
+        return $refunded;
     }
 
     public function canRefund(Invoice $invoice, float $amount): bool
@@ -272,6 +294,16 @@ class InvoiceService
         $freshInvoice = Invoice::query()->whereKey($invoice->id)->first();
 
         return $this->isRefundable($freshInvoice, $amount);
+    }
+
+    public function remainingRefundableAmount(Invoice $invoice): float
+    {
+        $freshInvoice = Invoice::query()->whereKey($invoice->id)->first();
+        if (!$freshInvoice || !in_array($freshInvoice->status, ['Paid', 'Partially Refunded'], true)) {
+            return 0.0;
+        }
+
+        return $this->calculateRemainingRefundableAmount($freshInvoice);
     }
 
     private function recalculateTotals(Invoice $invoice): void
@@ -297,10 +329,123 @@ class InvoiceService
 
     private function isRefundable(?Invoice $invoice, float $amount): bool
     {
-        return $invoice !== null
-            && $invoice->status === 'Paid'
-            && $amount > 0
-            && $amount <= (float) $invoice->total;
+        if ($invoice === null || !in_array($invoice->status, ['Paid', 'Partially Refunded'], true) || $amount <= 0) {
+            return false;
+        }
+
+        return $amount <= $this->calculateRemainingRefundableAmount($invoice);
+    }
+
+    private function calculateRemainingRefundableAmount(Invoice $invoice): float
+    {
+        return round(max(0, (float) $invoice->total - $this->refundedAmount($invoice)), 2);
+    }
+
+    private function refundedAmount(Invoice $invoice): float
+    {
+        return round((float) Account::query()
+            ->where('invoice_id', $invoice->id)
+            ->where('type', 'debit')
+            ->sum('amount'), 2);
+    }
+
+    private function isRenewalInvoice(Invoice $invoice): bool
+    {
+        $invoice->loadMissing('items');
+
+        return $invoice->items->contains(fn (InvoiceItem $item) => $item->type === 'renewal');
+    }
+
+    /**
+     * 支付前复查服务类账单，避免旧账单在服务终止或客户停用后继续生效。
+     */
+    private function serviceItemsArePayable(Invoice $invoice): bool
+    {
+        $invoice->loadMissing('items');
+
+        foreach ($invoice->items as $item) {
+            if ($item->type === 'renewal' && !$this->renewalItemIsPayable($invoice, $item)) {
+                return false;
+            }
+
+            if ($item->type === 'upgrade' && !$this->upgradeItemIsPayable($invoice, $item)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function renewalItemIsPayable(Invoice $invoice, InvoiceItem $item): bool
+    {
+        $host = Host::query()
+            ->with('client')
+            ->whereKey((int) $item->rel_id)
+            ->lockForUpdate()
+            ->first();
+
+        if (!$host || (int) $host->client_id !== (int) $invoice->client_id) {
+            return false;
+        }
+
+        if (!$host->client || $host->client->trashed() || !$host->client->isActive()) {
+            return false;
+        }
+
+        return !in_array($host->status, ['Terminated', 'Cancelled'], true);
+    }
+
+    private function upgradeItemIsPayable(Invoice $invoice, InvoiceItem $item): bool
+    {
+        $upgrade = Upgrade::query()
+            ->whereKey((int) $item->rel_id)
+            ->lockForUpdate()
+            ->first();
+        if (!$upgrade || $upgrade->status !== 'Pending') {
+            return false;
+        }
+
+        $host = Host::query()
+            ->with('client')
+            ->whereKey((int) $upgrade->host_id)
+            ->lockForUpdate()
+            ->first();
+
+        if (!$host || (int) $host->client_id !== (int) $invoice->client_id) {
+            return false;
+        }
+
+        if (!$host->client || $host->client->trashed() || !$host->client->isActive()) {
+            return false;
+        }
+
+        return $host->status === 'Active';
+    }
+
+    private function syncRefundedHosts(?Invoice $invoice): void
+    {
+        if (!$invoice?->order) {
+            return;
+        }
+
+        $hostService = app(HostService::class);
+        foreach ($invoice->order->hosts as $host) {
+            if ($invoice->status === 'Refunded') {
+                if (in_array($host->status, ['Active', 'Suspended'], true)) {
+                    $hostService->terminate($host);
+                }
+
+                continue;
+            }
+
+            if ($invoice->status === 'Partially Refunded') {
+                $host->actionLogs()->create([
+                    'action' => 'refund_partial',
+                    'message' => '订单账单已部分退款，请人工确认服务是否需要调整',
+                    'meta' => ['invoice_id' => $invoice->id],
+                ]);
+            }
+        }
     }
 
     private function validateInvoiceItems(array $items): void

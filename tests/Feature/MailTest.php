@@ -57,6 +57,54 @@ class MailTest extends TestCase
         ]);
     }
 
+    public function test_mail_service_truncates_long_subject_and_keeps_original_in_payload(): void
+    {
+        Mail::fake();
+        $this->installSmtp();
+        $subject = str_repeat('长', 300);
+
+        $this->assertTrue(app(MailService::class)->send('long-subject@example.com', $subject, '正文', ['async' => false]));
+
+        $log = EmailLog::query()->where('to', 'long-subject@example.com')->firstOrFail();
+        $this->assertSame(255, mb_strlen($log->subject));
+        $this->assertSame($subject, $log->payload['original_subject']);
+        $this->assertSame('sent', $log->status);
+    }
+
+    public function test_email_log_masks_sensitive_payload_and_error_text(): void
+    {
+        $log = EmailLog::query()->create([
+            'to' => 'mask@example.com',
+            'subject' => 'Mask',
+            'body' => 'Body',
+            'provider' => 'smtp',
+            'status' => 'failed',
+            'success' => false,
+            'payload' => [
+                'access_token' => 'mail-token',
+                'nested' => [
+                    'smtp_password' => 'mail-password',
+                    'message' => 'visible',
+                ],
+            ],
+            'error' => 'smtp failed password=plain-secret token:token-value signature=sign-value',
+            'attempts' => 0,
+        ]);
+
+        $log->refresh();
+        $this->assertSame('[FILTERED]', $log->payload['access_token']);
+        $this->assertSame('[FILTERED]', $log->payload['nested']['smtp_password']);
+        $this->assertSame('visible', $log->payload['nested']['message']);
+        $this->assertStringContainsString('password=[FILTERED]', $log->error);
+        $this->assertStringContainsString('token:[FILTERED]', $log->error);
+        $this->assertStringContainsString('signature=[FILTERED]', $log->error);
+        $this->assertStringNotContainsString('mail-token', json_encode($log->payload));
+        $this->assertStringNotContainsString('mail-password', json_encode($log->payload));
+        $this->assertStringNotContainsString('plain-secret', $log->error);
+        $this->assertStringNotContainsString('token-value', $log->error);
+        $this->assertStringNotContainsString('sign-value', $log->error);
+    }
+
     public function test_mail_service_can_create_pending_log_for_async_sending(): void
     {
         Bus::fake();
@@ -96,6 +144,7 @@ class MailTest extends TestCase
             'id' => $log->id,
             'status' => 'sent',
             'success' => true,
+            'attempts' => 1,
         ]);
     }
 
@@ -148,6 +197,7 @@ class MailTest extends TestCase
             'id' => $log->id,
             'status' => 'failed',
             'success' => false,
+            'attempts' => 1,
         ]);
         $this->assertNotNull(EmailLog::query()->findOrFail($log->id)->error);
     }
@@ -160,6 +210,16 @@ class MailTest extends TestCase
         );
 
         $this->assertSame('您好 张三，账单 INV001 金额 99.00', $rendered);
+    }
+
+    public function test_template_render_safely_serializes_array_variables(): void
+    {
+        $rendered = app(MailService::class)->render(
+            '配置 {{config}}',
+            ['config' => ['cpu' => 2, 'memory' => '4G']]
+        );
+
+        $this->assertSame('配置 {"cpu":2,"memory":"4G"}', $rendered);
     }
 
     public function test_invoice_payment_and_ticket_actions_trigger_mail_logs(): void
@@ -182,6 +242,7 @@ class MailTest extends TestCase
         ]);
 
         $this->installManualPay();
+        app(PaymentService::class)->processPayment($invoice->fresh(), 'manual_pay', []);
         app(PaymentService::class)->handleCallback('manual_pay', [
             'invoice_id' => $invoice->id,
             'amount' => 100,
@@ -233,6 +294,75 @@ class MailTest extends TestCase
         $this->actingAs($admin, 'admin')
             ->post(route('admin.email-logs.retry', $log))
             ->assertRedirect(route('admin.email-logs.show', $log));
+    }
+
+    public function test_admin_email_log_filters_ignore_array_query_values(): void
+    {
+        $admin = $this->admin();
+        EmailLog::query()->create([
+            'to' => 'array-filter@example.com',
+            'subject' => 'Array Filter',
+            'body' => '<p>View</p>',
+            'provider' => 'smtp',
+            'status' => 'failed',
+            'success' => false,
+            'error' => 'test error',
+            'payload' => [],
+            'attempts' => 1,
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.email-logs.index', ['status' => ['failed']]))
+            ->assertOk()
+            ->assertSee('array-filter@example.com');
+    }
+
+    public function test_admin_email_log_detail_escapes_html_body(): void
+    {
+        $admin = $this->admin();
+        $log = EmailLog::query()->create([
+            'to' => 'xss@example.com',
+            'subject' => 'Escaped Body',
+            'body' => '<script>alert("xss")</script><p>正文</p>',
+            'provider' => 'smtp',
+            'status' => 'failed',
+            'success' => false,
+            'payload' => [],
+            'attempts' => 0,
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.email-logs.show', $log))
+            ->assertOk()
+            ->assertSee('&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;&lt;p&gt;正文&lt;/p&gt;', false)
+            ->assertDontSee('<script>alert("xss")</script>', false);
+    }
+
+    public function test_admin_email_log_detail_masks_sensitive_body_text(): void
+    {
+        $admin = $this->admin();
+        $log = EmailLog::query()->create([
+            'to' => 'masked-body@example.com',
+            'subject' => 'Masked Body',
+            'body' => '发送失败 password=plain-secret token:token-value signature=sign-value',
+            'provider' => 'smtp',
+            'status' => 'failed',
+            'success' => false,
+            'payload' => [],
+            'attempts' => 0,
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.email-logs.show', $log))
+            ->assertOk()
+            ->assertSee('password=[FILTERED]', false)
+            ->assertSee('token:[FILTERED]', false)
+            ->assertSee('signature=[FILTERED]', false)
+            ->assertDontSee('plain-secret')
+            ->assertDontSee('token-value')
+            ->assertDontSee('sign-value');
+
+        $this->assertSame('发送失败 password=plain-secret token:token-value signature=sign-value', $log->fresh()->body);
     }
 
     public function test_non_super_admin_cannot_retry_email_logs(): void
@@ -314,6 +444,93 @@ class MailTest extends TestCase
         $this->assertFalse(app(MailService::class)->retry($log, false));
         $this->assertSame('sent', $log->fresh()->status);
         $this->assertSame(1, $log->fresh()->attempts);
+    }
+
+    public function test_pending_email_log_can_be_requeued_from_admin_retry(): void
+    {
+        Bus::fake();
+        $log = EmailLog::query()->create([
+            'to' => 'pending-email@example.com',
+            'subject' => 'Pending Email',
+            'body' => 'Pending body',
+            'provider' => 'smtp',
+            'status' => 'pending',
+            'success' => false,
+            'payload' => [],
+            'attempts' => 0,
+        ]);
+
+        $this->assertTrue(app(MailService::class)->retry($log));
+
+        $log->refresh();
+        $this->assertSame('pending', $log->status);
+        $this->assertSame(0, $log->attempts);
+        Bus::assertDispatched(\App\Jobs\SendEmailJob::class);
+    }
+
+    public function test_stale_processing_email_log_can_be_recovered_and_retried(): void
+    {
+        Mail::fake();
+        $this->installSmtp();
+        $log = EmailLog::query()->create([
+            'to' => 'stale-processing@example.com',
+            'subject' => 'Stale Processing',
+            'body' => '<p>Retry</p>',
+            'provider' => 'smtp',
+            'status' => 'processing',
+            'success' => false,
+            'payload' => [],
+            'attempts' => 0,
+        ]);
+        EmailLog::query()->whereKey($log->id)->update(['updated_at' => now()->subMinutes(20)]);
+        $log->refresh();
+
+        $this->assertTrue(app(MailService::class)->retry($log, false));
+
+        $log->refresh();
+        $this->assertSame('sent', $log->status);
+        $this->assertTrue($log->success);
+        $this->assertSame(1, $log->attempts);
+    }
+
+    public function test_fresh_processing_email_log_cannot_be_retried(): void
+    {
+        $log = EmailLog::query()->create([
+            'to' => 'fresh-processing@example.com',
+            'subject' => 'Fresh Processing',
+            'body' => '<p>Retry</p>',
+            'provider' => 'smtp',
+            'status' => 'processing',
+            'success' => false,
+            'payload' => [],
+            'attempts' => 0,
+        ]);
+
+        $this->assertFalse(app(MailService::class)->retry($log, false));
+        $this->assertSame('processing', $log->fresh()->status);
+        $this->assertSame(0, $log->fresh()->attempts);
+    }
+
+    public function test_admin_email_log_detail_hides_retry_button_while_processing(): void
+    {
+        $admin = $this->admin();
+        $log = EmailLog::query()->create([
+            'to' => 'processing-view@example.com',
+            'subject' => 'Processing',
+            'body' => 'Processing body',
+            'provider' => 'smtp',
+            'status' => 'processing',
+            'success' => false,
+            'payload' => [],
+            'attempts' => 0,
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.email-logs.show', $log))
+            ->assertOk()
+            ->assertSee('发送中')
+            ->assertDontSee('重新发送')
+            ->assertDontSee(route('admin.email-logs.retry', $log), false);
     }
 
     public function test_admin_cannot_retry_sent_email_log_by_posting_directly(): void

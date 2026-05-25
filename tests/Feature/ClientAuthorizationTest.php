@@ -89,6 +89,15 @@ class ClientAuthorizationTest extends TestCase
         $this->assertCount(0, $cart->getCart($other)['items']);
     }
 
+    public function test_cart_remove_rejects_non_numeric_item_id_without_server_error(): void
+    {
+        $client = $this->client('cart-nonnumeric');
+
+        $this->actingAs($client, 'client')
+            ->delete('/client/cart/not-a-number')
+            ->assertNotFound();
+    }
+
     private function client(string $name): Client
     {
         $currency = Currency::query()->firstOrCreate(

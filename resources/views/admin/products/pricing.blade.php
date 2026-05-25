@@ -14,7 +14,7 @@
             货币
             <select class="mt-1 w-full rounded border px-3 py-2 md:w-64" name="currency_id">
                 @foreach ($currencies as $currency)
-                    <option value="{{ $currency->id }}" @selected((int) old('currency_id', $pricing?->currency_id ?? $currencies->first()?->id) === (int) $currency->id)>
+                    <option value="{{ $currency->id }}" @selected((int) old('currency_id', $selectedCurrencyId ?? $pricing?->currency_id ?? $currencies->first()?->id) === (int) $currency->id)>
                         {{ $currency->code }}
                     </option>
                 @endforeach

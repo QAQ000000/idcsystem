@@ -17,6 +17,7 @@ use App\Modules\User\Models\Client;
 use App\Plugins\Core\PluginManager;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
@@ -74,7 +75,9 @@ class AdminAuditTest extends TestCase
                 'config' => [
                     'app_id' => 'audit-app',
                     'app_secret' => 'should-not-be-stored',
+                    'access_key_id' => 'should-not-be-stored',
                     'access_key' => 'should-not-be-stored',
+                    'signature' => 'should-not-be-stored',
                 ],
             ])
             ->assertRedirect(route('admin.plugins.config', $plugin->name));
@@ -85,7 +88,9 @@ class AdminAuditTest extends TestCase
 
         $this->assertSame($admin->id, $log->admin_user_id);
         $this->assertSame('[FILTERED]', $log->payload['config']['app_secret']);
+        $this->assertSame('[FILTERED]', $log->payload['config']['access_key_id']);
         $this->assertSame('[FILTERED]', $log->payload['config']['access_key']);
+        $this->assertSame('[FILTERED]', $log->payload['config']['signature']);
         $this->assertSame('audit-app', $log->payload['config']['app_id']);
     }
 
@@ -121,6 +126,73 @@ class AdminAuditTest extends TestCase
         $this->assertSame('[FILTERED]', $log->payload['smtp_password']);
     }
 
+    public function test_admin_audit_masks_sensitive_error_text(): void
+    {
+        $admin = $this->admin();
+
+        app(\App\Services\AdminAuditService::class)->record(
+            request(),
+            'audit.sensitive_error',
+            null,
+            'failed',
+            ['safe' => 'visible'],
+            '连接失败 password=plain-secret token:token-value access_key=key-value signature=sign-value'
+        );
+
+        $log = AdminActionLog::query()
+            ->where('action', 'audit.sensitive_error')
+            ->firstOrFail();
+
+        $this->assertSame('连接失败 password=[FILTERED] token:[FILTERED] access_key=[FILTERED] signature=[FILTERED]', $log->error);
+        $this->assertStringNotContainsString('plain-secret', (string) $log->error);
+        $this->assertStringNotContainsString('token-value', (string) $log->error);
+        $this->assertStringNotContainsString('key-value', (string) $log->error);
+        $this->assertStringNotContainsString('sign-value', (string) $log->error);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.admin-action-logs.show', $log))
+            ->assertOk()
+            ->assertSee('password=[FILTERED]')
+            ->assertDontSee('plain-secret')
+            ->assertDontSee('token-value')
+            ->assertDontSee('key-value')
+            ->assertDontSee('sign-value');
+    }
+
+    public function test_admin_action_log_model_masks_sensitive_payload_and_error_text(): void
+    {
+        $log = AdminActionLog::query()->create([
+            'admin_user_id' => null,
+            'action' => 'audit.model_mask',
+            'result' => 'failed',
+            'payload' => [
+                'access_token' => 'audit-token',
+                'nested' => [
+                    'api_key' => 'audit-key',
+                    'signature' => 'audit-signature',
+                    'message' => 'visible',
+                ],
+            ],
+            'error' => '审计失败 password=plain-secret token:token-value access_key=key-value signature=sign-value',
+            'ip_address' => '127.0.0.1',
+            'user_agent' => 'AuditTest',
+        ]);
+
+        $log->refresh();
+        $this->assertSame('[FILTERED]', $log->payload['access_token']);
+        $this->assertSame('[FILTERED]', $log->payload['nested']['api_key']);
+        $this->assertSame('[FILTERED]', $log->payload['nested']['signature']);
+        $this->assertSame('visible', $log->payload['nested']['message']);
+        $this->assertSame('审计失败 password=[FILTERED] token:[FILTERED] access_key=[FILTERED] signature=[FILTERED]', $log->error);
+        $this->assertStringNotContainsString('audit-token', json_encode($log->payload));
+        $this->assertStringNotContainsString('audit-key', json_encode($log->payload));
+        $this->assertStringNotContainsString('audit-signature', json_encode($log->payload));
+        $this->assertStringNotContainsString('plain-secret', (string) $log->error);
+        $this->assertStringNotContainsString('token-value', (string) $log->error);
+        $this->assertStringNotContainsString('key-value', (string) $log->error);
+        $this->assertStringNotContainsString('sign-value', (string) $log->error);
+    }
+
     public function test_super_admin_can_view_admin_action_logs(): void
     {
         $admin = $this->admin();
@@ -151,6 +223,28 @@ class AdminAuditTest extends TestCase
             ->assertSee('AuditTest');
     }
 
+    public function test_admin_action_log_filters_ignore_array_query_values(): void
+    {
+        $admin = $this->admin();
+        AdminActionLog::query()->create([
+            'admin_user_id' => $admin->id,
+            'action' => 'audit.array_filter',
+            'result' => 'failed',
+            'payload' => ['foo' => 'bar'],
+            'error' => '数组筛选测试',
+            'ip_address' => '127.0.0.1',
+            'user_agent' => 'AuditTest',
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.admin-action-logs.index', [
+                'action' => ['audit.array_filter'],
+                'result' => ['failed'],
+            ]))
+            ->assertOk()
+            ->assertSee('audit.array_filter');
+    }
+
     public function test_non_super_admin_cannot_view_admin_action_logs(): void
     {
         $admin = AdminUser::query()->create([
@@ -165,6 +259,33 @@ class AdminAuditTest extends TestCase
         $this->actingAs($admin, 'admin')
             ->get(route('admin.admin-action-logs.index'))
             ->assertForbidden();
+    }
+
+    public function test_admin_layout_hides_privileged_navigation_links_for_limited_admin(): void
+    {
+        $admin = AdminUser::query()->create([
+            'username' => 'nav-limited-' . random_int(1000, 9999),
+            'email' => 'nav-limited-' . random_int(1000, 9999) . '@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 1,
+        ]);
+        Role::query()->firstOrCreate(['name' => 'support-admin', 'guard_name' => 'web']);
+        $admin->syncRoles(['support-admin']);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.dashboard'))
+            ->assertOk()
+            ->assertDontSee('客户')
+            ->assertDontSee('产品')
+            ->assertDontSee('服务')
+            ->assertDontSee('订单')
+            ->assertDontSee('账单')
+            ->assertDontSee('工单')
+            ->assertDontSee('通知中心')
+            ->assertDontSee('系统任务')
+            ->assertDontSee('后台审计')
+            ->assertDontSee('插件')
+            ->assertDontSee('设置');
     }
 
     public function test_permission_denied_admin_write_attempt_is_audited(): void
@@ -191,6 +312,76 @@ class AdminAuditTest extends TestCase
         $this->assertSame('failed', $log->result);
         $this->assertSame('host.manage', $log->payload['permission']);
         $this->assertSame('admin/hosts/' . $host->id . '/action', $log->payload['path']);
+    }
+
+    public function test_business_view_routes_require_view_permission(): void
+    {
+        $admin = AdminUser::query()->create([
+            'username' => 'view-denied-' . random_int(1000, 9999),
+            'email' => 'view-denied-' . random_int(1000, 9999) . '@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 1,
+        ]);
+        Role::query()->firstOrCreate(['name' => 'support-admin', 'guard_name' => 'web']);
+        $admin->syncRoles(['support-admin']);
+        $host = $this->host();
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.hosts.show', $host))
+            ->assertForbidden();
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.invoices.index'))
+            ->assertForbidden();
+    }
+
+    public function test_host_operation_panel_hides_actions_for_limited_admin(): void
+    {
+        $admin = AdminUser::query()->create([
+            'username' => 'host-view-limited-' . random_int(1000, 9999),
+            'email' => 'host-view-limited-' . random_int(1000, 9999) . '@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 1,
+        ]);
+        Role::query()->firstOrCreate(['name' => 'support-admin', 'guard_name' => 'web']);
+        $admin->syncRoles(['support-admin']);
+        $admin->givePermissionTo(Permission::query()->firstOrCreate(['name' => 'host.view', 'guard_name' => 'web']));
+        $host = $this->host();
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.hosts.show', $host))
+            ->assertOk()
+            ->assertSee('当前账号没有服务操作权限。')
+            ->assertDontSee('暂停')
+            ->assertDontSee('终止')
+            ->assertDontSee('重置密码');
+    }
+
+    public function test_product_view_permission_does_not_grant_product_management_forms(): void
+    {
+        $admin = AdminUser::query()->create([
+            'username' => 'product-view-limited-' . random_int(1000, 9999),
+            'email' => 'product-view-limited-' . random_int(1000, 9999) . '@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 1,
+        ]);
+        Role::query()->firstOrCreate(['name' => 'support-admin', 'guard_name' => 'web']);
+        $admin->syncRoles(['support-admin']);
+        $admin->givePermissionTo(Permission::query()->firstOrCreate(['name' => 'product.view', 'guard_name' => 'web']));
+        $product = $this->product();
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.products.show', $product))
+            ->assertOk()
+            ->assertSee($product->name);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.products.create'))
+            ->assertForbidden();
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.products.edit', $product))
+            ->assertForbidden();
     }
 
     public function test_admin_logout_writes_audit_log(): void
@@ -229,6 +420,59 @@ class AdminAuditTest extends TestCase
         $this->assertSame('failed', $log->result);
         $this->assertSame(2, $log->payload['status']);
         $this->assertSame('admin', $log->payload['path']);
+    }
+
+    public function test_admin_status_middleware_rechecks_latest_database_status(): void
+    {
+        $admin = AdminUser::query()->create([
+            'username' => 'audit-stale-disabled-' . random_int(1000, 9999),
+            'email' => 'audit-stale-disabled-' . random_int(1000, 9999) . '@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 1,
+        ]);
+        Role::query()->firstOrCreate(['name' => 'super-admin', 'guard_name' => 'web']);
+        $admin->syncRoles(['super-admin']);
+        $staleAdmin = $admin->fresh();
+
+        $admin->update(['status' => 2]);
+
+        $this->actingAs($staleAdmin, 'admin')
+            ->get(route('admin.dashboard'))
+            ->assertRedirect(route('admin.login'));
+
+        $this->assertGuest('admin');
+        $this->assertDatabaseHas('admin_action_logs', [
+            'admin_user_id' => $admin->id,
+            'action' => 'admin.status.denied',
+            'result' => 'failed',
+        ]);
+    }
+
+    public function test_admin_permission_middleware_uses_refreshed_admin_roles(): void
+    {
+        $admin = AdminUser::query()->create([
+            'username' => 'audit-stale-role-' . random_int(1000, 9999),
+            'email' => 'audit-stale-role-' . random_int(1000, 9999) . '@example.com',
+            'password' => Hash::make('admin123456'),
+            'status' => 1,
+        ]);
+        Role::query()->firstOrCreate(['name' => 'super-admin', 'guard_name' => 'web']);
+        Role::query()->firstOrCreate(['name' => 'support-admin', 'guard_name' => 'web']);
+        $admin->syncRoles(['super-admin']);
+
+        $staleAdmin = $admin->fresh();
+        $staleAdmin->load('roles');
+        $admin->syncRoles(['support-admin']);
+
+        $this->actingAs($staleAdmin, 'admin')
+            ->get(route('admin.settings.index'))
+            ->assertForbidden();
+
+        $this->assertDatabaseHas('admin_action_logs', [
+            'admin_user_id' => $admin->id,
+            'action' => 'admin.permission.denied',
+            'result' => 'failed',
+        ]);
     }
 
     private function admin(): AdminUser
@@ -284,6 +528,20 @@ class AdminAuditTest extends TestCase
         ]);
 
         return $invoice;
+    }
+
+    private function product(): Product
+    {
+        $group = ProductGroup::query()->create(['name' => '审计产品组-' . random_int(1000, 9999)]);
+
+        return Product::query()->create([
+            'group_id' => $group->id,
+            'name' => '审计产品-' . random_int(1000, 9999),
+            'type' => 'vps',
+            'hidden' => false,
+            'retired' => false,
+            'stock_control' => false,
+        ]);
     }
 
     private function host(array $overrides = []): Host

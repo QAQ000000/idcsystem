@@ -23,7 +23,7 @@ class Order extends Model
 
     public function client()
     {
-        return $this->belongsTo(\App\Modules\User\Models\Client::class);
+        return $this->belongsTo(\App\Modules\User\Models\Client::class)->withTrashed();
     }
 
     public function hosts()

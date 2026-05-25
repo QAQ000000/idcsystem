@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\AdminAuditService;
 use App\Services\InstallService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Throwable;
 
@@ -26,8 +27,12 @@ class InstallController extends Controller
             return redirect()->route('admin.login');
         }
 
+        $storedDatabaseReady = $installer->installationDatabaseReady();
+
         return view('install.database', [
             'checksPassed' => $installer->passesChecks(),
+            'storedDatabaseReady' => $storedDatabaseReady,
+            'storedDatabase' => $installer->storedDatabaseConfig(),
         ]);
     }
 
@@ -44,6 +49,7 @@ class InstallController extends Controller
             'username' => ['required', 'string', 'max:100'],
             'password' => ['nullable', 'string', 'max:255'],
         ]);
+        $data = $this->withStoredDatabasePassword($data, $installer);
 
         try {
             $installer->runWithInstallationLock(function () use ($installer, $data): void {
@@ -60,7 +66,7 @@ class InstallController extends Controller
             ]);
         }
 
-        $audit->record($request, 'install.database.save', null, 'success', [
+        $this->recordInstallAudit($audit, $request, 'install.database.save', [
             'host' => $data['host'],
             'port' => $data['port'],
             'database' => $data['database'],
@@ -122,13 +128,43 @@ class InstallController extends Controller
             ]);
         }
 
-        $audit->record($request, 'install.admin.save', null, 'success', [
+        $this->recordInstallAudit($audit, $request, 'install.admin.save', [
             'username' => $data['username'],
             'email' => $data['email'],
             'real_name' => $data['real_name'] ?? '',
         ]);
 
         return redirect()->route('install.finish');
+    }
+
+    private function recordInstallAudit(AdminAuditService $audit, Request $request, string $action, array $payload): void
+    {
+        try {
+            $audit->record($request, $action, null, 'success', $payload);
+        } catch (Throwable $exception) {
+            Log::warning('Install audit log write failed.', [
+                'action' => $action,
+                'error' => $exception->getMessage(),
+            ]);
+        }
+    }
+
+    private function withStoredDatabasePassword(array $data, InstallService $installer): array
+    {
+        $stored = $installer->storedDatabaseConfig();
+        if (($data['password'] ?? '') !== '' || !$stored || ($stored['password'] ?? '') === '') {
+            return $data;
+        }
+
+        foreach (['host', 'port', 'database', 'username'] as $key) {
+            if ((string) ($data[$key] ?? '') !== (string) ($stored[$key] ?? '')) {
+                return $data;
+            }
+        }
+
+        $data['password'] = $stored['password'];
+
+        return $data;
     }
 
     public function finish(InstallService $installer)

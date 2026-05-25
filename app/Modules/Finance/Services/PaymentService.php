@@ -24,6 +24,11 @@ class PaymentService
      */
     public function processPayment(Invoice $invoice, string $gateway, array $params): array
     {
+        $invoice->loadMissing('client');
+        if (!$invoice->client || $invoice->client->trashed() || !$invoice->client->isActive()) {
+            return ['success' => false, 'message' => 'Client account is not payable'];
+        }
+
         if ($invoice->status !== 'Unpaid') {
             return ['success' => false, 'message' => 'Invoice is not payable'];
         }
@@ -43,26 +48,52 @@ class PaymentService
         }
 
         $reservation = DB::transaction(function () use ($invoice, $gateway, $params) {
-            $lockedInvoice = Invoice::query()->whereKey($invoice->id)->lockForUpdate()->first();
+            $lockedInvoice = Invoice::query()->whereKey($invoice->id)->with(['client', 'order'])->lockForUpdate()->first();
             if (!$lockedInvoice || $lockedInvoice->status !== 'Unpaid') {
                 return ['result' => ['success' => false, 'message' => 'Invoice is not payable']];
+            }
+
+            if (!$lockedInvoice->client || $lockedInvoice->client->trashed() || !$lockedInvoice->client->isActive()) {
+                return ['result' => ['success' => false, 'message' => 'Client account is not payable']];
+            }
+
+            if ($lockedInvoice->order && $lockedInvoice->order->status !== 'Pending') {
+                return ['result' => ['success' => false, 'message' => 'Order is not payable']];
+            }
+
+            if ((float) $lockedInvoice->total <= 0) {
+                return ['result' => ['success' => false, 'message' => 'Invoice amount must be greater than zero']];
             }
 
             $attempt = PaymentAttempt::query()
                 ->where('invoice_id', $lockedInvoice->id)
                 ->where('gateway', $gateway)
-                ->whereIn('status', ['pending', 'failed'])
-                ->orderByRaw("case when status = 'pending' then 0 else 1 end")
+                ->where('status', 'pending')
                 ->latest('id')
                 ->lockForUpdate()
                 ->first();
-            if ($attempt && is_array($attempt->result)) {
-                return ['result' => $attempt->result + ['reused' => true]];
-            }
 
             if ($attempt) {
-                return ['result' => ['success' => false, 'message' => 'Payment is already being processed', 'processing' => true]];
+                if (round((float) $attempt->amount, 2) !== round((float) $lockedInvoice->total, 2)) {
+                    $attempt->update([
+                        'status' => 'expired',
+                        'result' => array_merge($attempt->result ?? [], [
+                            'expired_reason' => 'Invoice amount changed',
+                            'current_amount' => (float) $lockedInvoice->total,
+                        ]),
+                    ]);
+                } elseif (is_array($attempt->result)) {
+                    return ['result' => $attempt->result + ['reused' => true]];
+                } else {
+                    return ['result' => ['success' => false, 'message' => 'Payment is already being processed', 'processing' => true]];
+                }
             }
+
+            PaymentAttempt::query()
+                ->where('invoice_id', $lockedInvoice->id)
+                ->where('gateway', $gateway)
+                ->where('status', 'failed')
+                ->update(['status' => 'expired']);
 
             $attempt = PaymentAttempt::query()->create([
                 'invoice_id' => $lockedInvoice->id,
@@ -113,23 +144,37 @@ class PaymentService
             return false;
         }
 
-        $invoiceId = (int) ($data['invoice_id'] ?? $data['out_trade_no'] ?? 0);
+        $invoiceIdValue = $this->scalarCallbackValue($data, ['invoice_id', 'out_trade_no']);
+        if ($invoiceIdValue === null || !ctype_digit($invoiceIdValue)) {
+            return false;
+        }
+
+        $invoiceId = (int) $invoiceIdValue;
+        $attempt = PaymentAttempt::query()
+            ->where('invoice_id', $invoiceId)
+            ->where('gateway', $gateway)
+            ->where('status', 'pending')
+            ->first();
+        if (!$attempt) {
+            return false;
+        }
+
         $invoice = Invoice::query()->find($invoiceId);
         if (!$invoice || $invoice->status === 'Paid') {
             return false;
         }
 
-        $invoice->loadMissing('order');
-        if ($invoice->order && $invoice->order->status !== 'Pending') {
+        $amountValue = $this->scalarCallbackValue($data, ['amount', 'total_amount']);
+        if ($amountValue === null || !is_numeric($amountValue)) {
             return false;
         }
 
-        $paidAmount = round((float) ($data['amount'] ?? $data['total_amount'] ?? 0), 2);
+        $paidAmount = round((float) $amountValue, 2);
         if ($paidAmount !== round((float) $invoice->total, 2)) {
             return false;
         }
 
-        $transId = (string) ($data['trans_id'] ?? $data['trade_no'] ?? $data['transaction_id'] ?? '');
+        $transId = $this->scalarCallbackValue($data, ['trans_id', 'trade_no', 'transaction_id']);
         if ($transId === '') {
             return false;
         }
@@ -137,17 +182,31 @@ class PaymentService
         $paid = $this->invoiceService->markAsPaid($invoice, $gateway, $transId);
 
         if ($paid) {
-            PaymentAttempt::query()
-                ->where('invoice_id', $invoice->id)
-                ->where('gateway', $gateway)
-                ->where('status', 'pending')
-                ->update([
-                    'status' => 'completed',
-                    'completed_at' => now(),
-                ]);
+            $attempt->update([
+                'status' => 'completed',
+                'completed_at' => now(),
+            ]);
         }
 
         return $paid;
+    }
+
+    private function scalarCallbackValue(array $data, array $keys): ?string
+    {
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $data)) {
+                continue;
+            }
+
+            $value = $data[$key];
+            if (!is_scalar($value)) {
+                return null;
+            }
+
+            return trim((string) $value);
+        }
+
+        return null;
     }
 
     /**
@@ -159,6 +218,10 @@ class PaymentService
             return false;
         }
 
+        if ($account->type !== 'credit') {
+            return false;
+        }
+
         $refundRequest = $this->createRefundRequest($account, $amount);
         if (!$refundRequest) {
             return false;
@@ -166,7 +229,13 @@ class PaymentService
 
         if (!$refundRequest->gateway_refund_succeeded_at) {
             $plugin = $this->gateway((string) $refundRequest->gateway);
-            if ($plugin && !$plugin->refund((string) $refundRequest->gateway_trans_id, $amount)) {
+            if (!$plugin) {
+                $this->failRefundRequest($refundRequest, '支付网关不可用');
+
+                return false;
+            }
+
+            if (!$plugin->refund((string) $refundRequest->gateway_trans_id, $amount)) {
                 $this->failRefundRequest($refundRequest, '网关退款失败');
 
                 return false;
@@ -179,8 +248,18 @@ class PaymentService
 
         $refunded = DB::transaction(function () use ($refundRequest, $amount) {
             $lockedRequest = PaymentRefundRequest::query()->whereKey($refundRequest->id)->lockForUpdate()->first();
+            if (!$lockedRequest || $lockedRequest->status === 'succeeded') {
+                return $lockedRequest?->status === 'succeeded';
+            }
+
             $lockedAccount = Account::query()->whereKey($lockedRequest->account_id)->lockForUpdate()->first();
-            if (!$lockedAccount || $lockedAccount->refunded) {
+            if (!$lockedAccount) {
+                return false;
+            }
+
+            $refundedTotal = $this->refundedAmountForAccount($lockedAccount);
+            $newRefundedTotal = round($refundedTotal + $amount, 2);
+            if ($newRefundedTotal > round((float) $lockedAccount->amount, 2)) {
                 return false;
             }
 
@@ -188,9 +267,12 @@ class PaymentService
                 return false;
             }
 
-            $lockedAccount->update(['refunded' => 1]);
+            $lockedAccount->update([
+                'refunded' => $newRefundedTotal >= round((float) $lockedAccount->amount, 2) ? 1 : 0,
+            ]);
             $lockedRequest->update([
                 'status' => 'succeeded',
+                'error' => null,
                 'finished_at' => now(),
             ]);
 
@@ -208,20 +290,47 @@ class PaymentService
     {
         return DB::transaction(function () use ($account, $amount) {
             $lockedAccount = Account::query()->whereKey($account->id)->lockForUpdate()->first();
-            if (!$lockedAccount || $amount > (float) $lockedAccount->amount || $lockedAccount->refunded) {
+            if (!$lockedAccount) {
                 return null;
             }
 
-            $existing = PaymentRefundRequest::query()
+            if ($lockedAccount->type !== 'credit') {
+                return null;
+            }
+
+            $remainingAccountRefundable = round((float) $lockedAccount->amount - $this->refundedAmountForAccount($lockedAccount), 2);
+            if ($amount > $remainingAccountRefundable) {
+                return null;
+            }
+
+            $pending = PaymentRefundRequest::query()
                 ->where('account_id', $lockedAccount->id)
                 ->where('gateway_trans_id', $lockedAccount->gateway_trans_id)
                 ->where('amount', round($amount, 2))
-                ->whereIn('status', ['pending', 'succeeded', 'failed'])
-                ->orderByRaw("case when status = 'pending' then 0 when status = 'succeeded' then 1 else 2 end")
+                ->where('status', 'pending')
                 ->lockForUpdate()
                 ->first();
-            if ($existing) {
-                return $existing->gateway_refund_succeeded_at ? $existing : null;
+            if ($pending) {
+                return null;
+            }
+
+            $failed = PaymentRefundRequest::query()
+                ->where('account_id', $lockedAccount->id)
+                ->where('gateway_trans_id', $lockedAccount->gateway_trans_id)
+                ->where('amount', round($amount, 2))
+                ->where('status', 'failed')
+                ->lockForUpdate()
+                ->first();
+            if ($failed) {
+                if ($failed->gateway_refund_succeeded_at) {
+                    return $failed;
+                }
+
+                if ($lockedAccount->invoice && !$this->invoiceService->canRefund($lockedAccount->invoice, $amount)) {
+                    return null;
+                }
+
+                return $failed;
             }
 
             if ($lockedAccount->invoice && !$this->invoiceService->canRefund($lockedAccount->invoice, $amount)) {
@@ -237,6 +346,15 @@ class PaymentService
                 'status' => 'pending',
             ]);
         });
+    }
+
+    private function refundedAmountForAccount(Account $account): float
+    {
+        return round((float) PaymentRefundRequest::query()
+            ->where('account_id', $account->id)
+            ->where('gateway_trans_id', $account->gateway_trans_id)
+            ->where('status', 'succeeded')
+            ->sum('amount'), 2);
     }
 
     private function failRefundRequest(PaymentRefundRequest $refundRequest, string $error): void

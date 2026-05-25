@@ -14,15 +14,22 @@
     <form method="post" action="{{ route('admin.email-templates.update', $emailTemplate) }}" class="rounded bg-white p-6 shadow-sm">
         @csrf
         @method('PUT')
+        @php
+            $oldText = function (string $key, mixed $default = '') {
+                $value = old($key, $default);
+
+                return is_scalar($value) || $value === null ? $value : $default;
+            };
+        @endphp
 
         <label class="mb-4 block text-sm">
             邮件主题
-            <input class="mt-1 w-full rounded border px-3 py-2" name="subject" value="{{ old('subject', $emailTemplate->subject) }}" required>
+            <input class="mt-1 w-full rounded border px-3 py-2" name="subject" value="{{ $oldText('subject', $emailTemplate->subject) }}" required>
         </label>
 
         <label class="mb-4 block text-sm">
             邮件内容
-            <textarea class="mt-1 w-full rounded border px-3 py-2" name="body" rows="8" required>{{ old('body', $emailTemplate->body) }}</textarea>
+            <textarea class="mt-1 w-full rounded border px-3 py-2" name="body" rows="8" required>{{ $oldText('body', $emailTemplate->body) }}</textarea>
         </label>
 
         <label class="mb-4 inline-flex items-center gap-2 text-sm">

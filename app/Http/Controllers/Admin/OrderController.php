@@ -12,9 +12,21 @@ class OrderController extends Controller
 {
     public function index(Request $request)
     {
+        $status = $this->queryString($request, 'status');
+        $keyword = $this->queryString($request, 'keyword');
+
         $orders = Order::query()
             ->with('client')
-            ->when($request->string('status')->toString(), fn ($query, string $status) => $query->where('status', $status))
+            ->when($status, fn ($query, string $status) => $query->where('status', $status))
+            ->when($keyword, function ($query, string $keyword) {
+                $query->where(function ($query) use ($keyword) {
+                    $query->where('order_number', 'like', "%{$keyword}%")
+                        ->orWhereHas('client', function ($query) use ($keyword) {
+                            $query->where('username', 'like', "%{$keyword}%")
+                                ->orWhere('email', 'like', "%{$keyword}%");
+                        });
+                });
+            })
             ->latest()
             ->paginate(20);
 
@@ -74,5 +86,18 @@ class OrderController extends Controller
         }
 
         return redirect()->route('admin.orders.show', $order)->with('status', '订单已取消');
+    }
+
+    private function queryString(Request $request, string $key): ?string
+    {
+        $value = $request->query($key);
+
+        if (!is_scalar($value)) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
     }
 }
