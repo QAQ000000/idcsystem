@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Client;
 use App\Http\Controllers\Controller;
 use App\Plugins\Core\PluginManager;
 use App\Modules\Finance\Models\Invoice;
+use App\Modules\Finance\Services\InvoiceService;
 use App\Modules\Finance\Services\PaymentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -38,6 +39,7 @@ class InvoiceController extends Controller
         return view('client.invoices.show', [
             'invoice' => $invoice,
             'gateways' => $plugins->type('gateway')->enabled(),
+            'client' => $client,
         ]);
     }
 
@@ -69,6 +71,31 @@ class InvoiceController extends Controller
         }
 
         return redirect()->route('client.invoices.show', $invoice)->with('status', $result['message'] ?? '支付已发起');
+    }
+
+    public function payWithCredit(Invoice $invoice, InvoiceService $invoices)
+    {
+        $client = Auth::guard('client')->user();
+
+        if (!$client) {
+            return redirect()->route('client.login');
+        }
+
+        abort_unless((int) $invoice->client_id === (int) $client->id, 403);
+
+        if ($invoice->status !== 'Unpaid') {
+            return redirect()->route('client.invoices.show', $invoice)->with('error', '当前账单状态不允许余额支付');
+        }
+
+        if (!$client->fresh()->hasEnoughCredit((float) $invoice->total)) {
+            return redirect()->route('client.invoices.show', $invoice)->with('error', '账户余额不足，无法支付该账单');
+        }
+
+        if (!$invoices->payWithCredit($invoice)) {
+            return redirect()->route('client.invoices.show', $invoice)->with('error', '余额支付失败，请刷新后重试');
+        }
+
+        return redirect()->route('client.invoices.show', $invoice)->with('status', '余额支付成功');
     }
 
     public function callback(Request $request, string $gateway, PaymentService $payments)

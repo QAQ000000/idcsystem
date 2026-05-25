@@ -9,10 +9,12 @@ use App\Modules\Order\Models\Host;
 use App\Modules\Order\Models\Upgrade;
 use App\Modules\Order\Services\HostService;
 use App\Modules\User\Models\Client;
+use App\Modules\User\Services\ClientService;
 use App\Services\Concerns\NotifiesClientsSafely;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
+use Throwable;
 
 class InvoiceService
 {
@@ -261,6 +263,60 @@ class InvoiceService
         }
 
         return $paid;
+    }
+
+    /**
+     * 使用客户账户余额支付未付款账单。
+     */
+    public function payWithCredit(Invoice $invoice): bool
+    {
+        try {
+            return DB::transaction(function () use ($invoice) {
+                $lockedInvoice = Invoice::query()
+                    ->whereKey($invoice->id)
+                    ->with('client')
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$lockedInvoice || $lockedInvoice->status !== 'Unpaid' || (float) $lockedInvoice->total <= 0) {
+                    return false;
+                }
+
+                $client = $lockedInvoice->client;
+                if (!$client || $client->trashed() || !$client->isActive()) {
+                    return false;
+                }
+
+                $lockedClient = Client::query()->whereKey($client->id)->lockForUpdate()->first();
+                if (!$lockedClient || !$lockedClient->hasEnoughCredit((float) $lockedInvoice->total)) {
+                    return false;
+                }
+
+                $deducted = app(ClientService::class)->deductCredit(
+                    $lockedClient,
+                    (float) $lockedInvoice->total,
+                    '余额支付：账单 ' . $lockedInvoice->invoice_number
+                );
+
+                if (!$deducted) {
+                    return false;
+                }
+
+                $paid = $this->markAsPaid(
+                    $lockedInvoice,
+                    'credit',
+                    'CREDIT-' . Str::upper(Str::random(16))
+                );
+
+                if (!$paid) {
+                    throw new \RuntimeException('Credit payment could not mark invoice paid.');
+                }
+
+                return true;
+            });
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     private function provisionPendingOrderHosts(Invoice $invoice): void

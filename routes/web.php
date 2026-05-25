@@ -55,6 +55,7 @@ Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.sta
     Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
     Route::get('/invoices/{invoice}', [InvoiceController::class, 'show'])->name('invoices.show');
     Route::post('/invoices/{invoice}/pay', [InvoiceController::class, 'pay'])->name('invoices.pay');
+    Route::post('/invoices/{invoice}/pay-with-credit', [InvoiceController::class, 'payWithCredit'])->name('invoices.pay-with-credit');
 
     Route::get('/tickets', [TicketController::class, 'index'])->name('tickets.index');
     Route::get('/tickets/create', [TicketController::class, 'create'])->name('tickets.create');

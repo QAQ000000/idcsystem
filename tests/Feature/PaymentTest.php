@@ -451,6 +451,72 @@ class PaymentTest extends TestCase
         $this->assertFalse(app(PaymentService::class)->processPayment($zero, 'manual_pay', [])['success']);
     }
 
+    public function test_client_can_pay_unpaid_invoice_with_credit_balance(): void
+    {
+        $client = $this->client();
+        $client->update(['credit' => 120]);
+        $invoice = $this->invoice($client, 88.00);
+
+        $this->actingAs($client, 'client')
+            ->post(route('client.invoices.pay-with-credit', $invoice))
+            ->assertRedirect(route('client.invoices.show', $invoice))
+            ->assertSessionHas('status', '余额支付成功');
+
+        $this->assertSame('Paid', $invoice->fresh()->status);
+        $this->assertSame('credit', $invoice->fresh()->payment_method);
+        $this->assertSame('32.00', (string) $client->fresh()->credit);
+        $this->assertDatabaseHas('credits', [
+            'client_id' => $client->id,
+            'type' => 'deduct',
+            'amount' => 88.00,
+            'balance' => 32.00,
+            'description' => '余额支付：账单 ' . $invoice->invoice_number,
+        ]);
+        $this->assertDatabaseHas('accounts', [
+            'client_id' => $client->id,
+            'invoice_id' => $invoice->id,
+            'type' => 'credit',
+            'amount' => 88.00,
+            'payment_method' => 'credit',
+        ]);
+    }
+
+    public function test_credit_payment_rejects_insufficient_balance_without_deducting_credit(): void
+    {
+        $client = $this->client();
+        $client->update(['credit' => 50]);
+        $invoice = $this->invoice($client, 88.00);
+
+        $this->actingAs($client, 'client')
+            ->post(route('client.invoices.pay-with-credit', $invoice))
+            ->assertRedirect(route('client.invoices.show', $invoice))
+            ->assertSessionHas('error', '账户余额不足，无法支付该账单');
+
+        $this->assertSame('Unpaid', $invoice->fresh()->status);
+        $this->assertSame('50.00', (string) $client->fresh()->credit);
+        $this->assertDatabaseCount('credits', 0);
+        $this->assertDatabaseMissing('accounts', [
+            'invoice_id' => $invoice->id,
+            'payment_method' => 'credit',
+        ]);
+    }
+
+    public function test_client_cannot_pay_other_clients_invoice_with_credit(): void
+    {
+        $owner = $this->client('credit-owner', 'credit-owner@example.com');
+        $other = $this->client('credit-other', 'credit-other@example.com');
+        $other->update(['credit' => 200]);
+        $invoice = $this->invoice($owner, 88.00);
+
+        $this->actingAs($other, 'client')
+            ->post(route('client.invoices.pay-with-credit', $invoice))
+            ->assertForbidden();
+
+        $this->assertSame('Unpaid', $invoice->fresh()->status);
+        $this->assertSame('200.00', (string) $other->fresh()->credit);
+        $this->assertDatabaseCount('credits', 0);
+    }
+
     public function test_client_invoice_show_only_displays_payment_form_for_unpaid_invoices(): void
     {
         $this->installManualPay();
@@ -469,6 +535,27 @@ class PaymentTest extends TestCase
             ->assertOk()
             ->assertDontSee('发起支付')
             ->assertDontSee('payment_method');
+    }
+
+    public function test_client_invoice_show_displays_credit_payment_state(): void
+    {
+        $this->installManualPay();
+        $client = $this->client();
+        $client->update(['credit' => 120]);
+        $payable = $this->invoice($client, 88.00);
+        $insufficient = $this->invoice($client, 150.00);
+
+        $this->actingAs($client, 'client')
+            ->get(route('client.invoices.show', $payable))
+            ->assertOk()
+            ->assertSee('当前余额：120.00')
+            ->assertSee('使用余额支付');
+
+        $this->actingAs($client, 'client')
+            ->get(route('client.invoices.show', $insufficient))
+            ->assertOk()
+            ->assertSee('余额不足，暂不能使用余额支付该账单。')
+            ->assertDontSee(route('client.invoices.pay-with-credit', $insufficient));
     }
 
     public function test_inactive_or_deleted_client_invoice_cannot_be_paid(): void
