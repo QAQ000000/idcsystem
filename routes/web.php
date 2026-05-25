@@ -22,7 +22,7 @@ Route::prefix('install')->name('install.')->group(function (): void {
     Route::get('/finish', [InstallController::class, 'finish'])->name('finish');
 });
 
-Route::get('/', fn () => redirect()->route('client.products.index'))->name('home');
+Route::redirect('/', '/products')->name('home');
 
 Route::get('/login', [AuthController::class, 'showLoginForm'])->name('client.login');
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1')->name('client.login.store');
