@@ -22,6 +22,7 @@ use App\Modules\Ticket\Models\TicketStatus;
 use App\Modules\Ticket\Services\TicketService;
 use App\Modules\User\Models\Client;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Config;
 use Tests\TestCase;
 
 class ServicesGoalTest extends TestCase
@@ -331,5 +332,123 @@ class ServicesGoalTest extends TestCase
             'action' => 'renew_invoice_failed',
             'message' => '客户账号状态不允许自动续费',
         ]);
+    }
+
+    public function test_recurring_invoice_generation_uses_configured_advance_window(): void
+    {
+        Config::set('billing.invoice_days_before_due', 7);
+
+        $currency = Currency::create([
+            'code' => 'CNY',
+            'prefix' => '¥',
+            'suffix' => '',
+            'exchange_rate' => 1,
+            'is_default' => true,
+        ]);
+        $client = Client::create([
+            'username' => 'advance-billing-client',
+            'email' => 'advance-billing-client@example.com',
+            'password' => 'secret',
+            'status' => 1,
+            'currency_id' => $currency->id,
+        ]);
+        $group = ProductGroup::create(['name' => 'VPS']);
+        $product = Product::create([
+            'group_id' => $group->id,
+            'name' => 'Advance Billing VPS',
+            'type' => 'vps',
+            'status' => 'Active',
+        ]);
+        $pricingService = new PricingService();
+        $pricingService->setPricing('product', $product->id, $currency->id, ['monthly' => 50]);
+        $order = Order::create([
+            'client_id' => $client->id,
+            'order_number' => 'ORD-ADVANCE-BILLING-1',
+            'status' => 'Paid',
+            'amount' => 50,
+            'currency_id' => $currency->id,
+        ]);
+
+        $host = Host::create([
+            'client_id' => $client->id,
+            'order_id' => $order->id,
+            'product_id' => $product->id,
+            'billing_cycle' => 'monthly',
+            'first_payment_amount' => 50,
+            'recurring_amount' => 50,
+            'next_due_date' => now()->addDays(30),
+            'next_invoice_date' => now()->addDays(6),
+            'status' => 'Active',
+            'auto_renew' => true,
+        ]);
+
+        $billingService = new BillingService(new HostService($pricingService, new InvoiceService()));
+
+        $this->assertSame(1, $billingService->generateRecurringInvoices());
+        $this->assertDatabaseHas('invoice_items', [
+            'type' => 'renewal',
+            'rel_id' => $host->id,
+        ]);
+    }
+
+    public function test_suspend_overdue_hosts_respects_grace_days(): void
+    {
+        Config::set('billing.grace_days', 3);
+
+        $currency = Currency::create([
+            'code' => 'CNY',
+            'prefix' => '¥',
+            'suffix' => '',
+            'exchange_rate' => 1,
+            'is_default' => true,
+        ]);
+        $client = Client::create([
+            'username' => 'grace-billing-client',
+            'email' => 'grace-billing-client@example.com',
+            'password' => 'secret',
+            'status' => 1,
+            'currency_id' => $currency->id,
+        ]);
+        $group = ProductGroup::create(['name' => 'VPS']);
+        $product = Product::create([
+            'group_id' => $group->id,
+            'name' => 'Grace Billing VPS',
+            'type' => 'vps',
+            'status' => 'Active',
+        ]);
+        $order = Order::create([
+            'client_id' => $client->id,
+            'order_number' => 'ORD-GRACE-BILLING-1',
+            'status' => 'Paid',
+            'amount' => 50,
+            'currency_id' => $currency->id,
+        ]);
+
+        $withinGrace = Host::create([
+            'client_id' => $client->id,
+            'order_id' => $order->id,
+            'product_id' => $product->id,
+            'billing_cycle' => 'monthly',
+            'first_payment_amount' => 50,
+            'recurring_amount' => 50,
+            'next_due_date' => now()->subDays(2),
+            'status' => 'Active',
+            'auto_renew' => true,
+        ]);
+        $outsideGrace = Host::create([
+            'client_id' => $client->id,
+            'order_id' => $order->id,
+            'product_id' => $product->id,
+            'billing_cycle' => 'monthly',
+            'first_payment_amount' => 50,
+            'recurring_amount' => 50,
+            'next_due_date' => now()->subDays(4),
+            'status' => 'Active',
+            'auto_renew' => true,
+        ]);
+
+        $this->assertSame(1, (new BillingService(new HostService()))->suspendOverdueHosts());
+        $this->assertSame('Active', $withinGrace->fresh()->status);
+        $this->assertSame('Suspended', $outsideGrace->fresh()->status);
     }
 }

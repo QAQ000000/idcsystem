@@ -69,6 +69,24 @@
         </section>
 
         <section class="rounded bg-white p-6 shadow-sm">
+            <h2 class="mb-4 font-semibold">账务设置</h2>
+            <div class="grid gap-4 md:grid-cols-3">
+                <label class="block text-sm">
+                    税率（%）
+                    <input class="mt-1 w-full rounded border px-3 py-2" name="billing_tax_rate" type="number" min="0" max="100" step="0.01" value="{{ $oldText('billing_tax_rate', $settings->get('billing_tax_rate', config('billing.tax_rate', 0))) }}">
+                </label>
+                <label class="block text-sm">
+                    逾期宽限天数
+                    <input class="mt-1 w-full rounded border px-3 py-2" name="billing_grace_days" type="number" min="0" value="{{ $oldText('billing_grace_days', $settings->get('billing_grace_days', config('billing.grace_days', 0))) }}">
+                </label>
+                <label class="block text-sm">
+                    续费账单提前生成天数
+                    <input class="mt-1 w-full rounded border px-3 py-2" name="billing_invoice_days_before_due" type="number" min="0" value="{{ $oldText('billing_invoice_days_before_due', $settings->get('billing_invoice_days_before_due', config('billing.invoice_days_before_due', 7))) }}">
+                </label>
+            </div>
+        </section>
+
+        <section class="rounded bg-white p-6 shadow-sm">
             <h2 class="mb-4 font-semibold">邮件设置</h2>
             <div class="grid gap-4 md:grid-cols-2">
                 <label class="block text-sm">

@@ -22,13 +22,15 @@ class BillingService
     public function generateRecurringInvoices(): int
     {
         $count = 0;
+        $daysBefore = (int) config('billing.invoice_days_before_due', 7);
+        $cutoff = now()->addDays($daysBefore);
 
         Host::query()
             ->with(['client', 'product'])
             ->where('status', 'Active')
             ->where('auto_renew', true)
             ->whereNotNull('next_invoice_date')
-            ->where('next_invoice_date', '<=', now())
+            ->where('next_invoice_date', '<=', $cutoff)
             ->chunkById(100, function ($hosts) use (&$count) {
                 foreach ($hosts as $host) {
                     DB::transaction(function () use ($host, &$count) {
@@ -65,10 +67,12 @@ class BillingService
      */
     public function sendDueReminders(): int
     {
+        $reminderDays = (int) config('billing.reminder_days', 7);
+
         return Host::query()
             ->where('status', 'Active')
             ->whereNotNull('next_due_date')
-            ->whereBetween('next_due_date', [now(), now()->addDays(7)])
+            ->whereBetween('next_due_date', [now(), now()->addDays($reminderDays)])
             ->count();
     }
 
@@ -78,11 +82,13 @@ class BillingService
     public function suspendOverdueHosts(): int
     {
         $count = 0;
+        $graceDays = (int) config('billing.grace_days', 0);
+        $cutoff = now()->subDays($graceDays);
 
         Host::query()
             ->where('status', 'Active')
             ->whereNotNull('next_due_date')
-            ->where('next_due_date', '<', now())
+            ->where('next_due_date', '<', $cutoff)
             ->chunkById(100, function ($hosts) use (&$count) {
                 foreach ($hosts as $host) {
                     if ($this->hostService->suspend($host, 'Overdue payment')) {

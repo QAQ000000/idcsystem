@@ -32,6 +32,9 @@ class SettingController extends Controller
             'auto_setup_policy' => ['required', 'string', Rule::in(['manual', 'paid', 'instant'])],
             'invoice_due_days' => ['required', 'integer', 'min:0', 'max:365'],
             'renewal_reminder_days' => ['required', 'integer', 'min:0', 'max:365'],
+            'billing_tax_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'billing_grace_days' => ['nullable', 'integer', 'min:0', 'max:365'],
+            'billing_invoice_days_before_due' => ['nullable', 'integer', 'min:0', 'max:365'],
             'mail_from_name' => ['nullable', 'string', 'max:100'],
             'mail_from_address' => ['nullable', 'email', 'max:255'],
             'smtp_host' => ['nullable', 'string', 'max:255'],
@@ -66,6 +69,14 @@ class SettingController extends Controller
             'invoice_due_days' => $data['invoice_due_days'],
             'renewal_reminder_days' => $data['renewal_reminder_days'],
         ], 'order');
+
+        $settings->setMany([
+            'billing_tax_rate' => $data['billing_tax_rate'] ?? config('billing.tax_rate', 0),
+            'billing_due_days' => $data['invoice_due_days'],
+            'billing_reminder_days' => $data['renewal_reminder_days'],
+            'billing_grace_days' => $data['billing_grace_days'] ?? config('billing.grace_days', 0),
+            'billing_invoice_days_before_due' => $data['billing_invoice_days_before_due'] ?? config('billing.invoice_days_before_due', 7),
+        ], 'billing');
 
         $settings->setMany([
             'mail_from_name' => $data['mail_from_name'] ?? '',

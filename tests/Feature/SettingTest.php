@@ -60,7 +60,26 @@ class SettingTest extends TestCase
 
         $this->assertDatabaseHas('settings', ['key' => 'site_name', 'value' => 'IDC Cloud', 'group' => 'general']);
         $this->assertDatabaseHas('settings', ['key' => 'auto_setup_policy', 'value' => 'paid', 'group' => 'order']);
+        $this->assertDatabaseHas('settings', ['key' => 'billing_due_days', 'value' => '7', 'group' => 'billing']);
+        $this->assertDatabaseHas('settings', ['key' => 'billing_reminder_days', 'value' => '5', 'group' => 'billing']);
         $this->assertDatabaseHas('settings', ['key' => 'sms_signature', 'value' => 'IDC', 'group' => 'sms']);
+    }
+
+    public function test_billing_config_prefers_saved_settings(): void
+    {
+        $settings = app(SettingsService::class);
+
+        $settings->set('billing_tax_rate', 6.5, 'billing');
+        $settings->set('billing_due_days', 12, 'billing');
+        $settings->set('billing_grace_days', 3, 'billing');
+        $settings->set('billing_invoice_days_before_due', 9, 'billing');
+
+        $billing = require config_path('billing.php');
+
+        $this->assertSame(6.5, $billing['tax_rate']);
+        $this->assertSame(12, $billing['due_days']);
+        $this->assertSame(3, $billing['grace_days']);
+        $this->assertSame(9, $billing['invoice_days_before_due']);
     }
 
     public function test_admin_settings_page_rejects_invalid_enum_values(): void
