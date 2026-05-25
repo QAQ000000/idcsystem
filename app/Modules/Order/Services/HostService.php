@@ -3,6 +3,7 @@
 namespace App\Modules\Order\Services;
 
 use App\Models\HostActionLog;
+use App\Modules\Finance\Models\Credit;
 use App\Modules\Finance\Models\Invoice;
 use App\Modules\Finance\Models\InvoiceItem;
 use App\Modules\Finance\Services\InvoiceService;
@@ -12,6 +13,7 @@ use App\Modules\Order\Models\Upgrade;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Services\ProductService;
 use App\Modules\Product\Services\PricingService;
+use App\Modules\User\Services\ClientService;
 use App\Services\Concerns\NotifiesClientsSafely;
 use App\Plugins\Contracts\ServerModuleInterface;
 use App\Plugins\Facades\Plugin;
@@ -531,6 +533,10 @@ class HostService
             if ($item->type === 'upgrade') {
                 $this->applyUpgradeItem($item);
             }
+
+            if ($item->type === 'recharge') {
+                $this->applyRechargeItem($invoice, $item);
+            }
         }
     }
 
@@ -801,6 +807,29 @@ class HostService
             'client_name' => $host->client->username,
             'product_name' => $host->product?->name ?? '服务',
         ], 'host.upgrade_completed');
+    }
+
+    private function applyRechargeItem(Invoice $invoice, InvoiceItem $item): void
+    {
+        $invoice->loadMissing('client');
+        if (!$invoice->client) {
+            return;
+        }
+
+        $description = '充值：账单 ' . $invoice->invoice_number;
+        if (Credit::query()
+            ->where('client_id', $invoice->client_id)
+            ->where('type', 'add')
+            ->where('description', $description)
+            ->exists()) {
+            return;
+        }
+
+        app(ClientService::class)->addCredit(
+            $invoice->client,
+            (float) $item->amount,
+            $description
+        );
     }
 
     private function completeUpgrade(Upgrade $upgrade): void

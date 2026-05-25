@@ -3,7 +3,15 @@
 @section('title', '账户资料')
 
 @section('content')
-    <h1 class="mb-6 text-2xl font-semibold">账户资料</h1>
+    <div class="mb-6 flex items-center justify-between">
+        <h1 class="text-2xl font-semibold">账户资料</h1>
+        <a class="rounded bg-emerald-700 px-4 py-2 text-sm text-white" href="{{ route('client.account.recharge') }}">账户充值</a>
+    </div>
+
+    <div class="mb-6 rounded bg-white p-5 shadow-sm">
+        <div class="text-sm text-zinc-500">当前余额</div>
+        <div class="mt-1 text-2xl font-semibold">{{ $client->credit }}</div>
+    </div>
 
     <form method="post" action="{{ route('client.account.profile.update') }}" class="rounded bg-white p-6 shadow-sm">
         @csrf

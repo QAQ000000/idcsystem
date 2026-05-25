@@ -117,6 +117,23 @@ class InvoiceService
     }
 
     /**
+     * 生成客户自助充值账单。
+     */
+    public function generateRecharge(Client $client, float $amount): Invoice
+    {
+        $amount = round($amount, 2);
+        if ($amount <= 0 || $amount > self::MAX_AMOUNT) {
+            throw new InvalidArgumentException('充值金额超出允许范围。');
+        }
+
+        return $this->generate($client, [[
+            'type' => 'recharge',
+            'description' => '账户充值',
+            'amount' => $amount,
+        ]]);
+    }
+
+    /**
      * 添加账单项目并同步账单金额。
      */
     public function addItem(

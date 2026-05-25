@@ -40,6 +40,8 @@ Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.sta
     Route::put('/account/profile', [AccountController::class, 'updateProfile'])->name('account.profile.update');
     Route::get('/account/security', [AccountController::class, 'security'])->name('account.security');
     Route::put('/account/password', [AccountController::class, 'updatePassword'])->name('account.password.update');
+    Route::get('/account/recharge', [AccountController::class, 'recharge'])->name('account.recharge');
+    Route::post('/account/recharge', [AccountController::class, 'recharge'])->name('account.recharge.store');
 
     Route::get('/cart', [CartController::class, 'index'])->name('cart.index');
     Route::post('/cart', [CartController::class, 'add'])->name('cart.add');

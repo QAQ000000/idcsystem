@@ -501,6 +501,58 @@ class PaymentTest extends TestCase
         ]);
     }
 
+    public function test_client_can_create_recharge_invoice_from_account_page(): void
+    {
+        $client = $this->client();
+
+        $this->actingAs($client, 'client')
+            ->get(route('client.account.recharge'))
+            ->assertOk()
+            ->assertSee('账户充值')
+            ->assertSee('当前余额');
+
+        $response = $this->actingAs($client, 'client')
+            ->post(route('client.account.recharge.store'), ['amount' => '123.45']);
+
+        $invoice = Invoice::query()->where('client_id', $client->id)->latest('id')->firstOrFail();
+        $response
+            ->assertRedirect(route('client.invoices.show', $invoice))
+            ->assertSessionHas('status', '充值账单已生成，请完成支付');
+
+        $this->assertSame('Unpaid', $invoice->status);
+        $this->assertSame('123.45', (string) $invoice->total);
+        $this->assertDatabaseHas('invoice_items', [
+            'invoice_id' => $invoice->id,
+            'type' => 'recharge',
+            'description' => '账户充值',
+            'amount' => 123.45,
+        ]);
+    }
+
+    public function test_paid_recharge_invoice_adds_credit_once(): void
+    {
+        $client = $this->client();
+        $invoice = app(InvoiceService::class)->generateRecharge($client, 88.00);
+
+        $this->assertTrue(app(InvoiceService::class)->markAsPaid($invoice, 'manual', 'RECHARGE-PAID-1'));
+        $this->assertSame('88.00', (string) $client->fresh()->credit);
+        $this->assertDatabaseHas('credits', [
+            'client_id' => $client->id,
+            'type' => 'add',
+            'amount' => 88.00,
+            'balance' => 88.00,
+            'description' => '充值：账单 ' . $invoice->invoice_number,
+        ]);
+
+        app(\App\Modules\Order\Services\HostService::class)->applyPaidInvoice($invoice->fresh());
+
+        $this->assertSame('88.00', (string) $client->fresh()->credit);
+        $this->assertSame(1, \App\Modules\Finance\Models\Credit::query()
+            ->where('client_id', $client->id)
+            ->where('description', '充值：账单 ' . $invoice->invoice_number)
+            ->count());
+    }
+
     public function test_client_cannot_pay_other_clients_invoice_with_credit(): void
     {
         $owner = $this->client('credit-owner', 'credit-owner@example.com');

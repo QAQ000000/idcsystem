@@ -19,6 +19,7 @@
                 <a href="{{ route('client.tickets.index') }}">工单</a>
                 @auth('client')
                     <a href="{{ route('client.account.profile') }}">资料</a>
+                    <a href="{{ route('client.account.recharge') }}">充值</a>
                     <a href="{{ route('client.account.security') }}">安全</a>
                 @endauth
                 @auth('client')

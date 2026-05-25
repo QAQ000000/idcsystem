@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Finance\Services\InvoiceService;
 use App\Modules\User\Models\Client;
 use App\Services\NotificationService;
 use Illuminate\Http\Request;
@@ -44,6 +45,25 @@ class AccountController extends Controller
             'client' => $client,
             'loginLogs' => $client->loginLogs()->latest('logged_in_at')->limit(10)->get(),
         ]);
+    }
+
+    public function recharge(Request $request, InvoiceService $invoices)
+    {
+        $client = Auth::guard('client')->user();
+
+        if ($request->isMethod('get')) {
+            return view('client.account.recharge', [
+                'client' => $client,
+            ]);
+        }
+
+        $data = $request->validate([
+            'amount' => ['required', 'numeric', 'min:1', 'max:99999'],
+        ]);
+
+        $invoice = $invoices->generateRecharge($client, (float) $data['amount']);
+
+        return redirect()->route('client.invoices.show', $invoice)->with('status', '充值账单已生成，请完成支付');
     }
 
     public function updatePassword(Request $request)
