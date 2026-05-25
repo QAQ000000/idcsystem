@@ -6,6 +6,7 @@ use App\Models\PaymentRefundRequest;
 use App\Models\PaymentAttempt;
 use App\Modules\Finance\Models\Account;
 use App\Modules\Finance\Models\Invoice;
+use App\Modules\User\Services\ClientService;
 use App\Plugins\Contracts\PaymentGatewayInterface;
 use App\Plugins\Facades\Plugin;
 use Illuminate\Support\Facades\DB;
@@ -168,13 +169,17 @@ class PaymentService
             return false;
         }
 
-        $amountValue = $this->scalarCallbackValue($data, ['amount', 'total_amount']);
+        $amountValue = $this->scalarCallbackValue($data, ['amount', 'total_amount', 'money']);
         if ($amountValue === null || !is_numeric($amountValue)) {
             return false;
         }
 
         $paidAmount = round((float) $amountValue, 2);
-        if ($paidAmount !== round((float) $invoice->total, 2)) {
+        $invoiceTotal = round((float) $invoice->total, 2);
+        if ($paidAmount < $invoiceTotal) {
+            return false;
+        }
+        if (round($paidAmount - $invoiceTotal, 2) > ClientService::MAX_CREDIT_ADJUSTMENT_AMOUNT) {
             return false;
         }
 
@@ -186,6 +191,8 @@ class PaymentService
         $paid = $this->invoiceService->markAsPaid($invoice, $gateway, $transId);
 
         if ($paid) {
+            $this->creditOverpayment($invoice->fresh(['client']), $paidAmount, $invoiceTotal);
+
             $attempt->update([
                 'status' => 'completed',
                 'completed_at' => now(),
@@ -193,6 +200,20 @@ class PaymentService
         }
 
         return $paid;
+    }
+
+    private function creditOverpayment(?Invoice $invoice, float $paidAmount, float $invoiceTotal): void
+    {
+        $overpaid = round($paidAmount - $invoiceTotal, 2);
+        if ($overpaid <= 0 || !$invoice?->client) {
+            return;
+        }
+
+        app(ClientService::class)->addCredit(
+            $invoice->client,
+            $overpaid,
+            '支付超额自动转余额：账单 ' . $invoice->invoice_number
+        );
     }
 
     private function scalarCallbackValue(array $data, array $keys): ?string

@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\DB;
 class ClientService
 {
     public const BLOCKING_HOST_STATUSES = ['Pending', 'Active', 'Suspended'];
-    private const MAX_CREDIT_ADJUSTMENT_AMOUNT = 99999999.99;
+    public const MAX_CREDIT_ADJUSTMENT_AMOUNT = 99999999.99;
 
     public function create(array $data): Client
     {

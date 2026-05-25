@@ -21,6 +21,7 @@ use App\Modules\Admin\Models\AdminUser;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Hash;
+use Plugins\Gateway\EpayAlipay\src\EpayClient;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -66,6 +67,206 @@ class PaymentTest extends TestCase
         $this->assertTrue($result['success']);
         $this->assertSame('manual_pay', $result['gateway']);
         $this->assertSame($invoice->id, $result['invoice_id']);
+    }
+
+    public function test_epay_gateway_plugins_are_independent_channels(): void
+    {
+        $manager = app(PluginManager::class);
+        $scan = collect($manager->scan('gateway'));
+
+        foreach (['epay_alipay', 'epay_wxpay', 'epay_qqpay', 'epay_bank'] as $name) {
+            $this->assertTrue($scan->contains(fn (array $plugin) => $plugin['name'] === $name), $name . ' should be scannable');
+            $this->assertTrue($manager->install('gateway', $name), $name . ' should install');
+            $this->assertTrue($manager->enable($name), $name . ' should enable');
+            $this->assertDatabaseHas('plugins', ['name' => $name, 'type' => 'gateway', 'status' => 1]);
+        }
+    }
+
+    public function test_epay_client_sign_matches_reference_vector(): void
+    {
+        $client = new EpayClient('https://pay.example.com/', '1001', 'secret');
+
+        $this->assertSame(
+            md5('money=0.01&name=账单 #INV001&notify_url=https://idc.example.com/notify&out_trade_no=123&pid=1001&type=alipaysecret'),
+            $client->referenceSign([
+                'pid' => '1001',
+                'type' => 'alipay',
+                'out_trade_no' => '123',
+                'notify_url' => 'https://idc.example.com/notify',
+                'name' => '账单 #INV001',
+                'money' => '0.01',
+                'sign_type' => 'MD5',
+                'sign' => 'ignore',
+            ])
+        );
+    }
+
+    public function test_epay_plugin_pay_returns_redirect_url_with_valid_config(): void
+    {
+        $this->installEpayAlipay();
+        $invoice = $this->invoice($this->client(), 88.00);
+
+        $result = app(PaymentService::class)->processPayment($invoice, 'epay_alipay', [
+            'return_url' => route('client.invoices.show', $invoice),
+        ]);
+
+        $this->assertTrue($result['success']);
+        $this->assertSame('redirect', $result['pay_type']);
+        $this->assertStringStartsWith('https://pay.example.com/submit.php?', $result['payment_url']);
+        $this->assertStringContainsString('type=alipay', $result['payment_url']);
+        $this->assertStringContainsString('money=88.00', $result['payment_url']);
+        $this->assertStringContainsString('sign=', $result['payment_url']);
+    }
+
+    public function test_epay_plugin_pay_fails_when_config_missing(): void
+    {
+        app(PluginManager::class)->install('gateway', 'epay_alipay');
+        app(PluginManager::class)->enable('epay_alipay');
+        $invoice = $this->invoice($this->client(), 88.00);
+
+        $result = app(PaymentService::class)->processPayment($invoice, 'epay_alipay', []);
+
+        $this->assertFalse($result['success']);
+        $this->assertSame('易支付 - 支付宝未配置', $result['message']);
+    }
+
+    public function test_epay_notify_verifies_correct_signature(): void
+    {
+        $this->installEpayAlipay();
+
+        $this->assertTrue(plugin('gateway')->get('epay_alipay')->notify($this->signedEpayPayload()));
+    }
+
+    public function test_epay_notify_rejects_tampered_signature(): void
+    {
+        $this->installEpayAlipay();
+        $payload = $this->signedEpayPayload(['money' => '88.00']);
+        $payload['money'] = '99.00';
+
+        $this->assertFalse(plugin('gateway')->get('epay_alipay')->notify($payload));
+    }
+
+    public function test_epay_callback_marks_invoice_paid_on_valid_notify(): void
+    {
+        $this->installEpayAlipay();
+        $invoice = $this->invoice($this->client(), 88.00);
+        app(PaymentService::class)->processPayment($invoice, 'epay_alipay', []);
+
+        $payload = $this->signedEpayPayload([
+            'out_trade_no' => (string) $invoice->id,
+            'money' => '88.00',
+            'trade_no' => 'EPAY-VALID-001',
+        ]);
+
+        $this->assertTrue(app(PaymentService::class)->handleCallback('epay_alipay', $payload));
+        $this->assertSame('Paid', $invoice->fresh()->status);
+        $this->assertDatabaseHas('accounts', [
+            'invoice_id' => $invoice->id,
+            'payment_method' => 'epay_alipay',
+            'gateway_trans_id' => 'EPAY-VALID-001',
+        ]);
+    }
+
+    public function test_epay_callback_rejects_underpayment(): void
+    {
+        $this->installEpayAlipay();
+        $invoice = $this->invoice($this->client(), 88.00);
+        app(PaymentService::class)->processPayment($invoice, 'epay_alipay', []);
+
+        $payload = $this->signedEpayPayload([
+            'out_trade_no' => (string) $invoice->id,
+            'money' => '87.99',
+            'trade_no' => 'EPAY-UNDERPAID',
+        ]);
+
+        $this->assertFalse(app(PaymentService::class)->handleCallback('epay_alipay', $payload));
+        $this->assertSame('Unpaid', $invoice->fresh()->status);
+        $this->assertDatabaseMissing('accounts', ['gateway_trans_id' => 'EPAY-UNDERPAID']);
+    }
+
+    public function test_epay_callback_credits_overpayment_to_client_balance(): void
+    {
+        $this->installEpayAlipay();
+        $client = $this->client();
+        $invoice = $this->invoice($client, 88.00);
+        app(PaymentService::class)->processPayment($invoice, 'epay_alipay', []);
+
+        $payload = $this->signedEpayPayload([
+            'out_trade_no' => (string) $invoice->id,
+            'money' => '99.00',
+            'trade_no' => 'EPAY-OVERPAID',
+        ]);
+
+        $this->assertTrue(app(PaymentService::class)->handleCallback('epay_alipay', $payload));
+        $this->assertSame('Paid', $invoice->fresh()->status);
+        $this->assertSame('11.00', (string) $client->fresh()->credit);
+        $this->assertDatabaseHas('accounts', [
+            'invoice_id' => $invoice->id,
+            'gateway_trans_id' => 'EPAY-OVERPAID',
+            'amount' => '88.00',
+        ]);
+        $this->assertDatabaseHas('credits', [
+            'client_id' => $client->id,
+            'type' => 'add',
+            'amount' => '11.00',
+            'description' => '支付超额自动转余额：账单 ' . $invoice->invoice_number,
+        ]);
+    }
+
+    public function test_epay_callback_rejects_overpayment_larger_than_credit_capacity(): void
+    {
+        $this->installEpayAlipay();
+        $client = $this->client();
+        $invoice = $this->invoice($client, 88.00);
+        app(PaymentService::class)->processPayment($invoice, 'epay_alipay', []);
+
+        $payload = $this->signedEpayPayload([
+            'out_trade_no' => (string) $invoice->id,
+            'money' => '100000088.00',
+            'trade_no' => 'EPAY-OVERPAID-TOO-LARGE',
+        ]);
+
+        $this->assertFalse(app(PaymentService::class)->handleCallback('epay_alipay', $payload));
+        $this->assertSame('Unpaid', $invoice->fresh()->status);
+        $this->assertSame('0.00', (string) $client->fresh()->credit);
+        $this->assertDatabaseMissing('accounts', ['gateway_trans_id' => 'EPAY-OVERPAID-TOO-LARGE']);
+        $this->assertDatabaseCount('credits', 0);
+    }
+
+    public function test_epay_callback_rejects_duplicate_notify(): void
+    {
+        $this->installEpayAlipay();
+        $invoice = $this->invoice($this->client(), 88.00);
+        app(PaymentService::class)->processPayment($invoice, 'epay_alipay', []);
+
+        $payload = $this->signedEpayPayload([
+            'out_trade_no' => (string) $invoice->id,
+            'money' => '88.00',
+            'trade_no' => 'EPAY-DUPLICATE-001',
+        ]);
+
+        $this->assertTrue(app(PaymentService::class)->handleCallback('epay_alipay', $payload));
+        $this->assertFalse(app(PaymentService::class)->handleCallback('epay_alipay', $payload));
+        $this->assertSame(1, Account::query()->where('gateway_trans_id', 'EPAY-DUPLICATE-001')->count());
+    }
+
+    public function test_epay_plugin_routes_can_handle_valid_notify_after_plugin_is_enabled(): void
+    {
+        $this->installEpayAlipay();
+        $invoice = $this->invoice($this->client(), 88.00);
+        app(PaymentService::class)->processPayment($invoice, 'epay_alipay', []);
+        $this->bootPluginRoutesForTest();
+
+        $payload = $this->signedEpayPayload([
+            'out_trade_no' => (string) $invoice->id,
+            'money' => '88.00',
+            'trade_no' => 'EPAY-ROUTE-001',
+        ]);
+
+        $this->get('/plugin/epay_alipay/notify?' . http_build_query($payload))
+            ->assertOk()
+            ->assertSee('success');
+        $this->assertSame('Paid', $invoice->fresh()->status);
     }
 
     public function test_payment_attempt_masks_sensitive_gateway_result(): void
@@ -1669,6 +1870,52 @@ class PaymentTest extends TestCase
         $manager->install('server', 'mock_server');
         $manager->enable('mock_server');
         Plugin::query()->where('name', 'mock_server')->update(['config' => $config]);
+    }
+
+    private function installEpayAlipay(array $config = []): void
+    {
+        $manager = app(PluginManager::class);
+        $manager->install('gateway', 'epay_alipay');
+        $manager->enable('epay_alipay');
+        Plugin::query()->where('name', 'epay_alipay')->update([
+            'config' => $config + [
+                'api_url' => 'https://pay.example.com/',
+                'pid' => '1001',
+                'key' => 'secret',
+                'pay_type' => 'alipay',
+                'return_url' => '',
+            ],
+        ]);
+    }
+
+    private function signedEpayPayload(array $overrides = []): array
+    {
+        $payload = $overrides + [
+            'pid' => '1001',
+            'trade_no' => 'EPAY-TRADE-001',
+            'out_trade_no' => '1',
+            'type' => 'alipay',
+            'name' => '账单 #INV001',
+            'money' => '88.00',
+            'trade_status' => 'TRADE_SUCCESS',
+        ];
+        $client = new EpayClient('https://pay.example.com/', '1001', 'secret');
+        $payload['sign'] = $client->referenceSign($payload);
+        $payload['sign_type'] = 'MD5';
+
+        return $payload;
+    }
+
+    private function bootPluginRoutesForTest(): void
+    {
+        $provider = new class($this->app) extends \App\Providers\PluginServiceProvider {
+            public function bootRoutes(): void
+            {
+                $this->loadPluginRoutes();
+            }
+        };
+
+        $provider->bootRoutes();
     }
 
     private function superAdmin(): AdminUser

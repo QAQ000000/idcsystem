@@ -64,6 +64,10 @@ class InvoiceController extends Controller
             ]);
         }
 
+        if (($result['pay_type'] ?? null) === 'redirect' && !empty($result['payment_url'])) {
+            return redirect()->away((string) $result['payment_url']);
+        }
+
         return redirect()->route('client.invoices.show', $invoice)->with('status', $result['message'] ?? '支付已发起');
     }
 

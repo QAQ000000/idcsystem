@@ -1,0 +1,16 @@
+{
+  "name": "epay_bank",
+  "title": "易支付 - 网银转账",
+  "type": "gateway",
+  "version": "1.0.0",
+  "author": "系统内置",
+  "description": "通过彩虹易支付聚合平台收取网银付款",
+  "entry": "EpayBankPlugin",
+  "config_schema": [
+    {"key": "api_url", "label": "易支付接口地址", "type": "text", "placeholder": "https://your-epay.com"},
+    {"key": "pid", "label": "商户 ID (pid)", "type": "text"},
+    {"key": "key", "label": "商户密钥", "type": "password"},
+    {"key": "return_url", "label": "同步跳转地址", "type": "text", "placeholder": "留空则使用系统默认"},
+    {"key": "notes", "label": "备注", "type": "textarea"}
+  ]
+}
