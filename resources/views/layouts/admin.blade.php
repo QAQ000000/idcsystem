@@ -20,6 +20,9 @@
                     @if ($canAdmin('affiliate.view'))
                         <a href="{{ route('admin.affiliates.index') }}">分销</a>
                     @endif
+                    @if ($canAdmin('export.data'))
+                        <a href="{{ route('admin.export.clients') }}">导出</a>
+                    @endif
                     @if ($canAdmin('product.view'))
                         <a href="{{ route('admin.products.index') }}">产品</a>
                     @endif

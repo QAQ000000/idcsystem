@@ -3,7 +3,10 @@
 @section('title', '账单列表')
 
 @section('content')
-    <h1 class="mb-6 text-2xl font-semibold">账单列表</h1>
+    <div class="mb-6 flex items-center justify-between">
+        <h1 class="text-2xl font-semibold">账单列表</h1>
+        <a class="rounded border px-4 py-2 text-sm" href="{{ route('admin.export.invoices', request()->query()) }}">导出 CSV</a>
+    </div>
 
     <div class="overflow-hidden rounded bg-white shadow-sm">
         <table class="min-w-full divide-y divide-slate-200 text-sm">

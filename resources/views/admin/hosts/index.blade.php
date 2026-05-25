@@ -3,7 +3,10 @@
 @section('title', '服务管理')
 
 @section('content')
-    <h1 class="mb-6 text-2xl font-semibold">服务管理</h1>
+    <div class="mb-6 flex items-center justify-between">
+        <h1 class="text-2xl font-semibold">服务管理</h1>
+        <a class="rounded border px-4 py-2 text-sm" href="{{ route('admin.export.hosts', request()->query()) }}">导出 CSV</a>
+    </div>
 
     <form method="get" class="mb-6 grid gap-4 rounded bg-white p-5 shadow-sm md:grid-cols-4">
         <label class="block text-sm">

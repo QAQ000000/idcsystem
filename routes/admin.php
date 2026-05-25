@@ -8,6 +8,7 @@ use App\Http\Controllers\Admin\ContractTemplateController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\EmailLogController;
 use App\Http\Controllers\Admin\EmailTemplateController;
+use App\Http\Controllers\Admin\ExportController;
 use App\Http\Controllers\Admin\HostController;
 use App\Http\Controllers\Admin\InvoiceController;
 use App\Http\Controllers\Admin\InvoiceReceiptController;
@@ -65,6 +66,13 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::post('/settings', [SettingController::class, 'update'])
         ->middleware('admin.permission:setting.manage')
         ->name('settings.update');
+
+    Route::prefix('export')->name('export.')->middleware('admin.permission:export.data')->group(function (): void {
+        Route::get('clients', [ExportController::class, 'clients'])->name('clients');
+        Route::get('invoices', [ExportController::class, 'invoices'])->name('invoices');
+        Route::get('hosts', [ExportController::class, 'hosts'])->name('hosts');
+        Route::get('credits', [ExportController::class, 'credits'])->name('credits');
+    });
 
     Route::post('/clients/{client}/credit', [ClientController::class, 'addCredit'])
         ->middleware('admin.permission:client.credit')
