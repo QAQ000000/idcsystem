@@ -139,6 +139,37 @@ class HostManagementTest extends TestCase
         $this->assertTrue($host->fresh()->next_due_date->greaterThan($oldDueDate));
     }
 
+    public function test_paid_renew_invoice_uses_selected_billing_cycle(): void
+    {
+        Mail::fake();
+        $this->installManualPay();
+        $host = $this->host(['billing_cycle' => 'monthly', 'next_due_date' => now()->startOfSecond()]);
+        $oldDueDate = $host->next_due_date->copy();
+
+        $this->actingAs($host->client, 'client')
+            ->post(route('client.hosts.renew', $host), ['billing_cycle' => 'annually'])
+            ->assertRedirect();
+
+        $item = InvoiceItem::query()->where('type', 'renewal')->where('rel_id', $host->id)->firstOrFail();
+        $this->assertSame('annually', $item->meta['billing_cycle'] ?? null);
+
+        app(PaymentService::class)->processPayment(
+            \App\Modules\Finance\Models\Invoice::query()->findOrFail($item->invoice_id),
+            'manual_pay',
+            []
+        );
+        $this->assertTrue(app(PaymentService::class)->handleCallback('manual_pay', [
+            'invoice_id' => $item->invoice_id,
+            'amount' => 500.00,
+            'status' => 'paid',
+            'trans_id' => 'HOST-RENEW-ANNUALLY-001',
+        ]));
+
+        $host->refresh();
+        $this->assertSame('annually', $host->billing_cycle);
+        $this->assertTrue($host->next_due_date->equalTo($oldDueDate->copy()->addYearNoOverflow()));
+    }
+
     public function test_paid_renew_invoice_is_not_applied_twice(): void
     {
         Mail::fake();
