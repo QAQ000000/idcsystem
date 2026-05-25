@@ -27,11 +27,10 @@ git pull --ff-only origin "$BRANCH"
 "$PHP_BIN" artisan view:cache
 "$PHP_BIN" artisan event:cache
 
-# 当前仓库未安装 Horizon，生产默认重启 queue worker。
-"$PHP_BIN" artisan queue:restart
+"$PHP_BIN" artisan horizon:terminate
 supervisorctl reread
 supervisorctl update
-supervisorctl restart idcsystem-worker:* idcsystem-scheduler
+supervisorctl restart idcsystem-horizon idcsystem-scheduler
 
 "$PHP_BIN" artisan up
 
