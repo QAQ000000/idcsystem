@@ -33,6 +33,9 @@
                         <a href="{{ route('admin.invoices.index') }}">账单</a>
                         <a href="{{ route('admin.invoice-receipts.index') }}">发票申请</a>
                     @endif
+                    @if ($canAdmin('contract.manage'))
+                        <a href="{{ route('admin.contract-templates.index') }}">合同模板</a>
+                    @endif
                     @if ($canAdmin('ticket.view'))
                         <a href="{{ route('admin.tickets.index') }}">工单</a>
                     @endif

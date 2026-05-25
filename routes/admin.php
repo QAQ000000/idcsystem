@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\AdminActionLogController;
 use App\Http\Controllers\Admin\AffiliateController;
 use App\Http\Controllers\Admin\ClientController;
+use App\Http\Controllers\Admin\ContractTemplateController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\EmailLogController;
 use App\Http\Controllers\Admin\EmailTemplateController;
@@ -53,6 +54,9 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::post('/affiliate-commissions/{commission}/approve', [AffiliateController::class, 'approve'])
         ->middleware('admin.permission:affiliate.manage')
         ->name('affiliate-commissions.approve');
+    Route::resource('contract-templates', ContractTemplateController::class)
+        ->except(['show'])
+        ->middleware('admin.permission:contract.manage');
     Route::get('/settings', [SettingController::class, 'index'])
         ->middleware('admin.permission:setting.manage')
         ->name('settings.index');

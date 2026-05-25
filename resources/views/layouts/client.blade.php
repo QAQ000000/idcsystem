@@ -16,6 +16,7 @@
                 <a href="{{ route('client.cart.index') }}">购物车</a>
                 <a href="{{ route('client.hosts.index') }}">服务</a>
                 <a href="{{ route('client.invoices.index') }}">账单</a>
+                <a href="{{ route('client.contracts.index') }}">合同</a>
                 <a href="{{ route('client.tickets.index') }}">工单</a>
                 @auth('client')
                     <a href="{{ route('client.account.profile') }}">资料</a>
