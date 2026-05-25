@@ -337,6 +337,9 @@ class HostService
                 'description' => $lockedHost->product->name . ' renewal (' . $billingCycle . ')',
                 'amount' => $amount,
                 'rel_id' => $lockedHost->id,
+                'meta' => [
+                    'billing_cycle' => $billingCycle,
+                ],
             ]]);
 
             $this->log($lockedHost, 'renew_invoice', '续费账单已生成', [
@@ -723,9 +726,11 @@ class HostService
             return;
         }
 
+        $billingCycle = $this->renewalBillingCycle($item, $host);
         $base = $host->next_due_date && $host->next_due_date->isFuture() ? $host->next_due_date : now();
-        $nextDueDate = $this->addCycle($base, $host->billing_cycle);
+        $nextDueDate = $this->addCycle($base, $billingCycle);
         $host->update([
+            'billing_cycle' => $billingCycle,
             'next_due_date' => $nextDueDate,
             'next_invoice_date' => $nextDueDate?->copy()->subDays(7),
         ]);
@@ -786,6 +791,17 @@ class HostService
             'product_id' => $upgrade->to_product_id,
             'recurring_amount' => round($targetAmount, 2),
         ]);
+    }
+
+    private function renewalBillingCycle(InvoiceItem $item, Host $host): string
+    {
+        $billingCycle = $item->meta['billing_cycle'] ?? null;
+
+        if (is_string($billingCycle) && in_array($billingCycle, $this->availableCycles(), true)) {
+            return $billingCycle;
+        }
+
+        return $host->billing_cycle;
     }
 
     private function addCycle(\Carbon\Carbon $date, string $billingCycle): ?\Carbon\Carbon
