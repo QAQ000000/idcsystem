@@ -291,6 +291,32 @@ class SystemTaskTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_admin_can_manually_trigger_system_task_and_audit_action(): void
+    {
+        $admin = $this->admin();
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.system-tasks.run'), [
+                'task_name' => 'notifications:recover-stale',
+            ])
+            ->assertRedirect(route('admin.system-tasks.index', ['task_name' => 'notifications:recover-stale']));
+
+        $this->assertDatabaseHas('system_task_logs', [
+            'task_name' => 'notifications:recover-stale',
+            'status' => 'success',
+        ]);
+        $this->assertDatabaseHas('admin_action_logs', [
+            'admin_user_id' => $admin->id,
+            'action' => 'system_task.run_manual',
+            'result' => 'success',
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.admin-action-logs.index', ['action' => 'system_task.run_manual']))
+            ->assertOk()
+            ->assertSee('system_task.run_manual');
+    }
+
     public function test_scheduler_contains_host_tasks(): void
     {
         $this->artisan('schedule:list')

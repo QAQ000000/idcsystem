@@ -35,6 +35,9 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::get('/system-tasks', [SystemTaskController::class, 'index'])
         ->middleware('admin.permission:system_task.view')
         ->name('system-tasks.index');
+    Route::post('/system-tasks/run', [SystemTaskController::class, 'runManual'])
+        ->middleware('admin.permission:system_task.view')
+        ->name('system-tasks.run');
     Route::resource('admin-action-logs', AdminActionLogController::class)
         ->only(['index', 'show'])
         ->middleware('admin.permission:admin_action_log.view');

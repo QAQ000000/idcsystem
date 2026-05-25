@@ -5,6 +5,21 @@
 @section('content')
     <h1 class="mb-6 text-2xl font-semibold">系统任务</h1>
 
+    <form method="post" action="{{ route('admin.system-tasks.run') }}" class="mb-6 grid gap-4 rounded bg-white p-5 shadow-sm md:grid-cols-3">
+        @csrf
+        <label class="block text-sm">
+            手动触发任务
+            <select class="mt-1 w-full rounded border px-3 py-2" name="task_name" required>
+                @foreach ($taskNames as $taskName)
+                    <option value="{{ $taskName }}">{{ $taskName }}</option>
+                @endforeach
+            </select>
+        </label>
+        <div class="flex items-end">
+            <button class="rounded bg-slate-900 px-4 py-2 text-white">立即执行</button>
+        </div>
+    </form>
+
     <form method="get" class="mb-6 grid gap-4 rounded bg-white p-5 shadow-sm md:grid-cols-3">
         <label class="block text-sm">
             任务名称

@@ -4,10 +4,20 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\SystemTaskLog;
+use App\Services\AdminAuditService;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Http\Request;
 
 class SystemTaskController extends Controller
 {
+    private const TASK_NAMES = [
+        'billing:generate-invoices',
+        'billing:suspend-overdue',
+        'host:sync-usage',
+        'host:send-due-reminders',
+        'notifications:recover-stale',
+    ];
+
     public function index(Request $request)
     {
         $filters = [
@@ -24,16 +34,27 @@ class SystemTaskController extends Controller
 
         return view('admin.system-tasks.index', [
             'logs' => $logs,
-            'taskNames' => [
-                'billing:generate-invoices',
-                'billing:suspend-overdue',
-                'host:sync-usage',
-                'host:send-due-reminders',
-                'notifications:recover-stale',
-            ],
+            'taskNames' => self::TASK_NAMES,
             'statuses' => ['running', 'success', 'failed'],
             'filters' => $filters,
         ]);
+    }
+
+    public function runManual(Request $request, AdminAuditService $audit)
+    {
+        $data = $request->validate([
+            'task_name' => ['required', 'string', 'in:' . implode(',', self::TASK_NAMES)],
+        ]);
+
+        $exitCode = Artisan::call($data['task_name']);
+        $success = $exitCode === 0;
+        $audit->record($request, 'system_task.run_manual', null, $success ? 'success' : 'failed', [
+            'task_name' => $data['task_name'],
+            'exit_code' => $exitCode,
+        ], $success ? null : '系统任务执行失败');
+
+        return redirect()->route('admin.system-tasks.index', ['task_name' => $data['task_name']])
+            ->with($success ? 'status' : 'error', $success ? '系统任务已执行' : '系统任务执行失败');
     }
 
     private function queryString(Request $request, string $key): ?string
