@@ -17,8 +17,12 @@ class AuthService
 
     public function register(array $data): Client
     {
+        $referralCode = (string) ($data['ref'] ?? '');
+        unset($data['ref']);
+
         $clientService = new ClientService();
         $client = $clientService->create($data);
+        app(AffiliateService::class)->recordSignup($client, $referralCode);
         $this->sendEmailVerification($client);
 
         return $client;

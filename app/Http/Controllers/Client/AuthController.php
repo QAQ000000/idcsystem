@@ -93,8 +93,12 @@ class AuthController extends Controller
         return redirect()->route('client.dashboard');
     }
 
-    public function showRegisterForm()
+    public function showRegisterForm(Request $request)
     {
+        if ($request->filled('ref')) {
+            $request->session()->put('affiliate_ref', (string) $request->query('ref'));
+        }
+
         return view('client.auth.register', [
             'captcha' => $this->captchaPayload(),
         ]);
@@ -143,6 +147,7 @@ class AuthController extends Controller
             'password' => ['required', 'string', 'min:8', 'confirmed'],
             'phone' => ['nullable', 'string', 'max:50'],
         ]);
+        $data['ref'] = (string) ($request->query('ref') ?: $request->session()->get('affiliate_ref', ''));
 
         if (!$this->verifyCaptcha($request)) {
             return back()->withErrors(['captcha_code' => '验证码不正确。'])->withInput($request->except('password', 'password_confirmation'));

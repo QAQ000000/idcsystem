@@ -48,4 +48,16 @@ return [
         'billing_invoice_days_before_due',
         env('BILLING_INVOICE_DAYS_BEFORE_DUE', 7)
     ),
+
+    /*
+     * 分销佣金比例与触发类型。
+     */
+    'affiliate_commission_rate' => (float) $setting(
+        'affiliate_commission_rate',
+        env('AFFILIATE_COMMISSION_RATE', 10)
+    ),
+    'affiliate_commission_type' => (string) $setting(
+        'affiliate_commission_type',
+        env('AFFILIATE_COMMISSION_TYPE', 'payment')
+    ),
 ];

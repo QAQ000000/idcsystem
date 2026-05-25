@@ -70,6 +70,16 @@ class Client extends Authenticatable
         return $this->hasMany(\App\Models\ClientLoginLog::class);
     }
 
+    public function affiliate()
+    {
+        return $this->hasOne(Affiliate::class);
+    }
+
+    public function affiliateCommissions()
+    {
+        return $this->hasMany(AffiliateCommission::class, 'referred_client_id');
+    }
+
     public function isActive(): bool
     {
         return $this->status === 1;

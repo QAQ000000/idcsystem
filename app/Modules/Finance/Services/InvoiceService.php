@@ -9,6 +9,7 @@ use App\Modules\Order\Models\Host;
 use App\Modules\Order\Models\Upgrade;
 use App\Modules\Order\Services\HostService;
 use App\Modules\User\Models\Client;
+use App\Modules\User\Services\AffiliateService;
 use App\Modules\User\Services\ClientService;
 use App\Services\Concerns\NotifiesClientsSafely;
 use Illuminate\Support\Facades\DB;
@@ -280,6 +281,7 @@ class InvoiceService
                     'amount' => $freshInvoice->total,
                 ], 'invoice.mark_paid');
             }
+            app(AffiliateService::class)->recordPayment($freshInvoice);
         }
 
         return $paid;
