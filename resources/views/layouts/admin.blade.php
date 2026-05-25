@@ -42,6 +42,9 @@
                     @if ($canAdmin('contract.manage'))
                         <a href="{{ route('admin.contract-templates.index') }}">合同模板</a>
                     @endif
+                    @if ($canAdmin('announcement.manage'))
+                        <a href="{{ route('admin.announcements.index') }}">公告</a>
+                    @endif
                     @if ($canAdmin('ticket.view'))
                         <a href="{{ route('admin.tickets.index') }}">工单</a>
                     @endif

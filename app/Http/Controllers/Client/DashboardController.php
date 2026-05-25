@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
+use App\Models\Announcement;
 use App\Modules\Finance\Models\Invoice;
 use App\Modules\Order\Models\Host;
 use App\Modules\Ticket\Models\Ticket;
@@ -23,6 +24,7 @@ class DashboardController extends Controller
             'hosts' => Host::query()->with('product')->where('client_id', $client->id)->latest()->limit(8)->get(),
             'invoices' => Invoice::query()->where('client_id', $client->id)->latest()->limit(8)->get(),
             'tickets' => Ticket::query()->with('status')->where('client_id', $client->id)->latest()->limit(8)->get(),
+            'announcements' => Announcement::query()->visible()->latest()->limit(5)->get(),
         ]);
     }
 }

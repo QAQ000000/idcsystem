@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\AdminActionLogController;
 use App\Http\Controllers\Admin\AffiliateController;
+use App\Http\Controllers\Admin\AnnouncementController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\ContractTemplateController;
 use App\Http\Controllers\Admin\DashboardController;
@@ -60,6 +61,12 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::resource('contract-templates', ContractTemplateController::class)
         ->except(['show'])
         ->middleware('admin.permission:contract.manage');
+    Route::post('/announcements/{announcement}/toggle', [AnnouncementController::class, 'toggle'])
+        ->middleware('admin.permission:announcement.manage')
+        ->name('announcements.toggle');
+    Route::resource('announcements', AnnouncementController::class)
+        ->except(['show'])
+        ->middleware('admin.permission:announcement.manage');
     Route::get('/settings', [SettingController::class, 'index'])
         ->middleware('admin.permission:setting.manage')
         ->name('settings.index');
