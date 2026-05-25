@@ -74,6 +74,9 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
         Route::get('credits', [ExportController::class, 'credits'])->name('credits');
     });
 
+    Route::post('/clients/bulk-action', [ClientController::class, 'bulkAction'])
+        ->middleware('admin.permission:client.manage')
+        ->name('clients.bulk-action');
     Route::post('/clients/{client}/credit', [ClientController::class, 'addCredit'])
         ->middleware('admin.permission:client.credit')
         ->name('clients.add-credit');
@@ -150,6 +153,9 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
         ->except(['show'])
         ->middleware('admin.permission:promo.manage');
 
+    Route::post('/hosts/bulk-action', [HostController::class, 'bulkAction'])
+        ->middleware('admin.permission:host.manage')
+        ->name('hosts.bulk-action');
     Route::post('/hosts/{host}/action', [HostController::class, 'action'])
         ->middleware('admin.permission:host.manage')
         ->name('hosts.action');

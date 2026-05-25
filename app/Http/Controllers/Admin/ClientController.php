@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Modules\User\Models\Client;
 use App\Modules\User\Services\ClientService;
 use App\Services\AdminAuditService;
+use App\Services\MailService;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Validation\Rule;
@@ -25,6 +26,40 @@ class ClientController extends Controller
             ->paginate(20);
 
         return view('admin.clients.index', compact('clients'));
+    }
+
+    public function bulkAction(Request $request, ClientService $clients, AdminAuditService $audit): RedirectResponse
+    {
+        $data = $request->validate([
+            'action' => ['required', Rule::in(['suspend', 'activate', 'add_credit', 'send_email'])],
+            'client_ids' => ['required', 'array', 'min:1', 'max:200'],
+            'client_ids.*' => ['integer', Rule::exists('clients', 'id')],
+            'amount' => ['required_if:action,add_credit', 'nullable', 'numeric', 'min:0.01', 'max:99999'],
+            'description' => ['nullable', 'string', 'max:255'],
+            'subject' => ['required_if:action,send_email', 'nullable', 'string', 'max:200'],
+            'body' => ['required_if:action,send_email', 'nullable', 'string', 'max:5000'],
+        ]);
+
+        $count = 0;
+        foreach (Client::query()->whereIn('id', $data['client_ids'])->cursor() as $client) {
+            $success = match ($data['action']) {
+                'suspend' => $clients->suspend($client),
+                'activate' => $clients->activate($client),
+                'add_credit' => $clients->addCredit($client, (float) $data['amount'], $data['description'] ?? '批量充值'),
+                'send_email' => $this->sendBulkEmail($client, (string) $data['subject'], (string) $data['body']),
+            };
+
+            if ($success) {
+                $count++;
+            }
+        }
+
+        $audit->record($request, 'client.bulk_' . $data['action'], null, 'success', [
+            'client_ids' => array_values($data['client_ids']),
+            'count' => $count,
+        ]);
+
+        return back()->with('status', "批量操作完成，成功处理 {$count} 个客户");
     }
 
     public function show(Client $client)
@@ -148,5 +183,21 @@ class ClientController extends Controller
         $value = trim((string) $value);
 
         return $value === '' ? null : $value;
+    }
+
+    private function sendBulkEmail(Client $client, string $subject, string $body): bool
+    {
+        if ($client->trashed() || !$client->isActive() || empty($client->email)) {
+            return false;
+        }
+
+        return app(MailService::class)->send((string) $client->email, $subject, $body, [
+            'template' => 'custom_email',
+            'payload' => [
+                'client_name' => $client->username,
+                'subject' => $subject,
+                'body' => $body,
+            ],
+        ]);
     }
 }

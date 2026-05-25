@@ -8,6 +8,27 @@
         <a class="rounded border px-4 py-2 text-sm" href="{{ route('admin.export.hosts', request()->query()) }}">导出 CSV</a>
     </div>
 
+    <form id="host-bulk-form" method="post" action="{{ route('admin.hosts.bulk-action') }}" class="mb-6 rounded bg-white p-5 shadow-sm">
+        @csrf
+        <div class="grid gap-4 md:grid-cols-4">
+            <label class="block text-sm">
+                批量操作
+                <select class="mt-1 w-full rounded border px-3 py-2" name="action" required>
+                    <option value="suspend">批量暂停</option>
+                    <option value="unsuspend">批量恢复</option>
+                    <option value="terminate">批量终止</option>
+                </select>
+            </label>
+            <label class="block text-sm md:col-span-2">
+                暂停原因
+                <input class="mt-1 w-full rounded border px-3 py-2" name="reason" maxlength="255" placeholder="批量暂停时使用">
+            </label>
+            <div class="flex items-end">
+                <button class="rounded bg-slate-900 px-4 py-2 text-white">执行批量操作</button>
+            </div>
+        </div>
+    </form>
+
     <form method="get" class="mb-6 grid gap-4 rounded bg-white p-5 shadow-sm md:grid-cols-4">
         <label class="block text-sm">
             客户
@@ -48,6 +69,7 @@
         <table class="min-w-full divide-y divide-slate-200 text-sm">
             <thead class="bg-slate-50 text-left text-slate-600">
                 <tr>
+                    <th class="px-4 py-3"><input type="checkbox" onclick="document.querySelectorAll('[data-host-bulk]').forEach(el => el.checked = this.checked)"></th>
                     <th class="px-4 py-3">服务</th>
                     <th class="px-4 py-3">客户</th>
                     <th class="px-4 py-3">产品</th>
@@ -59,6 +81,7 @@
             <tbody class="divide-y divide-slate-100">
                 @forelse ($hosts as $host)
                     <tr>
+                        <td class="px-4 py-3"><input data-host-bulk form="host-bulk-form" type="checkbox" name="host_ids[]" value="{{ $host->id }}"></td>
                         <td class="px-4 py-3">
                             <div class="font-medium">#{{ $host->id }} {{ $host->domain ?: '未绑定域名' }}</div>
                             <div class="text-slate-500">{{ $host->billing_cycle }} / {{ $host->recurring_amount }}</div>
@@ -89,7 +112,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td class="px-4 py-6 text-center text-slate-500" colspan="6">暂无服务</td>
+                        <td class="px-4 py-6 text-center text-slate-500" colspan="7">暂无服务</td>
                     </tr>
                 @endforelse
             </tbody>

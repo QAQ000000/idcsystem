@@ -109,6 +109,10 @@ class NotificationService
                 'label' => '升级/降配完成',
                 'variables' => ['client_name', 'product_name'],
             ],
+            'custom_email' => [
+                'label' => '自定义邮件',
+                'variables' => ['client_name', 'subject', 'body'],
+            ],
         ];
     }
 }

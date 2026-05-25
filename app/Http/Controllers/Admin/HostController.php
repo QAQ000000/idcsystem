@@ -12,7 +12,9 @@ use App\Plugins\Contracts\ServerModuleInterface;
 use App\Plugins\Facades\Plugin;
 use App\Services\AdminAuditService;
 use App\Services\HostMonitoringService;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Throwable;
 
 class HostController extends Controller
@@ -45,6 +47,36 @@ class HostController extends Controller
             'statuses' => ['Pending', 'Active', 'Suspended', 'Terminated', 'Cancelled'],
             'filters' => $filters,
         ]);
+    }
+
+    public function bulkAction(Request $request, HostService $hosts, AdminAuditService $audit): RedirectResponse
+    {
+        $data = $request->validate([
+            'action' => ['required', Rule::in(['suspend', 'unsuspend', 'terminate'])],
+            'host_ids' => ['required', 'array', 'min:1', 'max:200'],
+            'host_ids.*' => ['integer', Rule::exists('hosts', 'id')],
+            'reason' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $count = 0;
+        foreach (Host::query()->whereIn('id', $data['host_ids'])->cursor() as $host) {
+            $success = match ($data['action']) {
+                'suspend' => $hosts->suspend($host, $data['reason'] ?? '后台批量暂停'),
+                'unsuspend' => $hosts->unsuspend($host),
+                'terminate' => $hosts->terminate($host),
+            };
+
+            if ($success) {
+                $count++;
+            }
+        }
+
+        $audit->record($request, 'host.bulk_' . $data['action'], null, 'success', [
+            'host_ids' => array_values($data['host_ids']),
+            'count' => $count,
+        ]);
+
+        return back()->with('status', "批量操作完成，成功处理 {$count} 个服务");
     }
 
     public function show(Host $host, HostMonitoringService $monitoring)
