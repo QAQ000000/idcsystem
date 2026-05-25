@@ -70,6 +70,11 @@ class Client extends Authenticatable
         return $this->hasMany(\App\Models\ClientLoginLog::class);
     }
 
+    public function credits()
+    {
+        return $this->hasMany(\App\Modules\Finance\Models\Credit::class);
+    }
+
     public function affiliate()
     {
         return $this->hasOne(Affiliate::class);
