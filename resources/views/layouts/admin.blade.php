@@ -70,6 +70,7 @@
                     @if ($canAdmin('setting.manage'))
                         <a href="{{ route('admin.settings.index') }}">设置</a>
                     @endif
+                    <a href="{{ route('admin.profile.2fa') }}">2FA</a>
                     <form method="post" action="{{ route('admin.logout') }}">
                         @csrf
                         <button>退出</button>

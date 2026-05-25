@@ -15,14 +15,16 @@ class AdminUser extends Authenticatable
 
     protected $fillable = [
         'username', 'email', 'password', 'real_name', 'phone',
+        'two_factor_enabled', 'two_factor_secret',
         'status', 'last_login_at', 'last_login_ip',
     ];
 
-    protected $hidden = ['password', 'remember_token'];
+    protected $hidden = ['password', 'remember_token', 'two_factor_secret'];
 
     protected $casts = [
-        'status'         => 'integer',
-        'last_login_at'  => 'datetime',
+        'status'             => 'integer',
+        'two_factor_enabled' => 'boolean',
+        'last_login_at'      => 'datetime',
     ];
 
     public function isActive(): bool

@@ -29,11 +29,16 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('admin')->name('admin.')->group(function (): void {
     Route::get('/login', [AuthController::class, 'showLoginForm'])->name('login');
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1')->name('login.store');
+    Route::get('/login/2fa', [AuthController::class, 'showTwoFactor'])->name('login.2fa');
+    Route::post('/login/2fa', [AuthController::class, 'verifyTwoFactor'])->middleware('throttle:10,1')->name('login.2fa.verify');
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 });
 
 Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'])->group(function (): void {
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/profile/2fa', [AuthController::class, 'twoFactorSetup'])->name('profile.2fa');
+    Route::post('/profile/2fa/enable', [AuthController::class, 'enableTwoFactor'])->name('profile.2fa.enable');
+    Route::post('/profile/2fa/disable', [AuthController::class, 'disableTwoFactor'])->name('profile.2fa.disable');
     Route::get('/notifications', [NotificationCenterController::class, 'index'])
         ->middleware('admin.permission:notification.manage')
         ->name('notifications.index');
