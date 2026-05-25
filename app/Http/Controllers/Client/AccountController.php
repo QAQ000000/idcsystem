@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Client;
 use App\Http\Controllers\Controller;
 use App\Modules\Finance\Services\InvoiceService;
 use App\Modules\User\Models\Client;
+use App\Modules\User\Services\AffiliateService;
 use App\Modules\User\Services\TwoFactorService;
 use App\Services\NotificationService;
 use Illuminate\Http\Request;
@@ -79,6 +80,33 @@ class AccountController extends Controller
         $invoice = $invoices->generateRecharge($client, (float) $data['amount']);
 
         return redirect()->route('client.invoices.show', $invoice)->with('status', '充值账单已生成，请完成支付');
+    }
+
+    public function affiliate(AffiliateService $affiliates)
+    {
+        $client = Auth::guard('client')->user();
+        $affiliate = $affiliates->getOrCreate($client);
+
+        return view('client.account.affiliate', [
+            'client' => $client,
+            'affiliate' => $affiliate->fresh(['commissions.referredClient', 'commissions.invoice']),
+            'referralUrl' => route('client.register', ['ref' => $affiliate->code]),
+        ]);
+    }
+
+    public function withdrawAffiliate(Request $request, AffiliateService $affiliates)
+    {
+        $client = Auth::guard('client')->user();
+        $affiliate = $affiliates->getOrCreate($client);
+        $data = $request->validate([
+            'amount' => ['required', 'numeric', 'min:0.01', 'max:99999999.99'],
+        ]);
+
+        if (!$affiliates->withdraw($affiliate, (float) $data['amount'])) {
+            return redirect()->route('client.affiliate')->with('error', '当前可提现佣金不足，或账户状态不允许提现');
+        }
+
+        return redirect()->route('client.affiliate')->with('status', '佣金已转入账户余额');
     }
 
     public function updatePassword(Request $request)

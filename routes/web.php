@@ -62,6 +62,8 @@ Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.sta
     Route::post('/account/2fa/disable', [AccountController::class, 'disableTwoFactor'])->name('account.2fa.disable');
     Route::get('/account/recharge', [AccountController::class, 'recharge'])->name('account.recharge');
     Route::post('/account/recharge', [AccountController::class, 'recharge'])->name('account.recharge.store');
+    Route::get('/affiliate', [AccountController::class, 'affiliate'])->name('affiliate');
+    Route::post('/affiliate/withdraw', [AccountController::class, 'withdrawAffiliate'])->name('affiliate.withdraw');
 
     Route::get('/cart', [CartController::class, 'index'])->name('cart.index');
     Route::post('/cart', [CartController::class, 'add'])->name('cart.add');

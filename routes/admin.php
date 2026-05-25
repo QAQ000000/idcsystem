@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\AdminActionLogController;
+use App\Http\Controllers\Admin\AffiliateController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\EmailLogController;
@@ -36,6 +37,18 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::resource('admin-action-logs', AdminActionLogController::class)
         ->only(['index', 'show'])
         ->middleware('admin.permission:admin_action_log.view');
+    Route::get('/affiliates', [AffiliateController::class, 'index'])
+        ->middleware('admin.permission:affiliate.view')
+        ->name('affiliates.index');
+    Route::put('/affiliates/{affiliate}', [AffiliateController::class, 'update'])
+        ->middleware('admin.permission:affiliate.manage')
+        ->name('affiliates.update');
+    Route::post('/affiliates/{affiliate}/payout', [AffiliateController::class, 'payout'])
+        ->middleware('admin.permission:affiliate.manage')
+        ->name('affiliates.payout');
+    Route::post('/affiliate-commissions/{commission}/approve', [AffiliateController::class, 'approve'])
+        ->middleware('admin.permission:affiliate.manage')
+        ->name('affiliate-commissions.approve');
     Route::get('/settings', [SettingController::class, 'index'])
         ->middleware('admin.permission:setting.manage')
         ->name('settings.index');
