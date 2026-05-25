@@ -2,6 +2,7 @@
 
 namespace App\Modules\Finance\Services;
 
+use App\Jobs\ProcessPaidInvoiceJob;
 use App\Modules\Finance\Models\Account;
 use App\Modules\Finance\Models\Invoice;
 use App\Modules\Finance\Models\InvoiceItem;
@@ -9,7 +10,6 @@ use App\Modules\Order\Models\Host;
 use App\Modules\Order\Models\Upgrade;
 use App\Modules\Order\Services\HostService;
 use App\Modules\User\Models\Client;
-use App\Modules\User\Services\AffiliateService;
 use App\Modules\User\Services\ClientService;
 use App\Services\Concerns\NotifiesClientsSafely;
 use Illuminate\Support\Facades\DB;
@@ -273,15 +273,7 @@ class InvoiceService
         if ($paid) {
             $freshInvoice = $invoice->fresh(['order.hosts.product', 'items', 'client']);
             $this->provisionPendingOrderHosts($freshInvoice);
-            app(HostService::class)->applyPaidInvoice($freshInvoice);
-            if ($freshInvoice->client) {
-                $this->notifyClientSafely($freshInvoice->client, 'invoice_paid', [
-                    'client_name' => $freshInvoice->client->username,
-                    'invoice_number' => $freshInvoice->invoice_number,
-                    'amount' => $freshInvoice->total,
-                ], 'invoice.mark_paid');
-            }
-            app(AffiliateService::class)->recordPayment($freshInvoice);
+            ProcessPaidInvoiceJob::dispatch($invoice->id)->onQueue('default');
         }
 
         return $paid;

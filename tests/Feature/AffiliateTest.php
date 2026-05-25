@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Modules\Finance\Models\Invoice;
 use App\Modules\Finance\Services\InvoiceService;
 use App\Modules\Admin\Models\AdminUser;
+use App\Jobs\ProcessPaidInvoiceJob;
 use App\Modules\User\Models\AffiliateCommission;
 use App\Modules\User\Models\Client;
 use App\Modules\User\Services\AffiliateService;
@@ -55,7 +56,11 @@ class AffiliateTest extends TestCase
         ]]);
 
         $this->assertTrue(app(InvoiceService::class)->markAsPaid($invoice, 'manual', 'AFF-PAID-1'));
-        $affiliateService->recordPayment($invoice->fresh());
+        (new ProcessPaidInvoiceJob($invoice->id))->handle(
+            app(\App\Modules\Order\Services\HostService::class),
+            app(\App\Services\NotificationService::class),
+            $affiliateService
+        );
 
         $commission = AffiliateCommission::query()
             ->where('affiliate_id', $affiliate->id)

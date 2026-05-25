@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Plugin;
 use App\Models\PaymentAttempt;
 use App\Models\PaymentRefundRequest;
+use App\Jobs\ProcessPaidInvoiceJob;
 use App\Modules\Finance\Models\Account;
 use App\Modules\Finance\Models\Currency;
 use App\Modules\Finance\Models\Invoice;
@@ -21,6 +22,7 @@ use App\Modules\Admin\Models\AdminUser;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Queue;
 use Plugins\Gateway\EpayAlipay\src\EpayClient;
 use Plugins\Gateway\AlipaySdk\src\AlipayClient;
 use Spatie\Permission\Models\Permission;
@@ -701,7 +703,15 @@ class PaymentTest extends TestCase
         $client = $this->client();
         $invoice = app(InvoiceService::class)->generateRecharge($client, 88.00);
 
+        Queue::fake();
         $this->assertTrue(app(InvoiceService::class)->markAsPaid($invoice, 'manual', 'RECHARGE-PAID-1'));
+        Queue::assertPushed(ProcessPaidInvoiceJob::class, fn (ProcessPaidInvoiceJob $job) => $job->invoiceId === $invoice->id);
+        (new ProcessPaidInvoiceJob($invoice->id))->handle(
+            app(\App\Modules\Order\Services\HostService::class),
+            app(\App\Services\NotificationService::class),
+            app(\App\Modules\User\Services\AffiliateService::class)
+        );
+
         $this->assertSame('88.00', (string) $client->fresh()->credit);
         $this->assertDatabaseHas('credits', [
             'client_id' => $client->id,
@@ -1025,6 +1035,7 @@ class PaymentTest extends TestCase
         $invoice = $this->invoice($this->client(), 88.00);
         app(PaymentService::class)->processPayment($invoice, 'manual_pay', []);
 
+        Queue::fake();
         $result = app(PaymentService::class)->handleCallback('manual_pay', [
             'invoice_id' => $invoice->id,
             'amount' => 88.00,
@@ -1035,6 +1046,18 @@ class PaymentTest extends TestCase
         $this->assertTrue($result);
         $this->assertSame('Paid', $invoice->fresh()->status);
         $this->assertDatabaseHas('accounts', ['invoice_id' => $invoice->id, 'gateway_trans_id' => 'MANUAL-001']);
+        Queue::assertPushed(ProcessPaidInvoiceJob::class, fn (ProcessPaidInvoiceJob $job) => $job->invoiceId === $invoice->id);
+    }
+
+    public function test_process_paid_invoice_job_records_failed_system_task_log(): void
+    {
+        (new ProcessPaidInvoiceJob(123))->failed(new \RuntimeException('job failed'));
+
+        $this->assertDatabaseHas('system_task_logs', [
+            'task_name' => 'invoice:process-paid',
+            'status' => 'failed',
+            'error' => 'job failed',
+        ]);
     }
 
     public function test_payment_callback_route_marks_invoice_paid(): void
