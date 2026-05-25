@@ -21,7 +21,7 @@ class HostController extends Controller
 
         $hosts = Host::query()->with('product')->where('client_id', $client->id)->latest()->paginate(20);
 
-        return view('client.hosts.index', compact('hosts'));
+        return view('theme::hosts.index', compact('hosts'));
     }
 
     public function show(Host $host)
@@ -35,7 +35,7 @@ class HostController extends Controller
         abort_unless((int) $host->client_id === (int) $client->id, 403);
         $host->load(['product.pricings', 'order.invoice', 'customFieldValues.field', 'actionLogs' => fn ($query) => $query->latest()->limit(10), 'upgrades']);
 
-        return view('client.hosts.show', [
+        return view('theme::hosts.show', [
             'host' => $host,
             'cycles' => app(HostService::class)->availableCycles(),
             'upgradeProducts' => Product::query()

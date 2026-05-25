@@ -35,6 +35,14 @@
                         @endforeach
                     </select>
                 </label>
+                <label class="block text-sm">
+                    前台主题
+                    <select class="mt-1 w-full rounded border px-3 py-2" name="theme">
+                        @foreach ($themes as $theme)
+                            <option value="{{ $theme }}" @selected($oldText('theme', $settings->get('theme', 'default')) === $theme)>{{ $theme }}</option>
+                        @endforeach
+                    </select>
+                </label>
                 <label class="mt-7 inline-flex items-center gap-2 text-sm">
                     <input type="checkbox" name="maintenance_mode" value="1" @checked((bool) $oldText('maintenance_mode', $settings->get('maintenance_mode', false)))>
                     维护模式

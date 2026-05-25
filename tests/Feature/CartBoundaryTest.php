@@ -13,6 +13,7 @@ use App\Modules\User\Models\Client;
 use App\Modules\Order\Services\CartService;
 use App\Modules\Order\Services\OrderService;
 use App\Modules\Product\Services\PricingService;
+use App\Services\SettingsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
@@ -43,6 +44,18 @@ class CartBoundaryTest extends TestCase
         $this->get(route('client.products.show', $hidden))->assertNotFound();
         $this->get(route('client.products.show', $retired))->assertNotFound();
         $this->get(route('client.products.show', $outOfStock))->assertNotFound();
+    }
+
+    public function test_frontend_can_render_default_view_through_minimal_theme_layout(): void
+    {
+        app(SettingsService::class)->set('theme', 'minimal', 'general');
+        $product = $this->product(['name' => 'Minimal Theme VPS']);
+
+        $this->get(route('client.products.show', $product))
+            ->assertOk()
+            ->assertSee('Minimal Theme VPS')
+            ->assertSee('IDC System')
+            ->assertSee('加入购物车');
     }
 
     public function test_out_of_stock_product_cannot_be_added_to_cart(): void

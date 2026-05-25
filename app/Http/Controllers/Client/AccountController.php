@@ -18,7 +18,7 @@ class AccountController extends Controller
 {
     public function profile()
     {
-        return view('client.account.profile', [
+        return view('theme::account.profile', [
             'client' => Auth::guard('client')->user(),
             'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->get(),
         ]);
@@ -60,7 +60,7 @@ class AccountController extends Controller
             $qrCodeUrl = $twoFactor->qrCodeUrl($client, $secret);
         }
 
-        return view('client.account.security', [
+        return view('theme::account.security', [
             'client' => $client,
             'loginLogs' => $client->loginLogs()->latest('logged_in_at')->limit(10)->get(),
             'twoFactorSecret' => $secret,
@@ -73,7 +73,7 @@ class AccountController extends Controller
         $client = Auth::guard('client')->user();
 
         if ($request->isMethod('get')) {
-            return view('client.account.recharge', [
+            return view('theme::account.recharge', [
                 'client' => $client,
             ]);
         }
@@ -92,7 +92,7 @@ class AccountController extends Controller
         $client = Auth::guard('client')->user();
         $affiliate = $affiliates->getOrCreate($client);
 
-        return view('client.account.affiliate', [
+        return view('theme::account.affiliate', [
             'client' => $client,
             'affiliate' => $affiliate->fresh(['commissions.referredClient', 'commissions.invoice']),
             'referralUrl' => route('client.register', ['ref' => $affiliate->code]),

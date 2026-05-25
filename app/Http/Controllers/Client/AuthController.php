@@ -22,7 +22,7 @@ class AuthController extends Controller
             return redirect()->route('client.dashboard');
         }
 
-        return view('client.auth.login', [
+        return view('theme::auth.login', [
             'captcha' => $this->captchaPayload(),
         ]);
     }
@@ -63,7 +63,7 @@ class AuthController extends Controller
             return redirect()->route('client.login');
         }
 
-        return view('client.auth.two-factor');
+        return view('theme::auth.two-factor');
     }
 
     public function verifyTwoFactor(Request $request, AuthService $auth, TwoFactorService $twoFactor)
@@ -99,7 +99,7 @@ class AuthController extends Controller
             $request->session()->put('affiliate_ref', (string) $request->query('ref'));
         }
 
-        return view('client.auth.register', [
+        return view('theme::auth.register', [
             'captcha' => $this->captchaPayload(),
         ]);
     }
@@ -172,7 +172,7 @@ class AuthController extends Controller
             return redirect()->route('client.dashboard');
         }
 
-        return view('client.auth.verify-email', [
+        return view('theme::auth.verify-email', [
             'client' => $client,
         ]);
     }

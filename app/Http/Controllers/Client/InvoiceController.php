@@ -23,7 +23,7 @@ class InvoiceController extends Controller
 
         $invoices = Invoice::query()->where('client_id', $client->id)->latest()->paginate(20);
 
-        return view('client.invoices.index', compact('invoices'));
+        return view('theme::invoices.index', compact('invoices'));
     }
 
     public function show(Invoice $invoice, PluginManager $plugins)
@@ -37,7 +37,7 @@ class InvoiceController extends Controller
         abort_unless((int) $invoice->client_id === (int) $client->id, 403);
         $invoice->load(['items', 'accounts', 'receipts']);
 
-        return view('client.invoices.show', [
+        return view('theme::invoices.show', [
             'invoice' => $invoice,
             'gateways' => $plugins->type('gateway')->enabled(),
             'client' => $client,

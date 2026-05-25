@@ -18,7 +18,7 @@ class DashboardController extends Controller
             return redirect()->route('client.login');
         }
 
-        return view('client.dashboard', [
+        return view('theme::dashboard', [
             'client' => $client,
             'hosts' => Host::query()->with('product')->where('client_id', $client->id)->latest()->limit(8)->get(),
             'invoices' => Invoice::query()->where('client_id', $client->id)->latest()->limit(8)->get(),

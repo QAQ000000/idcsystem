@@ -7,26 +7,29 @@ use App\Modules\Finance\Models\Currency;
 use App\Services\AdminAuditService;
 use App\Services\NotificationService;
 use App\Services\SettingsService;
+use App\Services\ThemeService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 class SettingController extends Controller
 {
-    public function index(SettingsService $settings)
+    public function index(SettingsService $settings, ThemeService $themes)
     {
         return view('admin.settings.index', [
             'settings' => $settings,
             'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->get(),
             'notificationEvents' => NotificationService::events(),
+            'themes' => $themes->available(),
         ]);
     }
 
-    public function update(Request $request, SettingsService $settings, AdminAuditService $audit)
+    public function update(Request $request, SettingsService $settings, ThemeService $themes, AdminAuditService $audit)
     {
         $data = $request->validate([
             'site_name' => ['required', 'string', 'max:100'],
             'site_url' => ['required', 'url', 'max:255'],
             'default_currency' => ['required', 'string', 'max:10', Rule::exists('currencies', 'code')],
+            'theme' => ['nullable', 'string', Rule::in($themes->available())],
             'maintenance_mode' => ['nullable', 'boolean'],
             'captcha_enabled' => ['nullable', 'boolean'],
             'auto_setup_policy' => ['required', 'string', Rule::in(['manual', 'paid', 'instant'])],
@@ -59,6 +62,7 @@ class SettingController extends Controller
             'site_name' => $data['site_name'],
             'site_url' => $data['site_url'],
             'default_currency' => $data['default_currency'],
+            'theme' => $data['theme'] ?? $settings->get('theme', 'default'),
             'maintenance_mode' => $request->boolean('maintenance_mode'),
             'captcha_enabled' => $request->boolean('captcha_enabled'),
         ], 'general');
@@ -101,6 +105,7 @@ class SettingController extends Controller
 
         $settings->setMany($this->notificationSettings($request), 'notification');
         $audit->record($request, 'settings.update', null, 'success', $data + [
+            'theme' => $data['theme'] ?? $settings->get('theme', 'default'),
             'maintenance_mode' => $request->boolean('maintenance_mode'),
             'captcha_enabled' => $request->boolean('captcha_enabled'),
             'mail_queue_enabled' => $request->boolean('mail_queue_enabled'),

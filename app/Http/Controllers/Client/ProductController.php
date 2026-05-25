@@ -16,7 +16,7 @@ class ProductController extends Controller
         $currency = $this->displayCurrency($currencies);
         $availableProducts = $products->getAvailableProducts();
 
-        return view('client.products.index', [
+        return view('theme::products.index', [
             'products' => $availableProducts,
             'currency' => $currency,
             'monthlyPrices' => $availableProducts
@@ -38,7 +38,7 @@ class ProductController extends Controller
         ]);
         $currency = $this->displayCurrency($currencies);
 
-        return view('client.products.show', [
+        return view('theme::products.show', [
             'product' => $product,
             'currency' => $currency,
             'prices' => collect(['monthly', 'quarterly', 'semiannually', 'annually'])

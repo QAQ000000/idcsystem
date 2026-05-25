@@ -14,7 +14,7 @@ class ContractController extends Controller
     {
         $client = Auth::guard('client')->user();
 
-        return view('client.contracts.index', [
+        return view('theme::contracts.index', [
             'contracts' => Contract::query()
                 ->with('order')
                 ->where('client_id', $client->id)
@@ -28,7 +28,7 @@ class ContractController extends Controller
         $this->authorizeContract($contract);
         $contract->load('order');
 
-        return view('client.contracts.show', compact('contract'));
+        return view('theme::contracts.show', compact('contract'));
     }
 
     public function sign(Request $request, Contract $contract, ContractService $contracts)

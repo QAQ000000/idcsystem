@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Services\SettingsService;
+use App\Services\ThemeService;
 use App\Modules\Admin\Models\AdminUser;
 use App\Modules\Finance\Models\Currency;
 use App\Modules\Product\Services\PricingService;
@@ -43,6 +44,7 @@ class SettingTest extends TestCase
                 'site_name' => 'IDC Cloud',
                 'site_url' => 'https://idc.example.com',
                 'default_currency' => 'CNY',
+                'theme' => 'minimal',
                 'maintenance_mode' => '1',
                 'auto_setup_policy' => 'paid',
                 'invoice_due_days' => 7,
@@ -59,10 +61,25 @@ class SettingTest extends TestCase
             ->assertRedirect(route('admin.settings.index'));
 
         $this->assertDatabaseHas('settings', ['key' => 'site_name', 'value' => 'IDC Cloud', 'group' => 'general']);
+        $this->assertDatabaseHas('settings', ['key' => 'theme', 'value' => 'minimal', 'group' => 'general']);
         $this->assertDatabaseHas('settings', ['key' => 'auto_setup_policy', 'value' => 'paid', 'group' => 'order']);
         $this->assertDatabaseHas('settings', ['key' => 'billing_due_days', 'value' => '7', 'group' => 'billing']);
         $this->assertDatabaseHas('settings', ['key' => 'billing_reminder_days', 'value' => '5', 'group' => 'billing']);
         $this->assertDatabaseHas('settings', ['key' => 'sms_signature', 'value' => 'IDC', 'group' => 'sms']);
+    }
+
+    public function test_theme_service_lists_available_themes_and_falls_back_to_default(): void
+    {
+        $themes = app(ThemeService::class);
+
+        $this->assertContains('default', $themes->available());
+        $this->assertContains('minimal', $themes->available());
+
+        app(SettingsService::class)->set('theme', 'missing-theme', 'general');
+        $this->assertSame('default', $themes->active());
+
+        app(SettingsService::class)->set('theme', 'minimal', 'general');
+        $this->assertSame('minimal', $themes->active());
     }
 
     public function test_billing_config_prefers_saved_settings(): void

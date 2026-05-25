@@ -21,7 +21,7 @@ class TicketController extends Controller
 
         $tickets = Ticket::query()->with(['department', 'status'])->where('client_id', $client->id)->latest()->paginate(20);
 
-        return view('client.tickets.index', compact('tickets'));
+        return view('theme::tickets.index', compact('tickets'));
     }
 
     public function create()
@@ -30,7 +30,7 @@ class TicketController extends Controller
             return redirect()->route('client.login');
         }
 
-        return view('client.tickets.create', [
+        return view('theme::tickets.create', [
             'departments' => TicketDepartment::query()
                 ->where('allow_client_open', true)
                 ->orderBy('sort_order')
@@ -74,7 +74,7 @@ class TicketController extends Controller
         abort_unless((int) $ticket->client_id === (int) $client->id, 403);
         $ticket->load(['department', 'status', 'replies']);
 
-        return view('client.tickets.show', compact('ticket'));
+        return view('theme::tickets.show', compact('ticket'));
     }
 
     public function reply(Request $request, Ticket $ticket, TicketService $tickets)

@@ -27,7 +27,7 @@ class CartController extends Controller
             ? $currencies->all()->firstWhere('id', (int) $client->currency_id) ?? $currencies->default()
             : $currencies->default();
 
-        return view('client.cart.index', [
+        return view('theme::cart.index', [
             'cart' => $cart->getCart($client),
             'currency' => $currency,
             'currencies' => $currencies,

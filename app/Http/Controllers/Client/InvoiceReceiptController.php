@@ -18,7 +18,7 @@ class InvoiceReceiptController extends Controller
         abort_unless((int) $invoice->client_id === (int) $client->id, 403);
         abort_unless($this->canApply($invoice), 403);
 
-        return view('client.invoices.receipt', [
+        return view('theme::invoices.receipt', [
             'invoice' => $invoice,
             'client' => $client,
         ]);
