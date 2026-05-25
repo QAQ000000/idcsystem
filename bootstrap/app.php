@@ -5,7 +5,6 @@ use App\Http\Middleware\CheckClientStatus;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
-use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Route;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -21,11 +20,6 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
-    ->withSchedule(function (Schedule $schedule): void {
-        $schedule->command('host:sync-usage')->everyFiveMinutes()->withoutOverlapping();
-        $schedule->command('host:send-due-reminders --days=7')->daily()->withoutOverlapping();
-        $schedule->command('notifications:recover-stale --minutes=15')->everyTenMinutes()->withoutOverlapping();
-    })
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'admin.status' => CheckAdminStatus::class,

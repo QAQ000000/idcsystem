@@ -7,6 +7,14 @@
 <a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
 </p>
 
+## IDCSystem Deployment
+
+IDCSystem relies on Laravel Scheduler for recurring invoices, overdue suspension, host reminders, usage sync, and stale notification recovery. Add one cron entry on the server:
+
+```bash
+* * * * * cd /path/to/idcsystem && php artisan schedule:run >> /dev/null 2>&1
+```
+
 ## About Laravel
 
 Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:

@@ -184,6 +184,21 @@ class SystemTaskTest extends TestCase
         ]);
     }
 
+    public function test_billing_commands_write_system_task_logs(): void
+    {
+        $this->artisan('billing:generate-invoices')->assertExitCode(0);
+        $this->artisan('billing:suspend-overdue')->assertExitCode(0);
+
+        $this->assertDatabaseHas('system_task_logs', [
+            'task_name' => 'billing:generate-invoices',
+            'status' => 'success',
+        ]);
+        $this->assertDatabaseHas('system_task_logs', [
+            'task_name' => 'billing:suspend-overdue',
+            'status' => 'success',
+        ]);
+    }
+
     public function test_admin_can_view_system_task_logs(): void
     {
         SystemTaskLog::query()->create([
@@ -219,6 +234,24 @@ class SystemTaskTest extends TestCase
             ->assertOk()
             ->assertSee('notifications:recover-stale')
             ->assertSee('{"email":1,"sms":1}');
+    }
+
+    public function test_admin_system_task_filter_includes_billing_tasks(): void
+    {
+        SystemTaskLog::query()->create([
+            'task_name' => 'billing:generate-invoices',
+            'status' => 'success',
+            'started_at' => now(),
+            'finished_at' => now(),
+            'duration_ms' => 10,
+            'output' => '{"generated":0}',
+        ]);
+
+        $this->actingAs($this->admin(), 'admin')
+            ->get(route('admin.system-tasks.index', ['task_name' => 'billing:generate-invoices']))
+            ->assertOk()
+            ->assertSee('billing:generate-invoices')
+            ->assertSee('{"generated":0}');
     }
 
     public function test_admin_system_task_filters_ignore_array_query_values(): void
@@ -262,6 +295,8 @@ class SystemTaskTest extends TestCase
     {
         $this->artisan('schedule:list')
             ->assertExitCode(0)
+            ->expectsOutputToContain('billing:generate-invoices')
+            ->expectsOutputToContain('billing:suspend-overdue')
             ->expectsOutputToContain('host:sync-usage')
             ->expectsOutputToContain('host:send-due-reminders')
             ->expectsOutputToContain('notifications:recover-stale');

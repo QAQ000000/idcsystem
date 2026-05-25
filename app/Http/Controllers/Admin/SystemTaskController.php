@@ -25,6 +25,8 @@ class SystemTaskController extends Controller
         return view('admin.system-tasks.index', [
             'logs' => $logs,
             'taskNames' => [
+                'billing:generate-invoices',
+                'billing:suspend-overdue',
                 'host:sync-usage',
                 'host:send-due-reminders',
                 'notifications:recover-stale',

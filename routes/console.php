@@ -2,6 +2,7 @@
 
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -53,3 +54,42 @@ Artisan::command('notifications:recover-stale {--minutes=15}', function () {
     $this->info($task->output ?: 'Notification recovery completed');
     return 0;
 })->purpose('Recover stale notification logs stuck in processing status');
+
+Artisan::command('billing:generate-invoices', function () {
+    $task = app(\App\Services\SystemTaskService::class)->run('billing:generate-invoices', function () {
+        return [
+            'generated' => app(\App\Modules\Finance\Services\BillingService::class)->generateRecurringInvoices(),
+        ];
+    });
+
+    if ($task->status === 'failed') {
+        $this->error($task->error ?: 'Recurring invoice generation failed');
+        return 1;
+    }
+
+    $this->info($task->output ?: 'Recurring invoice generation completed');
+    return 0;
+})->purpose('Generate recurring invoices for auto-renew hosts');
+
+Artisan::command('billing:suspend-overdue', function () {
+    $task = app(\App\Services\SystemTaskService::class)->run('billing:suspend-overdue', function () {
+        return [
+            'suspended' => app(\App\Modules\Finance\Services\BillingService::class)->suspendOverdueHosts(),
+        ];
+    });
+
+    if ($task->status === 'failed') {
+        $this->error($task->error ?: 'Overdue host suspension failed');
+        return 1;
+    }
+
+    $this->info($task->output ?: 'Overdue host suspension completed');
+    return 0;
+})->purpose('Suspend hosts with overdue unpaid invoices');
+
+// 核心业务调度：由系统 cron 每分钟触发 schedule:run 后按频率执行。
+Schedule::command('billing:generate-invoices')->dailyAt('02:00');
+Schedule::command('billing:suspend-overdue')->dailyAt('03:00');
+Schedule::command('host:send-due-reminders')->dailyAt('09:00');
+Schedule::command('host:sync-usage')->hourly();
+Schedule::command('notifications:recover-stale')->everyFifteenMinutes();
