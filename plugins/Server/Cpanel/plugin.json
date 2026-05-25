@@ -1,0 +1,16 @@
+{
+    "name": "cpanel",
+    "title": "cPanel/WHM",
+    "type": "server",
+    "version": "1.0.0",
+    "author": "系统内置",
+    "description": "通过 WHM JSON API 自动开通、暂停、解除暂停、终止和查询 cPanel 虚拟主机账户。",
+    "entry": "CpanelPlugin",
+    "config_schema": [
+        {"key": "host", "label": "WHM 主机地址", "type": "text", "required": true},
+        {"key": "port", "label": "WHM 端口", "type": "number", "default": "2087"},
+        {"key": "username", "label": "WHM 用户名", "type": "text", "required": true},
+        {"key": "api_token", "label": "WHM API Token", "type": "password", "required": true},
+        {"key": "ssl", "label": "启用 SSL", "type": "boolean", "default": true}
+    ]
+}

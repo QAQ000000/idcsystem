@@ -16,6 +16,7 @@ use App\Modules\User\Models\Client;
 use App\Plugins\Core\PluginManager;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -35,6 +36,120 @@ class ServerModuleTest extends TestCase
 
         $this->assertTrue($manager->enable('mock_server'));
         $this->assertDatabaseHas('plugins', ['name' => 'mock_server', 'status' => 1]);
+    }
+
+    public function test_cpanel_plugin_can_be_scanned_installed_and_enabled(): void
+    {
+        $manager = app(PluginManager::class);
+        $scan = collect($manager->scan('server'));
+
+        $this->assertTrue($scan->contains(fn (array $plugin) => $plugin['name'] === 'cpanel'));
+        $this->assertTrue($manager->install('server', 'cpanel'));
+        $this->assertDatabaseHas('plugins', [
+            'name' => 'cpanel',
+            'title' => 'cPanel/WHM',
+            'type' => 'server',
+            'status' => 0,
+        ]);
+
+        $this->assertTrue($manager->enable('cpanel'));
+        $this->assertDatabaseHas('plugins', ['name' => 'cpanel', 'status' => 1]);
+    }
+
+    public function test_cpanel_plugin_creates_account_through_whm_api(): void
+    {
+        Http::fake([
+            'https://whm.example.test:2087/json-api/createacct' => Http::response([
+                'metadata' => ['result' => 1, 'reason' => 'OK'],
+            ]),
+        ]);
+
+        $result = (new \Plugins\Server\Cpanel\src\CpanelPlugin())->createAccount([
+            'domain' => 'example.com',
+            'password' => 'Secret123!',
+            'plan' => 'basic',
+            'server_config' => $this->cpanelConfig(),
+        ]);
+
+        $this->assertTrue($result['success']);
+        $this->assertMatchesRegularExpression('/^example[a-z0-9]{4}$/', $result['username']);
+        $this->assertSame('Secret123!', $result['password']);
+
+        Http::assertSent(fn ($request) => $request->url() === 'https://whm.example.test:2087/json-api/createacct'
+            && $request->hasHeader('Authorization', 'whm root:token-123')
+            && ($request->data()['domain'] ?? null) === 'example.com'
+            && ($request->data()['plan'] ?? null) === 'basic'
+            && ($request->data()['password'] ?? null) === 'Secret123!');
+    }
+
+    public function test_cpanel_plugin_maps_lifecycle_actions_to_whm_api(): void
+    {
+        Http::fake([
+            'https://whm.example.test:2087/json-api/suspendacct' => Http::response(['metadata' => ['result' => 1]]),
+            'https://whm.example.test:2087/json-api/unsuspendacct' => Http::response(['metadata' => ['result' => 1]]),
+            'https://whm.example.test:2087/json-api/removeacct' => Http::response(['metadata' => ['result' => 1]]),
+            'https://whm.example.test:2087/json-api/passwd' => Http::response(['metadata' => ['result' => 1]]),
+        ]);
+
+        $plugin = new \Plugins\Server\Cpanel\src\CpanelPlugin();
+        $params = [
+            'username' => 'acctuser',
+            'server_config' => $this->cpanelConfig(),
+        ];
+
+        $this->assertTrue($plugin->suspendAccount($params + ['reason' => 'overdue']));
+        $this->assertTrue($plugin->unsuspendAccount($params));
+        $this->assertTrue($plugin->terminateAccount($params));
+        $this->assertTrue($plugin->changePassword($params + ['new_password' => 'NewSecret123!']));
+
+        Http::assertSentCount(4);
+    }
+
+    public function test_cpanel_plugin_normalizes_usage_stats_to_percentages(): void
+    {
+        Http::fake([
+            'https://whm.example.test:2087/json-api/accountsummary*' => Http::response([
+                'acct' => [[
+                    'diskused' => 50,
+                    'disklimit' => 200,
+                    'totalbytes' => 1024,
+                    'bwlimit' => 2048,
+                ]],
+            ]),
+        ]);
+
+        $stats = (new \Plugins\Server\Cpanel\src\CpanelPlugin())->getUsageStats([
+            'username' => 'acctuser',
+            'server_config' => $this->cpanelConfig(),
+        ]);
+
+        $this->assertSame(0.0, $stats['cpu']);
+        $this->assertSame(0.0, $stats['memory']);
+        $this->assertSame(25.0, $stats['disk']);
+        $this->assertSame(50.0, $stats['bandwidth']);
+    }
+
+    public function test_cpanel_plugin_returns_safe_failure_values_when_whm_fails(): void
+    {
+        Http::fake(fn () => throw new \RuntimeException('network failure'));
+
+        $plugin = new \Plugins\Server\Cpanel\src\CpanelPlugin();
+        $params = [
+            'username' => 'acctuser',
+            'domain' => 'example.com',
+            'password' => 'Secret123!',
+            'plan' => 'basic',
+            'server_config' => $this->cpanelConfig(),
+        ];
+
+        $this->assertFalse($plugin->createAccount($params)['success']);
+        $this->assertFalse($plugin->suspendAccount($params));
+        $this->assertSame([
+            'cpu' => 0.0,
+            'memory' => 0.0,
+            'disk' => 0.0,
+            'bandwidth' => 0.0,
+        ], $plugin->getUsageStats($params));
     }
 
     public function test_admin_can_bind_product_to_server_type(): void
@@ -760,6 +875,17 @@ class ServerModuleTest extends TestCase
         $manager->install('server', 'mock_server');
         $manager->enable('mock_server');
         Plugin::query()->where('name', 'mock_server')->update(['config' => $config]);
+    }
+
+    private function cpanelConfig(): array
+    {
+        return [
+            'host' => 'whm.example.test',
+            'port' => 2087,
+            'username' => 'root',
+            'api_token' => 'token-123',
+            'ssl' => true,
+        ];
     }
 
     private function installManualPay(): void
