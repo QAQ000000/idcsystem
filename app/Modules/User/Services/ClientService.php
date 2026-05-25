@@ -100,7 +100,7 @@ class ClientService
 
         return DB::transaction(function () use ($client, $amount, $description) {
             $lockedClient = Client::query()->whereKey($client->id)->lockForUpdate()->first();
-            if (!$lockedClient || !$this->canAdjustCredit($lockedClient) || !$lockedClient->hasEnoughCredit($amount)) {
+            if (!$lockedClient || !$this->canAdjustCredit($lockedClient) || !$this->canAfford($lockedClient, $amount)) {
                 return false;
             }
 
@@ -117,6 +117,36 @@ class ClientService
 
             return true;
         });
+    }
+
+    /**
+     * 检查客户余额加信用额度是否足够支付指定金额。
+     */
+    public function canAfford(Client $client, float $amount): bool
+    {
+        $amount = $this->normalizeCreditAmount($amount);
+
+        if ($amount === null) {
+            return false;
+        }
+
+        $available = round((float) $client->credit + (float) $client->credit_limit, 2);
+
+        return $available >= $amount;
+    }
+
+    /**
+     * 更新客户信用额度，信用额度不能为负数。
+     */
+    public function updateCreditLimit(Client $client, float $limit): bool
+    {
+        $limit = round($limit, 2);
+
+        if ($limit < 0 || $limit > self::MAX_CREDIT_ADJUSTMENT_AMOUNT) {
+            return false;
+        }
+
+        return (bool) $client->update(['credit_limit' => $limit]);
     }
 
     private function canAdjustCredit(Client $client): bool

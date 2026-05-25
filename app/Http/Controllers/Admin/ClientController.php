@@ -7,6 +7,7 @@ use App\Modules\User\Models\Client;
 use App\Modules\User\Services\ClientService;
 use App\Services\AdminAuditService;
 use Illuminate\Http\Request;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Validation\Rule;
 
 class ClientController extends Controller
@@ -111,6 +112,29 @@ class ClientController extends Controller
         }
 
         return redirect()->route('admin.clients.show', $client)->with('status', '余额已充值');
+    }
+
+    public function updateCreditLimit(
+        Request $request,
+        Client $client,
+        ClientService $clients,
+        AdminAuditService $audit
+    ): RedirectResponse {
+        $data = $request->validate([
+            'credit_limit' => ['required', 'numeric', 'min:0', 'max:99999999.99'],
+        ]);
+
+        $limit = (float) $data['credit_limit'];
+        $success = $clients->updateCreditLimit($client, $limit);
+        $audit->record($request, 'client.update_credit_limit', $client, $success ? 'success' : 'failed', [
+            'credit_limit' => round($limit, 2),
+        ], $success ? null : '信用额度更新失败');
+
+        if (!$success) {
+            return redirect()->route('admin.clients.show', $client)->with('error', '信用额度更新失败');
+        }
+
+        return redirect()->route('admin.clients.show', $client)->with('status', '信用额度已更新');
     }
 
     private function queryString(Request $request, string $key): ?string

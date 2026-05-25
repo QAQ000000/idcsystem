@@ -93,4 +93,9 @@ class Client extends Authenticatable
 
         return $this->credit >= $amount;
     }
+
+    public function availableCredit(): float
+    {
+        return round((float) $this->credit + (float) $this->credit_limit, 2);
+    }
 }

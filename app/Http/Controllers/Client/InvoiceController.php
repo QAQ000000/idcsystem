@@ -7,6 +7,7 @@ use App\Plugins\Core\PluginManager;
 use App\Modules\Finance\Models\Invoice;
 use App\Modules\Finance\Services\InvoiceService;
 use App\Modules\Finance\Services\PaymentService;
+use App\Modules\User\Services\ClientService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -87,7 +88,7 @@ class InvoiceController extends Controller
             return redirect()->route('client.invoices.show', $invoice)->with('error', '当前账单状态不允许余额支付');
         }
 
-        if (!$client->fresh()->hasEnoughCredit((float) $invoice->total)) {
+        if (!app(ClientService::class)->canAfford($client->fresh(), (float) $invoice->total)) {
             return redirect()->route('client.invoices.show', $invoice)->with('error', '账户余额不足，无法支付该账单');
         }
 

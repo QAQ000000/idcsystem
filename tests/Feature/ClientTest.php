@@ -315,13 +315,43 @@ class ClientTest extends TestCase
     public function test_credit_deduction_uses_locked_fresh_balance(): void
     {
         $client = $this->client();
-        $client->update(['credit' => 100]);
+        $client->update(['credit' => 100, 'credit_limit' => 0]);
         $staleClient = $client->fresh();
         $client->update(['credit' => 20]);
 
         $this->assertFalse(app(ClientService::class)->deductCredit($staleClient, 50, 'stale balance deduct'));
         $this->assertSame('20.00', (string) $client->fresh()->credit);
         $this->assertDatabaseCount('credits', 0);
+    }
+
+    public function test_client_service_allows_credit_limit_deduction_without_exceeding_limit(): void
+    {
+        $client = $this->client();
+        $client->update(['credit' => 20, 'credit_limit' => 50]);
+        $service = app(ClientService::class);
+
+        $this->assertTrue($service->canAfford($client->fresh(), 70));
+        $this->assertFalse($service->canAfford($client->fresh(), 70.01));
+        $this->assertTrue($service->deductCredit($client->fresh(), 70, 'credit limit deduct'));
+        $this->assertSame('-50.00', (string) $client->fresh()->credit);
+        $this->assertFalse($service->deductCredit($client->fresh(), 0.01, 'over credit limit'));
+    }
+
+    public function test_invoice_can_be_paid_with_credit_limit(): void
+    {
+        $client = $this->client();
+        $client->update(['credit' => 20, 'credit_limit' => 50]);
+        $invoice = $this->createInvoice($client, 'INV-CREDIT-LIMIT');
+        $invoice->update(['subtotal' => 70, 'total' => 70]);
+
+        $this->assertTrue(app(\App\Modules\Finance\Services\InvoiceService::class)->payWithCredit($invoice));
+        $this->assertSame('Paid', $invoice->fresh()->status);
+        $this->assertSame('-50.00', (string) $client->fresh()->credit);
+        $this->assertDatabaseHas('accounts', [
+            'invoice_id' => $invoice->id,
+            'payment_method' => 'credit',
+            'amount' => 70,
+        ]);
     }
 
     public function test_credit_addition_uses_locked_fresh_client_status(): void
@@ -393,6 +423,40 @@ class ClientTest extends TestCase
             'result' => 'failed',
             'error' => '客户状态不允许充值',
         ]);
+    }
+
+    public function test_admin_can_update_client_credit_limit(): void
+    {
+        $admin = $this->admin();
+        $client = $this->client();
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.clients.credit-limit', $client), [
+                'credit_limit' => 250.55,
+            ])
+            ->assertRedirect(route('admin.clients.show', $client))
+            ->assertSessionHas('status', '信用额度已更新');
+
+        $this->assertSame('250.55', (string) $client->fresh()->credit_limit);
+        $this->assertDatabaseHas('admin_action_logs', [
+            'action' => 'client.update_credit_limit',
+            'target_id' => $client->id,
+            'result' => 'success',
+        ]);
+    }
+
+    public function test_client_invoice_page_allows_credit_limit_payment_when_balance_is_short(): void
+    {
+        $client = $this->client();
+        $client->update(['credit' => 20, 'credit_limit' => 50]);
+        $invoice = $this->createInvoice($client, 'INV-CREDIT-LIMIT-VIEW');
+        $invoice->update(['subtotal' => 70, 'total' => 70]);
+
+        $this->actingAs($client, 'client')
+            ->get(route('client.invoices.show', $invoice))
+            ->assertOk()
+            ->assertSee('使用信用额度支付')
+            ->assertSee('当前余额不足，使用信用额度支付后将产生欠款');
     }
 
     public function test_admin_add_credit_rejects_amount_larger_than_credit_log_capacity(): void

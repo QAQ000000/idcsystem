@@ -63,6 +63,9 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::post('/clients/{client}/credit', [ClientController::class, 'addCredit'])
         ->middleware('admin.permission:client.credit')
         ->name('clients.add-credit');
+    Route::post('/clients/{client}/credit-limit', [ClientController::class, 'updateCreditLimit'])
+        ->middleware('admin.permission:client.credit')
+        ->name('clients.credit-limit');
     Route::get('/clients', [ClientController::class, 'index'])
         ->middleware('admin.permission:client.view')
         ->name('clients.index');

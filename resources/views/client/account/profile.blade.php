@@ -13,6 +13,20 @@
         <div class="mt-1 text-2xl font-semibold">{{ $client->credit }}</div>
     </div>
 
+    <section class="mb-6 rounded bg-white p-6 shadow-sm">
+        <h2 class="font-semibold">账户额度</h2>
+        <div class="mt-3 grid gap-4 text-sm md:grid-cols-3">
+            <div>余额：{{ $client->credit }}</div>
+            <div>信用额度：{{ $client->credit_limit }}</div>
+            <div>可用额度：{{ number_format($client->availableCredit(), 2, '.', '') }}</div>
+        </div>
+        @if ((float) $client->credit < 0)
+            <div class="mt-3 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                当前欠款：{{ number_format(abs((float) $client->credit), 2, '.', '') }}，充值后将优先抵扣欠款。
+            </div>
+        @endif
+    </section>
+
     <form method="post" action="{{ route('client.account.profile.update') }}" class="rounded bg-white p-6 shadow-sm">
         @csrf
         @method('PUT')

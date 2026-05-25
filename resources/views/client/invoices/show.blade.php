@@ -23,12 +23,21 @@
 
         @if ($invoice->status === 'Unpaid')
             <div class="mt-5 rounded border border-zinc-200 bg-zinc-50 p-4 text-sm">
+                @php($canPayWithAvailableCredit = app(\App\Modules\User\Services\ClientService::class)->canAfford($client, (float) $invoice->total))
+                @php($willUseCreditLimit = (float) $client->credit < (float) $invoice->total && $canPayWithAvailableCredit)
                 <div class="font-medium text-zinc-900">余额支付</div>
-                <div class="mt-1 text-zinc-600">当前余额：{{ $client->credit }}，应付金额：{{ $invoice->total }}</div>
-                @if ($client->hasEnoughCredit((float) $invoice->total))
+                <div class="mt-1 text-zinc-600">当前余额：{{ $client->credit }}，信用额度：{{ $client->credit_limit }}，可用额度：{{ number_format($client->availableCredit(), 2, '.', '') }}，应付金额：{{ $invoice->total }}</div>
+                @if ($willUseCreditLimit)
+                    <div class="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-amber-700">
+                        当前余额不足，使用信用额度支付后将产生欠款。
+                    </div>
+                @endif
+                @if ($canPayWithAvailableCredit)
                     <form method="post" action="{{ route('client.invoices.pay-with-credit', $invoice) }}" class="mt-3" onsubmit="const button = this.querySelector('[data-credit-pay-submit]'); if (button) { button.disabled = true; button.textContent = '处理中'; }">
                         @csrf
-                        <button data-credit-pay-submit class="rounded bg-emerald-700 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-60">使用余额支付</button>
+                        <button data-credit-pay-submit class="rounded bg-emerald-700 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-60">
+                            {{ $willUseCreditLimit ? '使用信用额度支付' : '使用余额支付' }}
+                        </button>
                     </form>
                 @else
                     <div class="mt-3 text-zinc-500">余额不足，暂不能使用余额支付该账单。</div>

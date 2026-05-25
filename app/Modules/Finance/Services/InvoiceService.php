@@ -302,7 +302,7 @@ class InvoiceService
                 }
 
                 $lockedClient = Client::query()->whereKey($client->id)->lockForUpdate()->first();
-                if (!$lockedClient || !$lockedClient->hasEnoughCredit((float) $lockedInvoice->total)) {
+                if (!$lockedClient || !app(ClientService::class)->canAfford($lockedClient, (float) $lockedInvoice->total)) {
                     return false;
                 }
 

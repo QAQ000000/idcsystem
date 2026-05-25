@@ -43,12 +43,26 @@
                 <div>状态：{{ $client->status }}</div>
                 <div>余额：{{ $client->credit }}</div>
                 <div>信用额度：{{ $client->credit_limit }}</div>
+                <div>可用额度：{{ number_format($client->availableCredit(), 2, '.', '') }}</div>
                 <div>邮箱：{{ $client->email }}</div>
                 <div>
                     未完结服务：
                     {{ $client->hosts->whereIn('status', \App\Modules\User\Services\ClientService::BLOCKING_HOST_STATUSES)->count() }}
                 </div>
             </div>
+            @if ($canAdmin('client.credit'))
+                <form method="post" action="{{ route('admin.clients.credit-limit', $client) }}" class="mt-5 border-t pt-5">
+                    @csrf
+                    <label class="block text-sm">
+                        <span class="font-medium text-slate-700">修改信用额度</span>
+                        <input class="mt-1 w-full rounded border px-3 py-2" type="number" name="credit_limit" min="0" max="99999999.99" step="0.01" value="{{ old('credit_limit', $client->credit_limit) }}" required>
+                    </label>
+                    @error('credit_limit')
+                        <div class="mt-2 text-sm text-red-600">{{ $message }}</div>
+                    @enderror
+                    <button class="mt-3 rounded bg-slate-900 px-4 py-2 text-sm text-white">保存信用额度</button>
+                </form>
+            @endif
         </section>
     </div>
 
