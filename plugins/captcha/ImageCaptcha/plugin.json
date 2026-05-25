@@ -1,0 +1,13 @@
+{
+  "name": "image_captcha",
+  "title": "图形验证码",
+  "type": "captcha",
+  "version": "1.0.0",
+  "author": "系统内置",
+  "description": "使用 PHP GD 生成登录和注册图形验证码",
+  "entry": "Plugins\\Captcha\\ImageCaptcha\\src\\ImageCaptchaPlugin",
+  "config_schema": [
+    {"key": "length", "label": "验证码长度", "type": "number", "min": 4, "max": 8},
+    {"key": "ttl", "label": "有效秒数", "type": "number", "min": 60, "max": 600}
+  ]
+}

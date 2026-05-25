@@ -28,6 +28,7 @@ class SettingController extends Controller
             'site_url' => ['required', 'url', 'max:255'],
             'default_currency' => ['required', 'string', 'max:10', Rule::exists('currencies', 'code')],
             'maintenance_mode' => ['nullable', 'boolean'],
+            'captcha_enabled' => ['nullable', 'boolean'],
             'auto_setup_policy' => ['required', 'string', Rule::in(['manual', 'paid', 'instant'])],
             'invoice_due_days' => ['required', 'integer', 'min:0', 'max:365'],
             'renewal_reminder_days' => ['required', 'integer', 'min:0', 'max:365'],
@@ -56,6 +57,7 @@ class SettingController extends Controller
             'site_url' => $data['site_url'],
             'default_currency' => $data['default_currency'],
             'maintenance_mode' => $request->boolean('maintenance_mode'),
+            'captcha_enabled' => $request->boolean('captcha_enabled'),
         ], 'general');
         $this->syncDefaultCurrency($data['default_currency']);
 
@@ -89,6 +91,7 @@ class SettingController extends Controller
         $settings->setMany($this->notificationSettings($request), 'notification');
         $audit->record($request, 'settings.update', null, 'success', $data + [
             'maintenance_mode' => $request->boolean('maintenance_mode'),
+            'captcha_enabled' => $request->boolean('captcha_enabled'),
             'mail_queue_enabled' => $request->boolean('mail_queue_enabled'),
             'sms_queue_enabled' => $request->boolean('sms_queue_enabled'),
         ]);

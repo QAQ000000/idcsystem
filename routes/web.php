@@ -10,6 +10,7 @@ use App\Http\Controllers\Client\ProductController;
 use App\Http\Controllers\Client\TicketController;
 use App\Http\Controllers\Install\InstallController;
 use Illuminate\Support\Facades\Route;
+use Plugins\Captcha\ImageCaptcha\src\CaptchaController;
 
 Route::prefix('install')->name('install.')->group(function (): void {
     Route::get('/', [InstallController::class, 'index'])->name('index');
@@ -30,6 +31,10 @@ Route::get('/register', [AuthController::class, 'showRegisterForm'])->name('clie
 Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:5,1')->name('client.register.store');
 Route::get('/oauth/wechat', [AuthController::class, 'redirectToWechatOAuth'])->middleware('throttle:10,1')->name('oauth.wechat.redirect');
 Route::get('/oauth/wechat/callback', [AuthController::class, 'handleWechatOAuthCallback'])->middleware('throttle:10,1')->name('oauth.wechat.callback');
+Route::get('/captcha/image/{key}', [CaptchaController::class, 'show'])
+    ->where('key', '[A-Za-z0-9]{32,80}')
+    ->middleware('throttle:60,1')
+    ->name('captcha.image');
 Route::post('/logout', [AuthController::class, 'logout'])->name('client.logout');
 Route::get('/email/verify', [AuthController::class, 'verificationNotice'])
     ->middleware('auth:client')

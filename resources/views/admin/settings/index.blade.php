@@ -39,6 +39,10 @@
                     <input type="checkbox" name="maintenance_mode" value="1" @checked((bool) $oldText('maintenance_mode', $settings->get('maintenance_mode', false)))>
                     维护模式
                 </label>
+                <label class="mt-7 inline-flex items-center gap-2 text-sm">
+                    <input type="checkbox" name="captcha_enabled" value="1" @checked((bool) $oldText('captcha_enabled', $settings->get('captcha_enabled', false)))>
+                    登录/注册图形验证码
+                </label>
             </div>
         </section>
 

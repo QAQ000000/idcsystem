@@ -276,6 +276,72 @@ class AuthWorkflowTest extends TestCase
         $this->assertDatabaseMissing('client_oauth', ['provider' => 'wechat']);
     }
 
+    public function test_image_captcha_plugin_can_be_scanned_installed_and_enabled(): void
+    {
+        $manager = app(PluginManager::class);
+        $scan = collect($manager->scan('captcha'));
+
+        $this->assertTrue($scan->contains(fn (array $plugin) => $plugin['name'] === 'image_captcha'));
+        $this->assertTrue($manager->install('captcha', 'image_captcha'));
+        $this->assertDatabaseHas('plugins', ['name' => 'image_captcha', 'type' => 'captcha', 'status' => 0]);
+        $this->assertTrue($manager->enable('image_captcha'));
+        $this->assertDatabaseHas('plugins', ['name' => 'image_captcha', 'status' => 1]);
+    }
+
+    public function test_enabled_captcha_blocks_login_with_invalid_code(): void
+    {
+        $this->installImageCaptcha();
+        app(\App\Services\SettingsService::class)->set('captcha_enabled', true, 'general');
+
+        Client::query()->create([
+            'username' => 'captcha-login',
+            'email' => 'captcha-login@example.com',
+            'password' => Hash::make('client123456'),
+            'status' => 1,
+            'email_verified_at' => now(),
+        ]);
+
+        $this->get(route('client.login'))
+            ->assertOk()
+            ->assertSee('captcha_key', false)
+            ->assertSee('/captcha/image/', false);
+
+        $this->post(route('client.login.store'), [
+            'email' => 'captcha-login@example.com',
+            'password' => 'client123456',
+            'captcha_key' => 'missing-key',
+            'captcha_code' => 'WRONG',
+        ])->assertSessionHasErrors('captcha_code');
+
+        $this->assertGuest('client');
+    }
+
+    public function test_enabled_captcha_blocks_register_with_invalid_code(): void
+    {
+        $this->installImageCaptcha();
+        app(\App\Services\SettingsService::class)->set('captcha_enabled', true, 'general');
+
+        $this->post(route('client.register.store'), [
+            'username' => 'captcha-register',
+            'email' => 'captcha-register@example.com',
+            'password' => 'client123456',
+            'password_confirmation' => 'client123456',
+            'captcha_key' => 'missing-key',
+            'captcha_code' => 'WRONG',
+        ])->assertSessionHasErrors('captcha_code');
+
+        $this->assertDatabaseMissing('clients', ['email' => 'captcha-register@example.com']);
+    }
+
+    public function test_image_captcha_route_returns_png(): void
+    {
+        $this->installImageCaptcha();
+
+        $this->get(route('captcha.image', ['key' => str_repeat('a', 40)]))
+            ->assertOk()
+            ->assertHeader('Content-Type', 'image/png');
+    }
+
     public function test_admin_product_pricing_page_uses_selected_currency(): void
     {
         $this->seed();
@@ -433,6 +499,19 @@ class AuthWorkflowTest extends TestCase
                     'openid' => 'wechat-openid-default',
                     'nickname' => 'Wechat User',
                 ], JSON_UNESCAPED_UNICODE),
+            ],
+        ]);
+    }
+
+    private function installImageCaptcha(array $config = []): void
+    {
+        $manager = app(PluginManager::class);
+        $manager->install('captcha', 'image_captcha');
+        $manager->enable('image_captcha');
+        Plugin::query()->where('name', 'image_captcha')->update([
+            'config' => $config + [
+                'length' => 5,
+                'ttl' => 300,
             ],
         ]);
     }

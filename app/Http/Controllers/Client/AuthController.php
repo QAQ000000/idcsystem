@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Modules\User\Models\Client;
 use App\Modules\User\Services\AuthService;
 use App\Modules\User\Services\TwoFactorService;
+use App\Plugins\Contracts\CaptchaInterface;
 use App\Plugins\Facades\Plugin;
+use App\Services\SettingsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
@@ -20,7 +22,9 @@ class AuthController extends Controller
             return redirect()->route('client.dashboard');
         }
 
-        return view('client.auth.login');
+        return view('client.auth.login', [
+            'captcha' => $this->captchaPayload(),
+        ]);
     }
 
     public function login(Request $request, AuthService $auth)
@@ -29,6 +33,10 @@ class AuthController extends Controller
             'email' => ['required', 'email'],
             'password' => ['required', 'string'],
         ]);
+
+        if (!$this->verifyCaptcha($request)) {
+            return back()->withErrors(['captcha_code' => '验证码不正确。'])->onlyInput('email');
+        }
 
         $client = $auth->login($data['email'], $data['password']);
 
@@ -87,7 +95,9 @@ class AuthController extends Controller
 
     public function showRegisterForm()
     {
-        return view('client.auth.register');
+        return view('client.auth.register', [
+            'captcha' => $this->captchaPayload(),
+        ]);
     }
 
     public function redirectToWechatOAuth(Request $request)
@@ -133,6 +143,10 @@ class AuthController extends Controller
             'password' => ['required', 'string', 'min:8', 'confirmed'],
             'phone' => ['nullable', 'string', 'max:50'],
         ]);
+
+        if (!$this->verifyCaptcha($request)) {
+            return back()->withErrors(['captcha_code' => '验证码不正确。'])->withInput($request->except('password', 'password_confirmation'));
+        }
 
         $client = $auth->register($data);
         Auth::guard('client')->login($client);
@@ -200,5 +214,30 @@ class AuthController extends Controller
         $request->session()->forget(AuthService::TWO_FACTOR_SESSION_KEY);
 
         return redirect()->route('client.login');
+    }
+
+    private function captchaPayload(): ?array
+    {
+        if (!filter_var(app(SettingsService::class)->get('captcha_enabled', false), FILTER_VALIDATE_BOOLEAN)) {
+            return null;
+        }
+
+        $plugin = Plugin::type('captcha')->get('image_captcha');
+
+        return $plugin instanceof CaptchaInterface ? $plugin->generate() : null;
+    }
+
+    private function verifyCaptcha(Request $request): bool
+    {
+        if (!filter_var(app(SettingsService::class)->get('captcha_enabled', false), FILTER_VALIDATE_BOOLEAN)) {
+            return true;
+        }
+
+        $plugin = Plugin::type('captcha')->get('image_captcha');
+        if (!$plugin instanceof CaptchaInterface) {
+            return false;
+        }
+
+        return $plugin->verify((string) $request->input('captcha_code'), (string) $request->input('captcha_key'));
     }
 }
