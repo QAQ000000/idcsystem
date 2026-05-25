@@ -10,6 +10,7 @@ use App\Http\Controllers\Client\InvoiceController;
 use App\Http\Controllers\Client\InvoiceReceiptController;
 use App\Http\Controllers\Client\ProductController;
 use App\Http\Controllers\Client\TicketController;
+use App\Http\Controllers\HealthController;
 use App\Http\Controllers\Install\InstallController;
 use Illuminate\Support\Facades\Route;
 use Plugins\Captcha\ImageCaptcha\src\CaptchaController;
@@ -24,6 +25,7 @@ Route::prefix('install')->name('install.')->group(function (): void {
 });
 
 Route::redirect('/', '/products')->name('home');
+Route::get('/health', [HealthController::class, 'check'])->name('health');
 
 Route::get('/login', [AuthController::class, 'showLoginForm'])->name('client.login');
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1')->name('client.login.store');
