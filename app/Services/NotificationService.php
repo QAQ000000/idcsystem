@@ -25,7 +25,7 @@ class NotificationService
             'errors' => [],
         ];
 
-        if ($client->trashed() || !$client->isActive()) {
+        if ($client->trashed() || (!$client->isActive() && $event !== 'email_verification')) {
             $result['errors']['client'] = '客户账号未启用或已删除，跳过通知。';
 
             return $result;
@@ -84,6 +84,10 @@ class NotificationService
             'password_changed' => [
                 'label' => '密码修改',
                 'variables' => ['client_name'],
+            ],
+            'email_verification' => [
+                'label' => '邮件验证',
+                'variables' => ['client_name', 'verify_url'],
             ],
             'host_renewal_invoice_created' => [
                 'label' => '续费账单生成',

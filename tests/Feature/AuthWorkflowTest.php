@@ -13,6 +13,7 @@ use App\Modules\Ticket\Models\TicketStatus;
 use App\Modules\User\Models\Client;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\URL;
 use Tests\TestCase;
 
 class AuthWorkflowTest extends TestCase
@@ -61,10 +62,32 @@ class AuthWorkflowTest extends TestCase
             'email' => 'workflow-client@example.com',
             'password' => 'client123456',
             'password_confirmation' => 'client123456',
-        ])->assertRedirect(route('client.dashboard'));
+        ])->assertRedirect(route('verification.notice'));
 
         $this->assertAuthenticated('client');
         $client = Client::query()->where('email', 'workflow-client@example.com')->firstOrFail();
+        $this->assertFalse($client->isActive());
+        $this->assertNull($client->email_verified_at);
+        $this->assertDatabaseHas('email_logs', [
+            'to' => 'workflow-client@example.com',
+            'template' => 'email_verification',
+        ]);
+
+        $this->get(route('client.dashboard'))->assertRedirect(route('client.login'));
+        $this->assertGuest('client');
+
+        $verifyUrl = URL::temporarySignedRoute(
+            'verification.verify',
+            now()->addDay(),
+            [
+                'id' => $client->id,
+                'hash' => sha1((string) $client->email),
+            ]
+        );
+        $this->get($verifyUrl)->assertRedirect(route('client.dashboard'));
+        $this->assertAuthenticated('client');
+        $this->assertTrue($client->fresh()->isActive());
+        $this->assertNotNull($client->fresh()->email_verified_at);
 
         $this->post(route('client.cart.add'), [
             'product_id' => $product->id,
@@ -90,6 +113,55 @@ class AuthWorkflowTest extends TestCase
             ->assertRedirect(route('admin.tickets.show', $ticket));
 
         $this->assertDatabaseHas('ticket_replies', ['ticket_id' => $ticket->id, 'author_type' => 'admin']);
+    }
+
+    public function test_unverified_client_can_resend_verification_email(): void
+    {
+        $this->seed(\Database\Seeders\EmailTemplateSeeder::class);
+        $client = Client::query()->create([
+            'username' => 'resend-client',
+            'email' => 'resend-client@example.com',
+            'password' => Hash::make('client123456'),
+            'status' => 0,
+        ]);
+
+        $this->actingAs($client, 'client')
+            ->get(route('verification.notice'))
+            ->assertOk()
+            ->assertSee('验证邮箱');
+
+        $this->actingAs($client, 'client')
+            ->post(route('verification.resend'))
+            ->assertRedirect()
+            ->assertSessionHas('status', '验证邮件已重新发送。');
+
+        $this->assertDatabaseHas('email_logs', [
+            'to' => 'resend-client@example.com',
+            'template' => 'email_verification',
+        ]);
+    }
+
+    public function test_email_verification_rejects_invalid_hash(): void
+    {
+        $client = Client::query()->create([
+            'username' => 'bad-hash-client',
+            'email' => 'bad-hash-client@example.com',
+            'password' => Hash::make('client123456'),
+            'status' => 0,
+        ]);
+
+        $url = URL::temporarySignedRoute(
+            'verification.verify',
+            now()->addDay(),
+            [
+                'id' => $client->id,
+                'hash' => 'invalid-hash',
+            ]
+        );
+
+        $this->get($url)->assertForbidden();
+        $this->assertFalse($client->fresh()->isActive());
+        $this->assertNull($client->fresh()->email_verified_at);
     }
 
     public function test_inactive_accounts_are_rejected_by_status_middleware(): void

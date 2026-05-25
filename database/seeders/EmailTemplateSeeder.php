@@ -45,6 +45,12 @@ class EmailTemplateSeeder extends Seeder
                 'enabled' => true,
             ],
             [
+                'name' => 'email_verification',
+                'subject' => '请验证您的邮箱',
+                'body' => '您好 {{client_name}}，请点击以下链接完成邮箱验证：{{verify_url}}。该链接 24 小时内有效。',
+                'enabled' => true,
+            ],
+            [
                 'name' => 'host_renewal_invoice_created',
                 'subject' => '{{product_name}} 续费账单已生成',
                 'body' => '您好 {{client_name}}，您的 {{product_name}} 续费账单 {{invoice_number}} 已生成，金额 {{amount}}。',

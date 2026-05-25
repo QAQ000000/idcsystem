@@ -27,6 +27,15 @@ Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10
 Route::get('/register', [AuthController::class, 'showRegisterForm'])->name('client.register');
 Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:5,1')->name('client.register.store');
 Route::post('/logout', [AuthController::class, 'logout'])->name('client.logout');
+Route::get('/email/verify', [AuthController::class, 'verificationNotice'])
+    ->middleware('auth:client')
+    ->name('verification.notice');
+Route::get('/email/verify/{id}/{hash}', [AuthController::class, 'verifyEmail'])
+    ->middleware('signed')
+    ->name('verification.verify');
+Route::post('/email/resend', [AuthController::class, 'resendVerification'])
+    ->middleware(['auth:client', 'throttle:6,1'])
+    ->name('verification.resend');
 
 Route::get('/products', [ProductController::class, 'index'])->name('client.products.index');
 Route::get('/products/{product}', [ProductController::class, 'show'])->name('client.products.show');

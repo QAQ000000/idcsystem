@@ -4,15 +4,19 @@ namespace App\Modules\User\Services;
 
 use App\Models\ClientLoginLog;
 use App\Modules\User\Models\Client;
+use App\Services\NotificationService;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\URL;
 
 class AuthService
 {
     public function register(array $data): Client
     {
         $clientService = new ClientService();
-        return $clientService->create($data);
+        $client = $clientService->create($data);
+        $this->sendEmailVerification($client);
+
+        return $client;
     }
 
     public function login(string $email, string $password): ?Client
@@ -55,5 +59,28 @@ class AuthService
     public function verifyEmail(Client $client): bool
     {
         return $client->update(['email_verified_at' => now(), 'status' => 1]);
+    }
+
+    public function sendEmailVerification(Client $client): bool
+    {
+        if ($client->email_verified_at !== null) {
+            return false;
+        }
+
+        $verifyUrl = URL::temporarySignedRoute(
+            'verification.verify',
+            now()->addDay(),
+            [
+                'id' => $client->id,
+                'hash' => sha1((string) $client->email),
+            ]
+        );
+
+        $result = app(NotificationService::class)->notifyClient($client, 'email_verification', [
+            'client_name' => $client->username,
+            'verify_url' => $verifyUrl,
+        ]);
+
+        return ($result['mail'] ?? false) === true;
     }
 }
