@@ -6,6 +6,7 @@ use App\Modules\Finance\Models\Currency;
 use App\Modules\Finance\Services\CurrencyService;
 use App\Modules\Order\Models\PromoCode;
 use App\Modules\Product\Models\Pricing;
+use App\Modules\Product\Models\CustomField;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Models\ProductGroup;
 use App\Modules\User\Models\Client;
@@ -223,6 +224,90 @@ class CartBoundaryTest extends TestCase
             'id' => $order->id,
             'amount' => 100,
         ]);
+    }
+
+    public function test_custom_fields_are_collected_in_cart_and_saved_to_host(): void
+    {
+        $client = $this->client();
+        $product = $this->product();
+        $field = CustomField::query()->create([
+            'type' => 'product',
+            'rel_id' => $product->id,
+            'field_name' => '备案域名',
+            'field_type' => 'text',
+            'required' => true,
+            'admin_only' => false,
+            'sort_order' => 1,
+        ]);
+
+        $this->actingAs($client, 'client')
+            ->get(route('client.products.show', $product))
+            ->assertOk()
+            ->assertSee('备案域名');
+
+        $this->actingAs($client, 'client')
+            ->post(route('client.cart.add'), [
+                'product_id' => $product->id,
+                'billing_cycle' => 'monthly',
+            ])
+            ->assertSessionHasErrors('custom_fields.' . $field->id);
+
+        $this->actingAs($client, 'client')
+            ->post(route('client.cart.add'), [
+                'product_id' => $product->id,
+                'billing_cycle' => 'monthly',
+                'custom_fields' => [
+                    $field->id => 'example.com',
+                ],
+            ])
+            ->assertRedirect(route('client.cart.index'));
+
+        $this->actingAs($client, 'client')
+            ->get(route('client.cart.index'))
+            ->assertOk()
+            ->assertSee('备案域名')
+            ->assertSee('example.com');
+
+        $order = app(CartService::class)->checkout($client);
+        $host = $order->hosts()->firstOrFail();
+
+        $this->assertDatabaseHas('custom_field_values', [
+            'field_id' => $field->id,
+            'rel_id' => $host->id,
+            'value' => 'example.com',
+        ]);
+
+        $this->actingAs($client, 'client')
+            ->get(route('client.hosts.show', $host))
+            ->assertOk()
+            ->assertSee('自定义信息')
+            ->assertSee('备案域名')
+            ->assertSee('example.com');
+    }
+
+    public function test_dropdown_custom_field_rejects_unconfigured_option(): void
+    {
+        $client = $this->client();
+        $product = $this->product();
+        $field = CustomField::query()->create([
+            'type' => 'product',
+            'rel_id' => $product->id,
+            'field_name' => '机房',
+            'field_type' => 'dropdown',
+            'options' => "香港\n东京",
+            'required' => false,
+            'admin_only' => false,
+        ]);
+
+        $this->actingAs($client, 'client')
+            ->post(route('client.cart.add'), [
+                'product_id' => $product->id,
+                'billing_cycle' => 'monthly',
+                'custom_fields' => [
+                    $field->id => '洛杉矶',
+                ],
+            ])
+            ->assertSessionHasErrors('custom_fields.' . $field->id);
     }
 
     public function test_cart_uses_client_currency_for_price_and_order_amount(): void

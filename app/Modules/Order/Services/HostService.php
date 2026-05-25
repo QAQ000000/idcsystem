@@ -10,6 +10,8 @@ use App\Modules\Finance\Services\InvoiceService;
 use App\Modules\Order\Models\Host;
 use App\Modules\Order\Models\Order;
 use App\Modules\Order\Models\Upgrade;
+use App\Modules\Product\Models\CustomField;
+use App\Modules\Product\Models\CustomFieldValue;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Services\ProductService;
 use App\Modules\Product\Services\PricingService;
@@ -70,6 +72,7 @@ class HostService
             ]);
 
             $this->log($host, 'created', '服务已创建');
+            $this->storeCustomFieldValues($host, $product, is_array($config['custom_fields'] ?? null) ? $config['custom_fields'] : []);
 
             return $host;
         });
@@ -680,6 +683,32 @@ class HostService
     private function storedPassword(string $password): string
     {
         return Hash::needsRehash($password) ? Hash::make($password) : $password;
+    }
+
+    private function storeCustomFieldValues(Host $host, Product $product, array $values): void
+    {
+        if ($values === []) {
+            return;
+        }
+
+        $fields = CustomField::query()
+            ->where('type', 'product')
+            ->where('rel_id', $product->id)
+            ->where('admin_only', false)
+            ->get()
+            ->keyBy('id');
+
+        foreach ($values as $fieldId => $value) {
+            $field = $fields->get((int) $fieldId);
+            if (!$field) {
+                continue;
+            }
+
+            CustomFieldValue::query()->updateOrCreate(
+                ['field_id' => $field->id, 'rel_id' => $host->id],
+                ['value' => is_array($value) ? implode(',', $value) : (string) $value]
+            );
+        }
     }
 
     private function nextDueDate(string $billingCycle): ?\Carbon\Carbon

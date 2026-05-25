@@ -15,6 +15,7 @@ use App\Http\Controllers\Admin\OrderController;
 use App\Http\Controllers\Admin\NotificationCenterController;
 use App\Http\Controllers\Admin\PluginController;
 use App\Http\Controllers\Admin\ProductController;
+use App\Http\Controllers\Admin\ProductCustomFieldController;
 use App\Http\Controllers\Admin\SystemTaskController;
 use App\Http\Controllers\Admin\SettingController;
 use App\Http\Controllers\Admin\SmsLogController;
@@ -92,6 +93,15 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::post('/products/{product}/pricing', [ProductController::class, 'updatePricing'])
         ->middleware('admin.permission:product.manage')
         ->name('products.pricing.update');
+    Route::post('/products/{product}/custom-fields', [ProductCustomFieldController::class, 'store'])
+        ->middleware('admin.permission:product.manage')
+        ->name('products.custom-fields.store');
+    Route::put('/products/{product}/custom-fields/{customField}', [ProductCustomFieldController::class, 'update'])
+        ->middleware('admin.permission:product.manage')
+        ->name('products.custom-fields.update');
+    Route::delete('/products/{product}/custom-fields/{customField}', [ProductCustomFieldController::class, 'destroy'])
+        ->middleware('admin.permission:product.manage')
+        ->name('products.custom-fields.destroy');
     Route::get('/products', [ProductController::class, 'index'])
         ->middleware('admin.permission:product.view')
         ->name('products.index');

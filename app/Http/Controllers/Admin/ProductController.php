@@ -41,7 +41,7 @@ class ProductController extends Controller
 
     public function show(Product $product)
     {
-        $product->load(['group', 'pricings']);
+        $product->load(['group', 'pricings', 'customFields' => fn ($query) => $query->orderBy('sort_order')->orderBy('id')]);
 
         return view('admin.products.show', compact('product'));
     }

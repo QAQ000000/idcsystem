@@ -6,10 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Modules\Finance\Services\CurrencyService;
 use App\Modules\Order\Services\CartService;
 use App\Modules\Order\Services\HostService;
+use App\Modules\Product\Models\CustomField;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Services\ProductService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\ValidationException;
 
 class CartController extends Controller
 {
@@ -44,6 +46,8 @@ class CartController extends Controller
             'product_id' => ['required', 'integer', 'exists:products,id'],
             'billing_cycle' => ['nullable', 'string', 'max:50', 'in:' . implode(',', $hosts->availableCycles())],
             'qty' => ['nullable', 'integer', 'min:1', 'max:' . CartService::MAX_ITEM_QUANTITY],
+            'custom_fields' => ['nullable', 'array'],
+            'custom_fields.*' => ['nullable', 'string', 'max:2000'],
         ]);
 
         $product = Product::query()
@@ -53,6 +57,7 @@ class CartController extends Controller
         if (!$products->isPurchasable($product, (int) ($data['qty'] ?? 1))) {
             abort(404);
         }
+        $data['custom_fields'] = $this->validatedCustomFields($request, $product);
 
         if (!$cart->add($client, $product, $data)) {
             return redirect()->route('client.products.show', $product)->withErrors([
@@ -133,5 +138,44 @@ class CartController extends Controller
         $cart->removePromoCode($client);
 
         return redirect()->route('client.cart.index')->with('status', '优惠码已移除');
+    }
+
+    private function validatedCustomFields(Request $request, Product $product): array
+    {
+        $submitted = $request->input('custom_fields', []);
+        $submitted = is_array($submitted) ? $submitted : [];
+        $fields = CustomField::query()
+            ->where('type', 'product')
+            ->where('rel_id', $product->id)
+            ->where('admin_only', false)
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get();
+        $values = [];
+
+        foreach ($fields as $field) {
+            $value = trim((string) ($submitted[$field->id] ?? ''));
+            if ($field->required && $value === '') {
+                throw ValidationException::withMessages([
+                    'custom_fields.' . $field->id => $field->field_name . '不能为空',
+                ]);
+            }
+
+            if (in_array($field->field_type, ['dropdown', 'select'], true) && $value !== '' && !in_array($value, $field->optionsList(), true)) {
+                throw ValidationException::withMessages([
+                    'custom_fields.' . $field->id => $field->field_name . '选项无效',
+                ]);
+            }
+
+            if ($field->field_type === 'checkbox') {
+                $value = $value === '1' ? '1' : '0';
+            }
+
+            if ($value !== '') {
+                $values[$field->id] = $value;
+            }
+        }
+
+        return $values;
     }
 }

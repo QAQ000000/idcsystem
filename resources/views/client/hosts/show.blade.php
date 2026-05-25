@@ -29,6 +29,19 @@
             <div class="mt-5 rounded border bg-zinc-50 p-4 text-sm leading-7">
                 {!! nl2br(e($host->product?->description ?: '暂无产品说明')) !!}
             </div>
+            @if ($host->customFieldValues->isNotEmpty())
+                <div class="mt-5 rounded border bg-zinc-50 p-4 text-sm">
+                    <h3 class="mb-3 font-semibold">自定义信息</h3>
+                    <dl class="grid gap-3 md:grid-cols-2">
+                        @foreach ($host->customFieldValues as $value)
+                            <div>
+                                <dt class="text-zinc-500">{{ $value->field?->field_name ?: '字段 #' . $value->field_id }}</dt>
+                                <dd class="mt-1 whitespace-pre-wrap">{{ $value->value ?: '-' }}</dd>
+                            </div>
+                        @endforeach
+                    </dl>
+                </div>
+            @endif
         </section>
 
         <aside class="rounded bg-white p-6 shadow-sm">

@@ -4,6 +4,7 @@ namespace App\Modules\Order\Services;
 
 use App\Modules\Order\Models\Order;
 use App\Modules\Order\Models\PromoCode;
+use App\Modules\Product\Models\CustomField;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Services\PricingService;
 use App\Modules\Product\Services\ProductService;
@@ -66,6 +67,7 @@ class CartService
             'qty' => $qty,
             'price' => $price,
             'config' => $config,
+            'custom_field_labels' => $this->customFieldLabels($freshProduct, is_array($config['custom_fields'] ?? null) ? $config['custom_fields'] : []),
             'currency_id' => $config['currency_id'],
         ];
 
@@ -305,6 +307,30 @@ class CartService
         ];
 
         return $cart;
+    }
+
+    private function customFieldLabels(Product $product, array $values): array
+    {
+        if ($values === []) {
+            return [];
+        }
+
+        $fields = CustomField::query()
+            ->where('type', 'product')
+            ->where('rel_id', $product->id)
+            ->where('admin_only', false)
+            ->get()
+            ->keyBy('id');
+        $labels = [];
+
+        foreach ($values as $fieldId => $value) {
+            $field = $fields->get((int) $fieldId);
+            if ($field) {
+                $labels[$field->field_name] = (string) $value;
+            }
+        }
+
+        return $labels;
     }
 
     private function normalizeQuantity(mixed $qty): ?int

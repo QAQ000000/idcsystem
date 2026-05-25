@@ -38,6 +38,33 @@
                 <input class="mt-1 w-full rounded border px-3 py-2" name="qty" type="number" min="1" value="1">
             </label>
 
+            @foreach ($product->customFields as $field)
+                <label class="mb-4 block text-sm">
+                    {{ $field->field_name }} @if ($field->required)<span class="text-red-600">*</span>@endif
+                    @if (in_array($field->field_type, ['dropdown', 'select'], true))
+                        <select class="mt-1 w-full rounded border px-3 py-2" name="custom_fields[{{ $field->id }}]" @required($field->required)>
+                            <option value="">请选择</option>
+                            @foreach ($field->optionsList() as $option)
+                                <option value="{{ $option }}" @selected(old('custom_fields.' . $field->id) === $option)>{{ $option }}</option>
+                            @endforeach
+                        </select>
+                    @elseif ($field->field_type === 'textarea')
+                        <textarea class="mt-1 w-full rounded border px-3 py-2" name="custom_fields[{{ $field->id }}]" rows="3" @required($field->required)>{{ old('custom_fields.' . $field->id) }}</textarea>
+                    @elseif ($field->field_type === 'checkbox')
+                        <input type="hidden" name="custom_fields[{{ $field->id }}]" value="0">
+                        <label class="mt-2 flex items-center gap-2">
+                            <input type="checkbox" name="custom_fields[{{ $field->id }}]" value="1" @checked(old('custom_fields.' . $field->id))>
+                            <span>{{ $field->description ?: '是' }}</span>
+                        </label>
+                    @else
+                        <input class="mt-1 w-full rounded border px-3 py-2" name="custom_fields[{{ $field->id }}]" type="{{ $field->field_type === 'password' ? 'password' : 'text' }}" value="{{ old('custom_fields.' . $field->id) }}" @required($field->required)>
+                    @endif
+                    @if ($field->description && $field->field_type !== 'checkbox')
+                        <span class="mt-1 block text-xs text-zinc-500">{{ $field->description }}</span>
+                    @endif
+                </label>
+            @endforeach
+
             <button class="w-full rounded bg-zinc-900 px-4 py-2 text-white">加入购物车</button>
         </form>
     </div>

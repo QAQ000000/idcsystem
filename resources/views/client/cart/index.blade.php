@@ -18,7 +18,16 @@
             <tbody class="divide-y divide-zinc-100">
                 @forelse ($cart['items'] ?? [] as $item)
                     <tr>
-                        <td class="px-4 py-3">{{ $item['product_name'] }}</td>
+                        <td class="px-4 py-3">
+                            <div>{{ $item['product_name'] }}</div>
+                            @if (!empty($item['custom_field_labels']))
+                                <dl class="mt-2 space-y-1 text-xs text-zinc-500">
+                                    @foreach ($item['custom_field_labels'] as $label => $value)
+                                        <div><dt class="inline">{{ $label }}：</dt><dd class="inline">{{ $value }}</dd></div>
+                                    @endforeach
+                                </dl>
+                            @endif
+                        </td>
                         <td class="px-4 py-3">{{ $item['billing_cycle'] }}</td>
                         <td class="px-4 py-3">{{ $item['qty'] }}</td>
                         <td class="px-4 py-3">{{ $currencies->format((float) $item['price'], $currency) }}</td>

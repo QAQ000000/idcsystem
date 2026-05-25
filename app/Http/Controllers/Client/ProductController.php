@@ -28,7 +28,14 @@ class ProductController extends Controller
     {
         abort_unless(app(ProductService::class)->isPurchasable($product), 404);
 
-        $product->load(['group', 'pricings']);
+        $product->load([
+            'group',
+            'pricings',
+            'customFields' => fn ($query) => $query
+                ->where('admin_only', false)
+                ->orderBy('sort_order')
+                ->orderBy('id'),
+        ]);
         $currency = $this->displayCurrency($currencies);
 
         return view('client.products.show', [

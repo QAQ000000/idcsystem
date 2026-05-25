@@ -276,6 +276,51 @@ class ServerModuleTest extends TestCase
         ]);
     }
 
+    public function test_admin_can_manage_product_custom_fields(): void
+    {
+        $admin = $this->admin();
+        $product = $this->product('Custom Field VPS', 50);
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.products.custom-fields.store', $product), [
+                'field_name' => '业务域名',
+                'field_type' => 'text',
+                'description' => '请输入需要绑定的域名',
+                'required' => 1,
+                'sort_order' => 5,
+            ])
+            ->assertRedirect(route('admin.products.show', $product))
+            ->assertSessionHas('status', '自定义字段已创建');
+
+        $field = \App\Modules\Product\Models\CustomField::query()->where('field_name', '业务域名')->firstOrFail();
+        $this->assertTrue($field->required);
+        $this->assertDatabaseHas('admin_action_logs', [
+            'action' => 'product.custom_field.create',
+            'target_id' => $product->id,
+            'result' => 'success',
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->put(route('admin.products.custom-fields.update', [$product, $field]), [
+                'field_name' => '业务域名更新',
+                'field_type' => 'textarea',
+                'description' => '更新说明',
+                'required' => 0,
+                'sort_order' => 6,
+            ])
+            ->assertRedirect(route('admin.products.show', $product));
+
+        $this->assertSame('业务域名更新', $field->fresh()->field_name);
+        $this->assertSame('textarea', $field->fresh()->field_type);
+
+        $this->actingAs($admin, 'admin')
+            ->delete(route('admin.products.custom-fields.destroy', [$product, $field]))
+            ->assertRedirect(route('admin.products.show', $product))
+            ->assertSessionHas('status', '自定义字段已删除');
+
+        $this->assertDatabaseMissing('custom_fields', ['id' => $field->id]);
+    }
+
     public function test_paid_order_provisions_host_through_mock_server(): void
     {
         Mail::fake();

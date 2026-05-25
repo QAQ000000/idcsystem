@@ -54,6 +54,11 @@ class Host extends Model
         return $this->hasMany(Upgrade::class);
     }
 
+    public function customFieldValues()
+    {
+        return $this->hasMany(\App\Modules\Product\Models\CustomFieldValue::class, 'rel_id');
+    }
+
     public function invoices()
     {
         return $this->hasMany(\App\Modules\Finance\Models\InvoiceItem::class, 'rel_id')
