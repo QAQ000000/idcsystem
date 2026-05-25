@@ -102,21 +102,21 @@ class ProductController extends Controller
     {
         $data = $request->validate([
             'currency_id' => ['required', 'integer', 'exists:currencies,id'],
-            'monthly' => ['nullable', 'numeric', 'min:-1'],
-            'monthly_setup' => ['nullable', 'numeric', 'min:0'],
-            'quarterly' => ['nullable', 'numeric', 'min:-1'],
-            'quarterly_setup' => ['nullable', 'numeric', 'min:0'],
-            'semiannually' => ['nullable', 'numeric', 'min:-1'],
-            'semiannually_setup' => ['nullable', 'numeric', 'min:0'],
-            'annually' => ['nullable', 'numeric', 'min:-1'],
-            'annually_setup' => ['nullable', 'numeric', 'min:0'],
-            'biennially' => ['nullable', 'numeric', 'min:-1'],
-            'biennially_setup' => ['nullable', 'numeric', 'min:0'],
-            'triennially' => ['nullable', 'numeric', 'min:-1'],
-            'triennially_setup' => ['nullable', 'numeric', 'min:0'],
-            'onetime' => ['nullable', 'numeric', 'min:-1'],
-            'hourly' => ['nullable', 'numeric', 'min:-1'],
-            'daily' => ['nullable', 'numeric', 'min:-1'],
+            'monthly' => $this->priceRules(-1),
+            'monthly_setup' => $this->priceRules(0),
+            'quarterly' => $this->priceRules(-1),
+            'quarterly_setup' => $this->priceRules(0),
+            'semiannually' => $this->priceRules(-1),
+            'semiannually_setup' => $this->priceRules(0),
+            'annually' => $this->priceRules(-1),
+            'annually_setup' => $this->priceRules(0),
+            'biennially' => $this->priceRules(-1),
+            'biennially_setup' => $this->priceRules(0),
+            'triennially' => $this->priceRules(-1),
+            'triennially_setup' => $this->priceRules(0),
+            'onetime' => $this->priceRules(-1),
+            'hourly' => $this->priceRules(-1),
+            'daily' => $this->priceRules(-1),
         ]);
 
         $currencyId = (int) $data['currency_id'];
@@ -168,6 +168,11 @@ class ProductController extends Controller
         $data['sort_order'] ??= 0;
 
         return $data;
+    }
+
+    private function priceRules(int $min): array
+    {
+        return ['nullable', 'numeric', 'min:' . $min, 'max:' . PricingService::MAX_PRICE_AMOUNT];
     }
 
     private function serverPlugins(?Product $product = null)

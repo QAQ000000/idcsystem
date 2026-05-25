@@ -68,6 +68,94 @@ class CartBoundaryTest extends TestCase
             ->assertSessionHasErrors('billing_cycle');
     }
 
+    public function test_cart_add_rejects_quantity_above_limit_from_http(): void
+    {
+        $client = $this->client();
+        $product = $this->product();
+
+        $this->actingAs($client, 'client')
+            ->post(route('client.cart.add'), [
+                'product_id' => $product->id,
+                'billing_cycle' => 'monthly',
+                'qty' => 101,
+            ])
+            ->assertSessionHasErrors('qty');
+
+        $this->assertSame([], app(CartService::class)->getCart($client)['items']);
+    }
+
+    public function test_cart_service_rejects_quantity_above_limit(): void
+    {
+        $client = $this->client();
+        $product = $this->product();
+
+        $this->assertNull(app(CartService::class)->add($client, $product, [
+            'billing_cycle' => 'monthly',
+            'qty' => 101,
+        ]));
+
+        $this->assertSame([], app(CartService::class)->getCart($client)['items']);
+    }
+
+    public function test_cart_service_rejects_fractional_quantity(): void
+    {
+        $client = $this->client();
+        $product = $this->product();
+
+        $this->assertNull(app(CartService::class)->add($client, $product, [
+            'billing_cycle' => 'monthly',
+            'qty' => '1.5',
+        ]));
+
+        $this->assertSame([], app(CartService::class)->getCart($client)['items']);
+    }
+
+    public function test_checkout_rejects_cached_cart_item_quantity_above_limit(): void
+    {
+        $client = $this->client();
+        $product = $this->product();
+        $cart = app(CartService::class);
+
+        $this->assertNotNull($cart->add($client, $product, ['billing_cycle' => 'monthly']));
+        $cached = $cart->getCart($client);
+        $cached['items'][0]['qty'] = 101;
+        \Illuminate\Support\Facades\Cache::put('cart:client:' . $client->id, $cached, now()->addDays(7));
+
+        try {
+            $cart->checkout($client);
+            $this->fail('Expected cart checkout to reject quantity above limit.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('购物车包含不可结算的商品，请移除后重试。', $exception->getMessage());
+        }
+
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('invoices', 0);
+        $this->assertSame(1, count($cart->getCart($client)['items']));
+    }
+
+    public function test_checkout_rejects_cached_cart_item_fractional_quantity(): void
+    {
+        $client = $this->client();
+        $product = $this->product();
+        $cart = app(CartService::class);
+
+        $this->assertNotNull($cart->add($client, $product, ['billing_cycle' => 'monthly']));
+        $cached = $cart->getCart($client);
+        $cached['items'][0]['qty'] = '1.5';
+        \Illuminate\Support\Facades\Cache::put('cart:client:' . $client->id, $cached, now()->addDays(7));
+
+        try {
+            $cart->checkout($client);
+            $this->fail('Expected cart checkout to reject fractional quantity.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('购物车包含不可结算的商品，请移除后重试。', $exception->getMessage());
+        }
+
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('invoices', 0);
+        $this->assertSame(1, count($cart->getCart($client)['items']));
+    }
+
     public function test_checkout_rejects_cart_when_item_becomes_hidden(): void
     {
         $client = $this->client();
@@ -373,6 +461,38 @@ class CartBoundaryTest extends TestCase
             'product_id' => $product->id,
             'billing_cycle' => 'monthly',
             'currency_id' => $client->currency_id,
+        ]]);
+    }
+
+    public function test_order_service_rejects_quantity_above_limit(): void
+    {
+        $client = $this->client();
+        $product = $this->product();
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('订单商品数量无效');
+
+        app(OrderService::class)->create($client, [[
+            'product_id' => $product->id,
+            'billing_cycle' => 'monthly',
+            'currency_id' => $client->currency_id,
+            'qty' => 101,
+        ]]);
+    }
+
+    public function test_order_service_rejects_fractional_quantity(): void
+    {
+        $client = $this->client();
+        $product = $this->product();
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('订单商品数量无效');
+
+        app(OrderService::class)->create($client, [[
+            'product_id' => $product->id,
+            'billing_cycle' => 'monthly',
+            'currency_id' => $client->currency_id,
+            'qty' => '1.5',
         ]]);
     }
 

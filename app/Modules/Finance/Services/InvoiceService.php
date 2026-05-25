@@ -16,6 +16,8 @@ use InvalidArgumentException;
 
 class InvoiceService
 {
+    public const MAX_AMOUNT = 99999999.99;
+
     /**
      * 生成账单和账单明细。
      */
@@ -29,6 +31,10 @@ class InvoiceService
             )), 2);
             $taxRate = (float) config('billing.tax_rate', 0);
             $tax = round($subtotal * ($taxRate / 100), 2);
+            $total = round($subtotal + $tax, 2);
+            $this->assertAmountFitsStorage($subtotal);
+            $this->assertAmountFitsStorage($tax);
+            $this->assertAmountFitsStorage($total);
 
             $invoice = Invoice::create([
                 'client_id' => $client->id,
@@ -37,7 +43,7 @@ class InvoiceService
                 'tax' => $tax,
                 'tax_rate' => $taxRate,
                 'credit_used' => 0,
-                'total' => round($subtotal + $tax, 2),
+                'total' => $total,
                 'status' => 'Unpaid',
                 'due_date' => now()->addDays((int) config('billing.due_days', 7)),
             ]);
@@ -111,6 +117,8 @@ class InvoiceService
         int $relId = 0
     ): InvoiceItem {
         return DB::transaction(function () use ($invoice, $type, $description, $amount, $relId) {
+            $this->assertAmountFitsStorage($amount);
+
             $item = InvoiceItem::create([
                 'invoice_id' => $invoice->id,
                 'type' => $type,
@@ -158,6 +166,10 @@ class InvoiceService
             }
 
             if ($lockedInvoice->status !== 'Unpaid') {
+                return false;
+            }
+
+            if ((float) $lockedInvoice->total <= 0) {
                 return false;
             }
 
@@ -315,10 +327,15 @@ class InvoiceService
         }
 
         $tax = round($subtotal * ((float) $invoice->tax_rate / 100), 2);
+        $total = round($subtotal + $tax - (float) $invoice->credit_used, 2);
+        $this->assertAmountFitsStorage($subtotal);
+        $this->assertAmountFitsStorage($tax);
+        $this->assertAmountFitsStorage($total);
+
         $invoice->update([
             'subtotal' => $subtotal,
             'tax' => $tax,
-            'total' => round($subtotal + $tax - (float) $invoice->credit_used, 2),
+            'total' => $total,
         ]);
     }
 
@@ -458,6 +475,8 @@ class InvoiceService
             if ((float) ($item['amount'] ?? 0) <= 0) {
                 throw new InvalidArgumentException('账单明细金额必须大于 0。');
             }
+
+            $this->assertAmountFitsStorage((float) ($item['amount'] ?? 0));
         }
     }
 
@@ -471,6 +490,13 @@ class InvoiceService
             if (round((float) ($item['amount'] ?? 0), 2) !== 0.0) {
                 throw new InvalidArgumentException('无需付款账单明细金额必须为 0。');
             }
+        }
+    }
+
+    private function assertAmountFitsStorage(float $amount): void
+    {
+        if ($amount < 0 || $amount > self::MAX_AMOUNT) {
+            throw new InvalidArgumentException('账单金额超出允许范围。');
         }
     }
 }

@@ -13,6 +13,8 @@ use RuntimeException;
 
 class CartService
 {
+    public const MAX_ITEM_QUANTITY = OrderService::MAX_ITEM_QUANTITY;
+
     private PricingService $pricingService;
 
     private OrderService $orderService;
@@ -38,7 +40,11 @@ class CartService
             return null;
         }
 
-        $qty = max(1, (int) ($config['qty'] ?? 1));
+        $qty = $this->normalizeQuantity($config['qty'] ?? 1);
+        if ($qty === null) {
+            return null;
+        }
+
         if (!$this->productService->isPurchasable($freshProduct, $qty)) {
             return null;
         }
@@ -117,7 +123,11 @@ class CartService
                         ->where('retired', false)
                         ->find((int) $item['product_id']);
 
-                    $qty = max(1, (int) ($item['qty'] ?? 1));
+                    $qty = $this->normalizeQuantity($item['qty'] ?? 1);
+                    if ($qty === null) {
+                        throw new RuntimeException('购物车包含不可结算的商品，请移除后重试。');
+                    }
+
                     if (!$product || !$this->productService->isPurchasable($product, $qty)) {
                         throw new RuntimeException('购物车包含不可结算的商品，请移除后重试。');
                     }
@@ -159,6 +169,21 @@ class CartService
     private function putCart(Client $client, array $cart): void
     {
         Cache::put($this->cacheKey($client), $cart, now()->addDays(7));
+    }
+
+    private function normalizeQuantity(mixed $qty): ?int
+    {
+        if (!is_numeric($qty)) {
+            return null;
+        }
+
+        $quantity = (int) $qty;
+
+        if ((string) $quantity !== trim((string) $qty) || $quantity < 1 || $quantity > self::MAX_ITEM_QUANTITY) {
+            return null;
+        }
+
+        return $quantity;
     }
 
     private function canClientCreateBusiness(Client $client): bool

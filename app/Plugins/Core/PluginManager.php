@@ -141,14 +141,24 @@ class PluginManager
 
         return collect($fields)
             ->filter(fn ($field) => is_array($field) && !empty($field['key']))
-            ->map(fn ($field) => [
-                'key' => (string) $field['key'],
-                'label' => (string) ($field['label'] ?? $field['key']),
-                'type' => in_array(($field['type'] ?? 'text'), ['text', 'password', 'textarea', 'number', 'boolean'], true)
-                    ? (string) ($field['type'] ?? 'text')
-                    : 'text',
-                'placeholder' => (string) ($field['placeholder'] ?? ''),
-            ])
+            ->map(function ($field) {
+                $normalized = [
+                    'key' => (string) $field['key'],
+                    'label' => (string) ($field['label'] ?? $field['key']),
+                    'type' => in_array(($field['type'] ?? 'text'), ['text', 'password', 'textarea', 'number', 'boolean'], true)
+                        ? (string) ($field['type'] ?? 'text')
+                        : 'text',
+                    'placeholder' => (string) ($field['placeholder'] ?? ''),
+                ];
+
+                foreach (['min', 'max', 'options'] as $key) {
+                    if (array_key_exists($key, $field)) {
+                        $normalized[$key] = $field[$key];
+                    }
+                }
+
+                return $normalized;
+            })
             ->values()
             ->all();
     }

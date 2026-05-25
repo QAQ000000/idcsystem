@@ -46,6 +46,8 @@
                         type="{{ $isSensitive || $type === 'password' ? 'password' : ($type === 'number' ? 'number' : 'text') }}"
                         value="{{ $oldConfigValue($key, $isSensitive ? '' : $savedValue) }}"
                         placeholder="{{ $isSensitive && !empty($config[$key] ?? '') ? '已保存，留空则不修改' : ($field['placeholder'] ?? '') }}"
+                        @if ($type === 'number' && isset($field['min'])) min="{{ $field['min'] }}" @endif
+                        @if ($type === 'number' && isset($field['max'])) max="{{ $field['max'] }}" @endif
                         autocomplete="off"
                     >
                 @endif

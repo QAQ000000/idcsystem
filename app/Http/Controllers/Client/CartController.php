@@ -34,7 +34,7 @@ class CartController extends Controller
         $data = $request->validate([
             'product_id' => ['required', 'integer', 'exists:products,id'],
             'billing_cycle' => ['nullable', 'string', 'max:50', 'in:' . implode(',', $hosts->availableCycles())],
-            'qty' => ['nullable', 'integer', 'min:1'],
+            'qty' => ['nullable', 'integer', 'min:1', 'max:' . CartService::MAX_ITEM_QUANTITY],
         ]);
 
         $product = Product::query()

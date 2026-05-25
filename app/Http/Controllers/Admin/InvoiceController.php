@@ -64,8 +64,9 @@ class InvoiceController extends Controller
 
     public function refund(Request $request, Invoice $invoice, InvoiceService $invoices, AdminAuditService $audit)
     {
+        $remainingRefundableAmount = $invoices->remainingRefundableAmount($invoice);
         $data = $request->validate([
-            'amount' => ['required', 'numeric', 'min:0.01'],
+            'amount' => ['required', 'numeric', 'min:0.01', 'max:' . $remainingRefundableAmount],
         ]);
 
         $success = $invoices->refund($invoice, (float) $data['amount']);

@@ -14,6 +14,7 @@ use App\Modules\Order\Services\OrderService;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Models\ProductGroup;
 use App\Modules\Product\Services\PricingService;
+use InvalidArgumentException;
 use App\Modules\Product\Services\ProductService;
 use App\Modules\Ticket\Models\TicketDepartment;
 use App\Modules\Ticket\Models\TicketStatus;
@@ -106,6 +107,29 @@ class ServicesGoalTest extends TestCase
 
         $billingService = new BillingService($hostService);
         $this->assertIsInt($billingService->sendDueReminders());
+    }
+
+    public function test_pricing_service_rejects_amount_above_database_capacity(): void
+    {
+        $currency = Currency::query()->firstOrCreate(
+            ['code' => 'CNY'],
+            ['prefix' => '¥', 'suffix' => '', 'exchange_rate' => 1, 'is_default' => true]
+        );
+        $group = ProductGroup::query()->create(['name' => '价格边界产品组']);
+        $product = Product::query()->create([
+            'group_id' => $group->id,
+            'name' => '超大价格测试产品',
+            'type' => 'vps',
+            'stock_control' => false,
+            'stock_qty' => 0,
+        ]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('价格超出允许范围');
+
+        app(PricingService::class)->setPricing('product', $product->id, $currency->id, [
+            'monthly' => 100000000,
+        ]);
     }
 
     public function test_recurring_invoice_generation_skips_hosts_with_unpaid_renewal_invoice(): void

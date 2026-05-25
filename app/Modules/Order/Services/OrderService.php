@@ -3,6 +3,7 @@
 namespace App\Modules\Order\Services;
 
 use App\Modules\Finance\Services\InvoiceService;
+use App\Modules\Finance\Models\Account;
 use App\Modules\Order\Models\Order;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Services\PricingService;
@@ -14,6 +15,8 @@ use RuntimeException;
 
 class OrderService
 {
+    public const MAX_ITEM_QUANTITY = 100;
+
     private PricingService $pricingService;
 
     private InvoiceService $invoiceService;
@@ -82,7 +85,7 @@ class OrderService
         foreach ($items as $item) {
             $product = $this->resolveProduct($item);
             $billingCycle = (string) ($item['billing_cycle'] ?? 'monthly');
-            $quantity = max(1, (int) ($item['qty'] ?? 1));
+            $quantity = $this->normalizeQuantity($item['qty'] ?? 1);
             $price = $this->pricingService->calculatePrice($product, $billingCycle, $item);
             if ($price <= 0) {
                 throw new RuntimeException('订单商品价格无效，不能创建订单。');
@@ -126,6 +129,19 @@ class OrderService
             $invoice = $lockedOrder->invoice()->lockForUpdate()->first();
             if ($invoice) {
                 return $this->invoiceService->markAsPaid($invoice, $paymentMethod, $transId);
+            }
+
+            $lockedOrder->loadMissing('client');
+            if (!$lockedOrder->client || $lockedOrder->client->trashed() || !$lockedOrder->client->isActive()) {
+                return false;
+            }
+
+            if ((float) $lockedOrder->amount <= 0) {
+                return false;
+            }
+
+            if (Account::query()->where('gateway_trans_id', $transId)->exists()) {
+                return false;
             }
 
             $lockedOrder->update([
@@ -188,7 +204,7 @@ class OrderService
 
         foreach ($items as $item) {
             $product = $this->resolveProduct($item);
-            $quantity = max(1, (int) ($item['qty'] ?? 1));
+            $quantity = $this->normalizeQuantity($item['qty'] ?? 1);
 
             if (!$this->productService()->isPurchasable($product, $quantity)) {
                 throw new RuntimeException('订单包含不可购买商品。');
@@ -199,6 +215,21 @@ class OrderService
     private function productService(): ProductService
     {
         return app(ProductService::class);
+    }
+
+    private function normalizeQuantity(mixed $qty): int
+    {
+        if (!is_numeric($qty)) {
+            throw new RuntimeException('订单商品数量无效，不能创建订单。');
+        }
+
+        $quantity = (int) $qty;
+
+        if ((string) $quantity !== trim((string) $qty) || $quantity < 1 || $quantity > self::MAX_ITEM_QUANTITY) {
+            throw new RuntimeException('订单商品数量无效，不能创建订单。');
+        }
+
+        return $quantity;
     }
 
     private function calculatePromoDiscount(float $subtotal, ?string $promoCode): float

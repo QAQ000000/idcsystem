@@ -91,7 +91,14 @@ class PluginConfigService
 
             if ($type === 'number') {
                 if (is_numeric($value)) {
-                    $filtered[$key] = $value + 0;
+                    $number = $value + 0;
+                    if (!$this->numberWithinRange($number, $fields[$key])) {
+                        unset($filtered[$key]);
+
+                        continue;
+                    }
+
+                    $filtered[$key] = $number;
                 } else {
                     unset($filtered[$key]);
                 }
@@ -108,6 +115,19 @@ class PluginConfigService
     private function isSensitiveKey(string $key): bool
     {
         return preg_match(self::SENSITIVE_KEY_PATTERN, $key) === 1;
+    }
+
+    private function numberWithinRange(int|float $value, array $field): bool
+    {
+        if (isset($field['min']) && is_numeric($field['min']) && $value < $field['min'] + 0) {
+            return false;
+        }
+
+        if (isset($field['max']) && is_numeric($field['max']) && $value > $field['max'] + 0) {
+            return false;
+        }
+
+        return true;
     }
 
     private function isSensitiveField(string $key, array $field = []): bool

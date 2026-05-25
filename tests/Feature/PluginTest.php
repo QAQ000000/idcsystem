@@ -82,6 +82,25 @@ class PluginTest extends TestCase
         $this->assertFalse($config['fail_usage']);
     }
 
+    public function test_plugin_config_service_rejects_number_values_outside_manifest_range(): void
+    {
+        app(PluginManager::class)->install('email', 'smtp');
+
+        $config = app(PluginConfigService::class)->save('smtp', [
+            'host' => 'smtp.example.com',
+            'port' => 70000,
+        ])->config;
+
+        $this->assertSame('smtp.example.com', $config['host']);
+        $this->assertArrayNotHasKey('port', $config);
+
+        $config = app(PluginConfigService::class)->save('smtp', [
+            'port' => 587,
+        ])->config;
+
+        $this->assertSame(587, $config['port']);
+    }
+
     public function test_plugin_config_service_rejects_array_values_for_scalar_schema_fields(): void
     {
         app(PluginManager::class)->install('gateway', 'manual_pay');

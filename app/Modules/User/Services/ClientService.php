@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 class ClientService
 {
     public const BLOCKING_HOST_STATUSES = ['Pending', 'Active', 'Suspended'];
+    private const MAX_CREDIT_ADJUSTMENT_AMOUNT = 99999999.99;
 
     public function create(array $data): Client
     {
@@ -62,7 +63,9 @@ class ClientService
 
     public function addCredit(Client $client, float $amount, string $description = ''): bool
     {
-        if ($amount <= 0) {
+        $amount = $this->normalizeCreditAmount($amount);
+
+        if ($amount === null) {
             return false;
         }
 
@@ -89,7 +92,9 @@ class ClientService
 
     public function deductCredit(Client $client, float $amount, string $description = ''): bool
     {
-        if ($amount <= 0) {
+        $amount = $this->normalizeCreditAmount($amount);
+
+        if ($amount === null) {
             return false;
         }
 
@@ -117,5 +122,14 @@ class ClientService
     private function canAdjustCredit(Client $client): bool
     {
         return !$client->trashed() && $client->isActive();
+    }
+
+    private function normalizeCreditAmount(float $amount): ?float
+    {
+        if ($amount <= 0 || $amount > self::MAX_CREDIT_ADJUSTMENT_AMOUNT) {
+            return null;
+        }
+
+        return round($amount, 2);
     }
 }

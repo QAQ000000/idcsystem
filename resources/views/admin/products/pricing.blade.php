@@ -35,7 +35,7 @@
             ] as $field => $label)
                 <label class="block text-sm">
                     {{ $label }}
-                    <input class="mt-1 w-full rounded border px-3 py-2" name="{{ $field }}" type="number" step="0.01" min="-1" value="{{ old($field, $pricing?->{$field} ?? -1) }}">
+                    <input class="mt-1 w-full rounded border px-3 py-2" name="{{ $field }}" type="number" step="0.01" min="-1" max="{{ \App\Modules\Product\Services\PricingService::MAX_PRICE_AMOUNT }}" value="{{ old($field, $pricing?->{$field} ?? -1) }}">
                 </label>
             @endforeach
         </div>
@@ -51,7 +51,7 @@
             ] as $field => $label)
                 <label class="block text-sm">
                     {{ $label }}
-                    <input class="mt-1 w-full rounded border px-3 py-2" name="{{ $field }}" type="number" step="0.01" min="0" value="{{ old($field, $pricing?->{$field} ?? 0) }}">
+                    <input class="mt-1 w-full rounded border px-3 py-2" name="{{ $field }}" type="number" step="0.01" min="0" max="{{ \App\Modules\Product\Services\PricingService::MAX_PRICE_AMOUNT }}" value="{{ old($field, $pricing?->{$field} ?? 0) }}">
                 </label>
             @endforeach
         </div>

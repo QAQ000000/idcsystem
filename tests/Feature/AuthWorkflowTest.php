@@ -214,6 +214,40 @@ class AuthWorkflowTest extends TestCase
             ->assertSee('value="66.00"', false);
     }
 
+    public function test_admin_product_pricing_rejects_amount_above_database_capacity(): void
+    {
+        $this->seed();
+        $this->actingAs(AdminUser::query()->where('username', 'admin')->firstOrFail(), 'admin');
+        $product = $this->createDemoProduct();
+        $currencyId = (int) Currency::query()->where('code', 'CNY')->value('id');
+
+        $this->post(route('admin.products.pricing.update', $product), [
+            'currency_id' => $currencyId,
+            'monthly' => 100000000,
+            'monthly_setup' => 0,
+            'quarterly' => -1,
+            'quarterly_setup' => 0,
+            'semiannually' => -1,
+            'semiannually_setup' => 0,
+            'annually' => -1,
+            'annually_setup' => 0,
+            'biennially' => -1,
+            'biennially_setup' => 0,
+            'triennially' => -1,
+            'triennially_setup' => 0,
+            'onetime' => -1,
+            'hourly' => -1,
+            'daily' => -1,
+        ])->assertSessionHasErrors('monthly');
+
+        $this->assertDatabaseMissing('pricings', [
+            'type' => 'product',
+            'rel_id' => $product->id,
+            'currency_id' => $currencyId,
+            'monthly' => 100000000,
+        ]);
+    }
+
     private function createDemoProduct(): Product
     {
         $group = ProductGroup::query()->firstOrCreate(

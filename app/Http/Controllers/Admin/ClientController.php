@@ -95,7 +95,7 @@ class ClientController extends Controller
     public function addCredit(Request $request, Client $client, ClientService $clients, AdminAuditService $audit)
     {
         $data = $request->validate([
-            'amount' => ['required', 'numeric', 'min:0.01'],
+            'amount' => ['required', 'numeric', 'min:0.01', 'max:99999999.99'],
             'description' => ['nullable', 'string', 'max:255'],
         ]);
 

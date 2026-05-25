@@ -5,9 +5,12 @@ namespace App\Modules\Product\Services;
 use App\Modules\Finance\Models\Currency;
 use App\Modules\Product\Models\Pricing;
 use App\Modules\Product\Models\Product;
+use InvalidArgumentException;
 
 class PricingService
 {
+    public const MAX_PRICE_AMOUNT = 99999999.99;
+
     private const PRICE_FIELDS = [
         'monthly',
         'monthly_setup',
@@ -31,7 +34,9 @@ class PricingService
      */
     public function setPricing(string $type, int $relId, int $currencyId, array $prices): Pricing
     {
-        $payload = array_intersect_key($prices, array_flip(self::PRICE_FIELDS));
+        $payload = $this->normalizePricePayload(
+            array_intersect_key($prices, array_flip(self::PRICE_FIELDS))
+        );
 
         return Pricing::updateOrCreate(
             [
@@ -94,6 +99,40 @@ class PricingService
         }
 
         return round($total, 2);
+    }
+
+    private function normalizePricePayload(array $prices): array
+    {
+        $payload = [];
+
+        foreach ($prices as $field => $value) {
+            if ($value === null || $value === '') {
+                continue;
+            }
+
+            if (!is_numeric($value)) {
+                throw new InvalidArgumentException('价格字段必须是数字。');
+            }
+
+            $amount = round((float) $value, 2);
+            $isSetupFee = str_ends_with((string) $field, '_setup');
+
+            if ($isSetupFee && $amount < 0) {
+                throw new InvalidArgumentException('安装费不能为负数。');
+            }
+
+            if (!$isSetupFee && $amount < -1) {
+                throw new InvalidArgumentException('价格不能小于 -1。');
+            }
+
+            if ($amount > self::MAX_PRICE_AMOUNT) {
+                throw new InvalidArgumentException('价格超出允许范围。');
+            }
+
+            $payload[$field] = $amount;
+        }
+
+        return $payload;
     }
 
     /**

@@ -187,6 +187,19 @@ class ClientTest extends TestCase
         $this->assertDatabaseCount('credits', 0);
     }
 
+    public function test_credit_adjustments_reject_amounts_larger_than_credit_log_capacity(): void
+    {
+        $client = $this->client();
+        $client->update(['credit' => 100]);
+        $service = app(ClientService::class);
+
+        $this->assertFalse($service->addCredit($client, 100000000, 'too large add'));
+        $this->assertFalse($service->deductCredit($client, 100000000, 'too large deduct'));
+
+        $this->assertSame('100.00', (string) $client->fresh()->credit);
+        $this->assertDatabaseCount('credits', 0);
+    }
+
     public function test_credit_adjustments_reject_inactive_clients(): void
     {
         $client = $this->client();
@@ -292,6 +305,29 @@ class ClientTest extends TestCase
             'target_id' => $client->id,
             'result' => 'failed',
             'error' => '客户状态不允许充值',
+        ]);
+    }
+
+    public function test_admin_add_credit_rejects_amount_larger_than_credit_log_capacity(): void
+    {
+        $admin = $this->admin();
+        $client = $this->client();
+        $client->update(['credit' => 100]);
+
+        $this->actingAs($admin, 'admin')
+            ->from(route('admin.clients.show', $client))
+            ->post(route('admin.clients.add-credit', $client), [
+                'amount' => 100000000,
+                'description' => '超额充值',
+            ])
+            ->assertRedirect(route('admin.clients.show', $client))
+            ->assertSessionHasErrors('amount');
+
+        $this->assertSame('100.00', (string) $client->fresh()->credit);
+        $this->assertDatabaseCount('credits', 0);
+        $this->assertDatabaseMissing('admin_action_logs', [
+            'action' => 'client.add_credit',
+            'target_id' => $client->id,
         ]);
     }
 
