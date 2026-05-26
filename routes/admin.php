@@ -16,6 +16,7 @@ use App\Http\Controllers\Admin\EmailLogController;
 use App\Http\Controllers\Admin\EmailCampaignController;
 use App\Http\Controllers\Admin\EmailTemplateController;
 use App\Http\Controllers\Admin\ExportController;
+use App\Http\Controllers\Admin\FinancialStatementController;
 use App\Http\Controllers\Admin\GdprDeletionRequestController;
 use App\Http\Controllers\Admin\HostController;
 use App\Http\Controllers\Admin\InvoiceController;
@@ -162,6 +163,18 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
         Route::get('hosts', [ReportController::class, 'hosts'])->name('hosts');
         Route::get('products', [ReportController::class, 'products'])->name('products');
     });
+    Route::get('/financial-statements', [FinancialStatementController::class, 'index'])
+        ->middleware('admin.permission:financial_statement.view')
+        ->name('financial-statements.index');
+    Route::post('/financial-statements/generate', [FinancialStatementController::class, 'generate'])
+        ->middleware('admin.permission:financial_statement.manage')
+        ->name('financial-statements.generate');
+    Route::get('/financial-statements/{statement}', [FinancialStatementController::class, 'show'])
+        ->middleware('admin.permission:financial_statement.view')
+        ->name('financial-statements.show');
+    Route::get('/financial-statements/{statement}/export', [FinancialStatementController::class, 'export'])
+        ->middleware('admin.permission:financial_statement.view')
+        ->name('financial-statements.export');
 
     Route::post('/clients/bulk-action', [ClientController::class, 'bulkAction'])
         ->middleware('admin.permission:client.manage')

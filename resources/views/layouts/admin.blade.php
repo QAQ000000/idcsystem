@@ -32,6 +32,9 @@
                     @if ($canAdmin('report.view'))
                         <a href="{{ route('admin.reports.index') }}">报表</a>
                     @endif
+                    @if ($canAdmin('financial_statement.view'))
+                        <a href="{{ route('admin.financial-statements.index') }}">财务对账</a>
+                    @endif
                     @if ($canAdmin('product.view'))
                         <a href="{{ route('admin.products.index') }}">产品</a>
                     @endif

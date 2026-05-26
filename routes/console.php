@@ -270,6 +270,31 @@ Artisan::command('logs:cleanup', function () {
     return 0;
 })->purpose('Delete expired operational logs');
 
+Artisan::command('financial:generate-monthly-statement', function () {
+    $task = app(\App\Services\SystemTaskService::class)->run('financial:generate-monthly-statement', function () {
+        $period = now()->subMonthNoOverflow();
+        $statement = app(\App\Modules\Finance\Services\FinancialStatementService::class)->generate(
+            $period->copy()->startOfMonth(),
+            $period->copy()->endOfMonth()
+        );
+
+        return [
+            'statement_id' => $statement->id,
+            'period_start' => $statement->period_start?->toDateString(),
+            'period_end' => $statement->period_end?->toDateString(),
+            'net_income' => (float) $statement->net_income,
+        ];
+    });
+
+    if ($task->status === 'failed') {
+        $this->error($task->error ?: 'Monthly financial statement generation failed');
+        return 1;
+    }
+
+    $this->info($task->output ?: 'Monthly financial statement generated');
+    return 0;
+})->purpose('Generate previous month financial statement');
+
 // 核心业务调度：由系统 cron 每分钟触发 schedule:run 后按频率执行。
 Schedule::command('logs:cleanup')->dailyAt('01:00');
 Schedule::command('billing:generate-invoices')->dailyAt('02:00');
@@ -280,6 +305,7 @@ Schedule::command('domains:auto-renew')->dailyAt('04:00');
 Schedule::command('backup:cleanup')->dailyAt('04:15');
 Schedule::command('ssl:auto-renew-letsencrypt')->dailyAt('04:30');
 Schedule::command('backup:files')->weeklyOn(0, '03:00');
+Schedule::command('financial:generate-monthly-statement')->monthlyOn(1, '05:00');
 Schedule::command('host:send-due-reminders')->dailyAt('09:00');
 Schedule::command('domains:send-expiry-reminders')->dailyAt('09:30');
 Schedule::command('ssl:send-expiry-reminders')->dailyAt('10:00');
