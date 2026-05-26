@@ -12,8 +12,24 @@
         <p>类型：{{ $product->type }}</p>
         <p>服务器模块：{{ $product->server_type ?: '未绑定' }}</p>
         <p>库存：{{ $product->stock_qty }}</p>
+        <p>库存预警：{{ $product->stock_alert_enabled ? '启用，阈值 ' . $product->stock_alert_threshold : '未启用' }}</p>
         <p>说明：{{ $product->description }}</p>
     </div>
+
+    <section class="mt-6 rounded bg-white p-6 shadow-sm">
+        <h2 class="mb-4 font-semibold">库存预警记录</h2>
+        <div class="divide-y text-sm">
+            @forelse ($product->stockAlerts->take(10) as $alert)
+                <div class="py-3">
+                    触发时间：{{ $alert->triggered_at?->format('Y-m-d H:i') }}，
+                    库存 {{ $alert->stock_qty }} / 阈值 {{ $alert->threshold }}，
+                    状态：{{ $alert->resolved_at ? '已恢复 ' . $alert->resolved_at->format('Y-m-d H:i') : '未恢复' }}
+                </div>
+            @empty
+                <p class="py-4 text-slate-500">暂无预警记录</p>
+            @endforelse
+        </div>
+    </section>
 
     <section class="mt-6 rounded bg-white p-6 shadow-sm">
         <h2 class="mb-4 font-semibold">自定义字段</h2>

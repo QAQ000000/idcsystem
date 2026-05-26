@@ -9,6 +9,7 @@ class Product extends Model
     protected $fillable = [
         'group_id', 'name', 'description', 'type', 'pay_type', 'pay_method',
         'auto_setup', 'server_type', 'server_group_id', 'stock_control', 'stock_qty',
+        'stock_alert_threshold', 'stock_alert_enabled',
         'domain_config', 'password_config', 'hidden', 'retired', 'is_featured',
         'sort_order', 'api_type', 'upstream_api_id', 'upstream_product_id',
         'upstream_price_type', 'upstream_price_value',
@@ -16,6 +17,8 @@ class Product extends Model
 
     protected $casts = [
         'stock_control'          => 'boolean',
+        'stock_alert_enabled'    => 'boolean',
+        'stock_alert_threshold'  => 'integer',
         'hidden'                 => 'boolean',
         'retired'                => 'boolean',
         'is_featured'            => 'boolean',
@@ -47,5 +50,10 @@ class Product extends Model
     public function hosts()
     {
         return $this->hasMany(\App\Modules\Order\Models\Host::class);
+    }
+
+    public function stockAlerts()
+    {
+        return $this->hasMany(ProductStockAlert::class);
     }
 }

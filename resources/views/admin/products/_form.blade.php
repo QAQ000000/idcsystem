@@ -56,6 +56,11 @@
     </label>
 
     <label class="block text-sm">
+        库存预警阈值
+        <input class="mt-1 w-full rounded border px-3 py-2" name="stock_alert_threshold" type="number" min="0" value="{{ old('stock_alert_threshold', $product?->stock_alert_threshold ?? 0) }}">
+    </label>
+
+    <label class="block text-sm">
         排序
         <input class="mt-1 w-full rounded border px-3 py-2" name="sort_order" type="number" value="{{ old('sort_order', $product?->sort_order ?? 0) }}">
     </label>
@@ -69,6 +74,10 @@
         <label class="inline-flex items-center gap-2">
             <input type="checkbox" name="stock_control" value="1" @checked(old('stock_control', $product?->stock_control ?? true))>
             启用库存控制
+        </label>
+        <label class="inline-flex items-center gap-2">
+            <input type="checkbox" name="stock_alert_enabled" value="1" @checked(old('stock_alert_enabled', $product?->stock_alert_enabled ?? false))>
+            启用库存预警
         </label>
         <label class="inline-flex items-center gap-2">
             <input type="checkbox" name="is_featured" value="1" @checked(old('is_featured', $product?->is_featured ?? false))>

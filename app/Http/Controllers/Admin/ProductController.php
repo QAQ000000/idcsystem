@@ -17,7 +17,7 @@ class ProductController extends Controller
 {
     public function index()
     {
-        $products = Product::query()->with('group')->orderBy('sort_order')->paginate(20);
+        $products = Product::query()->with(['group', 'stockAlerts' => fn ($query) => $query->whereNull('resolved_at')])->orderBy('sort_order')->paginate(20);
 
         return view('admin.products.index', compact('products'));
     }
@@ -41,7 +41,7 @@ class ProductController extends Controller
 
     public function show(Product $product)
     {
-        $product->load(['group', 'pricings', 'customFields' => fn ($query) => $query->orderBy('sort_order')->orderBy('id')]);
+        $product->load(['group', 'pricings', 'stockAlerts' => fn ($query) => $query->latest(), 'customFields' => fn ($query) => $query->orderBy('sort_order')->orderBy('id')]);
 
         return view('admin.products.show', compact('product'));
     }
@@ -150,13 +150,15 @@ class ProductController extends Controller
             ],
             'stock_control' => ['nullable', 'boolean'],
             'stock_qty' => ['nullable', 'integer', 'min:0'],
+            'stock_alert_threshold' => ['nullable', 'integer', 'min:0'],
+            'stock_alert_enabled' => ['nullable', 'boolean'],
             'hidden' => ['nullable', 'boolean'],
             'retired' => ['nullable', 'boolean'],
             'is_featured' => ['nullable', 'boolean'],
             'sort_order' => ['nullable', 'integer'],
         ]);
 
-        foreach (['stock_control', 'hidden', 'retired', 'is_featured'] as $field) {
+        foreach (['stock_control', 'stock_alert_enabled', 'hidden', 'retired', 'is_featured'] as $field) {
             $data[$field] = $request->boolean($field);
         }
 
@@ -165,6 +167,7 @@ class ProductController extends Controller
         $data['auto_setup'] ??= 'manual';
         $data['server_type'] = $data['server_type'] ?: null;
         $data['stock_qty'] ??= 0;
+        $data['stock_alert_threshold'] ??= 0;
         $data['sort_order'] ??= 0;
 
         return $data;

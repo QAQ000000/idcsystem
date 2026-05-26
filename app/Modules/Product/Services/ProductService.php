@@ -6,6 +6,7 @@ use App\Models\Plugin;
 use App\Modules\Product\Models\Pricing;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Models\ProductGroup;
+use App\Modules\Product\Models\ProductStockAlert;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -28,7 +29,13 @@ class ProductService
     public function update(Product $product, array $data): bool
     {
         return DB::transaction(function () use ($product, $data) {
-            return $product->update($this->normalizeProductPayload($data, $product));
+            $updated = $product->update($this->normalizeProductPayload($data, $product));
+            if ($updated) {
+                $product->refresh();
+                $this->checkProductStockAlert($product);
+            }
+
+            return $updated;
         });
     }
 
@@ -107,6 +114,7 @@ class ProductService
 
             if ($affected > 0) {
                 $product->refresh();
+                $this->checkProductStockAlert($product);
             }
 
             return $affected > 0;
@@ -129,6 +137,57 @@ class ProductService
             ->orderBy('sort_order')
             ->orderBy('id')
             ->get();
+    }
+
+    public function checkStockAlerts(): int
+    {
+        $created = 0;
+
+        Product::query()
+            ->where('stock_control', true)
+            ->where('stock_alert_enabled', true)
+            ->chunkById(100, function ($products) use (&$created): void {
+                foreach ($products as $product) {
+                    if ($this->checkProductStockAlert($product)) {
+                        $created++;
+                    }
+                }
+            });
+
+        return $created;
+    }
+
+    public function checkProductStockAlert(Product $product): bool
+    {
+        if (!$product->stock_control || !$product->stock_alert_enabled || (int) $product->stock_alert_threshold <= 0) {
+            return false;
+        }
+
+        $activeAlert = ProductStockAlert::query()
+            ->where('product_id', $product->id)
+            ->whereNull('resolved_at')
+            ->first();
+
+        if ((int) $product->stock_qty <= (int) $product->stock_alert_threshold) {
+            if ($activeAlert) {
+                return false;
+            }
+
+            ProductStockAlert::query()->create([
+                'product_id' => $product->id,
+                'stock_qty' => (int) $product->stock_qty,
+                'threshold' => (int) $product->stock_alert_threshold,
+                'triggered_at' => now(),
+            ]);
+
+            return true;
+        }
+
+        if ($activeAlert) {
+            $activeAlert->update(['resolved_at' => now()]);
+        }
+
+        return false;
     }
 
     private function normalizeProductPayload(array $data, ?Product $product = null): array
@@ -157,7 +216,15 @@ class ProductService
             $data['stock_qty'] = (int) $data['stock_qty'];
         }
 
-        foreach (['stock_control', 'hidden', 'retired', 'is_featured'] as $field) {
+        if (array_key_exists('stock_alert_threshold', $data)) {
+            if (!is_numeric($data['stock_alert_threshold']) || (int) $data['stock_alert_threshold'] < 0) {
+                throw new InvalidArgumentException('库存预警阈值不能为负数。');
+            }
+
+            $data['stock_alert_threshold'] = (int) $data['stock_alert_threshold'];
+        }
+
+        foreach (['stock_control', 'stock_alert_enabled', 'hidden', 'retired', 'is_featured'] as $field) {
             if (array_key_exists($field, $data)) {
                 $data[$field] = filter_var($data[$field], FILTER_VALIDATE_BOOLEAN);
             }
