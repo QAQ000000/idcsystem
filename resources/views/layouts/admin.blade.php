@@ -94,6 +94,9 @@
                         <a href="{{ route('admin.system-tasks.index') }}">系统任务</a>
                         <a href="{{ url('/horizon') }}">队列监控</a>
                     @endif
+                    @if ($canAdmin('backup.manage'))
+                        <a href="{{ route('admin.backups.index') }}">备份</a>
+                    @endif
                     @if ($canAdmin('admin_action_log.view'))
                         <a href="{{ route('admin.admin-action-logs.index') }}">后台审计</a>
                     @endif

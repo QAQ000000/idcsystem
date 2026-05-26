@@ -59,6 +59,7 @@ class AdminPermissionSeeder extends Seeder
             'notification.manage',
             'notification.template',
             'system_task.view',
+            'backup.manage',
             'admin_action_log.view',
             'login_attempt.view',
             'plugin.manage',

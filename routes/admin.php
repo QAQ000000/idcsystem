@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\AdminActionLogController;
 use App\Http\Controllers\Admin\AffiliateController;
 use App\Http\Controllers\Admin\AnnouncementController;
+use App\Http\Controllers\Admin\BackupController;
 use App\Http\Controllers\Admin\CancelRequestController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\ClientGroupController;
@@ -62,6 +63,24 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::post('/system-tasks/run', [SystemTaskController::class, 'runManual'])
         ->middleware('admin.permission:system_task.view')
         ->name('system-tasks.run');
+    Route::get('/backups', [BackupController::class, 'index'])
+        ->middleware('admin.permission:backup.manage')
+        ->name('backups.index');
+    Route::post('/backups/database', [BackupController::class, 'database'])
+        ->middleware('admin.permission:backup.manage')
+        ->name('backups.database');
+    Route::post('/backups/files', [BackupController::class, 'files'])
+        ->middleware('admin.permission:backup.manage')
+        ->name('backups.files');
+    Route::get('/backups/{backup}/download', [BackupController::class, 'download'])
+        ->middleware('admin.permission:backup.manage')
+        ->name('backups.download');
+    Route::post('/backups/{backup}/restore', [BackupController::class, 'restore'])
+        ->middleware('admin.permission:backup.manage')
+        ->name('backups.restore');
+    Route::delete('/backups/{backup}', [BackupController::class, 'destroy'])
+        ->middleware('admin.permission:backup.manage')
+        ->name('backups.destroy');
     Route::resource('admin-action-logs', AdminActionLogController::class)
         ->only(['index', 'show'])
         ->middleware('admin.permission:admin_action_log.view');

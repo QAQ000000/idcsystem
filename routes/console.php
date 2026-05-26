@@ -199,12 +199,72 @@ Artisan::command('ssl:send-expiry-reminders', function () {
     return 0;
 })->purpose('Send SSL certificate expiry reminder notifications');
 
+Artisan::command('backup:database', function () {
+    $task = app(\App\Services\SystemTaskService::class)->run('backup:database', function () {
+        $backup = app(\App\Services\BackupService::class)->backupDatabase();
+
+        return [
+            'backup_id' => $backup->id,
+            'status' => $backup->status,
+            'file_size' => $backup->file_size,
+        ];
+    });
+
+    if ($task->status === 'failed') {
+        $this->error($task->error ?: 'Database backup failed');
+        return 1;
+    }
+
+    $this->info($task->output ?: 'Database backup completed');
+    return 0;
+})->purpose('Create database backup');
+
+Artisan::command('backup:files', function () {
+    $task = app(\App\Services\SystemTaskService::class)->run('backup:files', function () {
+        $backup = app(\App\Services\BackupService::class)->backupFiles();
+
+        return [
+            'backup_id' => $backup->id,
+            'status' => $backup->status,
+            'file_size' => $backup->file_size,
+        ];
+    });
+
+    if ($task->status === 'failed') {
+        $this->error($task->error ?: 'File backup failed');
+        return 1;
+    }
+
+    $this->info($task->output ?: 'File backup completed');
+    return 0;
+})->purpose('Create uploaded files backup');
+
+Artisan::command('backup:cleanup {--days=}', function () {
+    $days = $this->option('days');
+    $task = app(\App\Services\SystemTaskService::class)->run('backup:cleanup', function () use ($days) {
+        return [
+            'deleted' => app(\App\Services\BackupService::class)->cleanup((int) ($days ?: config('backup.keep_days', 30))),
+        ];
+    });
+
+    if ($task->status === 'failed') {
+        $this->error($task->error ?: 'Backup cleanup failed');
+        return 1;
+    }
+
+    $this->info($task->output ?: 'Backup cleanup completed');
+    return 0;
+})->purpose('Delete expired backup files');
+
 // 核心业务调度：由系统 cron 每分钟触发 schedule:run 后按频率执行。
 Schedule::command('billing:generate-invoices')->dailyAt('02:00');
+Schedule::command('backup:database')->dailyAt('02:30');
 Schedule::command('billing:suspend-overdue')->dailyAt('03:00');
 Schedule::command('cancel:process-approved')->dailyAt('03:30');
 Schedule::command('domains:auto-renew')->dailyAt('04:00');
+Schedule::command('backup:cleanup')->dailyAt('04:15');
 Schedule::command('ssl:auto-renew-letsencrypt')->dailyAt('04:30');
+Schedule::command('backup:files')->weeklyOn(0, '03:00');
 Schedule::command('host:send-due-reminders')->dailyAt('09:00');
 Schedule::command('domains:send-expiry-reminders')->dailyAt('09:30');
 Schedule::command('ssl:send-expiry-reminders')->dailyAt('10:00');
