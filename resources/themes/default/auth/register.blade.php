@@ -28,6 +28,11 @@
             </label>
             @error('captcha_code') <p class="mb-4 text-sm text-red-600">{{ $message }}</p> @enderror
         @endif
+        <label class="mb-4 flex items-start gap-2 text-sm">
+            <input class="mt-1" type="checkbox" name="privacy_policy" value="1" required @checked(old('privacy_policy'))>
+            <span>我已阅读并同意隐私政策（版本 {{ config('app.privacy_policy_version', '1.0') }}）。</span>
+        </label>
+        @error('privacy_policy') <p class="mb-4 text-sm text-red-600">{{ $message }}</p> @enderror
         <button class="rounded bg-zinc-900 px-4 py-2 text-white">{{ __('messages.auth.register') }}</button>
     </form>
 @endsection

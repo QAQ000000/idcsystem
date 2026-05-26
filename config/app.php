@@ -84,6 +84,8 @@ return [
 
     'available_locales' => ['zh_CN', 'en'],
 
+    'privacy_policy_version' => env('PRIVACY_POLICY_VERSION', '1.0'),
+
     'faker_locale' => env('APP_FAKER_LOCALE', 'en_US'),
 
     /*

@@ -148,7 +148,10 @@ class AuthController extends Controller
             'email' => ['required', 'email', 'max:100', 'unique:clients,email'],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
             'phone' => ['nullable', 'string', 'max:50'],
+            'privacy_policy' => ['accepted'],
         ]);
+        unset($data['privacy_policy']);
+        $data['privacy_ip'] = $request->ip();
         $data['ref'] = (string) ($request->query('ref') ?: $request->session()->get('affiliate_ref', ''));
 
         if (!$this->verifyCaptcha($request)) {

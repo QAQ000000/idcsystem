@@ -27,6 +27,7 @@
                     <a href="{{ route('client.affiliate') }}">{{ __('messages.nav.affiliate') }}</a>
                     <a href="{{ route('client.account.activity') }}">{{ __('messages.nav.activity') }}</a>
                     <a href="{{ route('client.account.notifications') }}">{{ __('messages.nav.notifications') }}</a>
+                    <a href="{{ route('client.account.privacy') }}">隐私</a>
                     <a href="{{ route('client.account.security') }}">{{ __('messages.nav.security') }}</a>
                 @endauth
                 <form method="get" action="{{ url()->current() }}">

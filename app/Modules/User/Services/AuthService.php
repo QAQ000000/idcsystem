@@ -7,6 +7,7 @@ use App\Models\LoginAttempt;
 use App\Modules\User\Models\Client;
 use App\Modules\User\Models\ClientOauth;
 use App\Services\ClientActivityService;
+use App\Services\GdprService;
 use App\Services\NotificationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -22,10 +23,13 @@ class AuthService
     public function register(array $data): Client
     {
         $referralCode = (string) ($data['ref'] ?? '');
+        $privacyIp = (string) ($data['privacy_ip'] ?? '0.0.0.0');
         unset($data['ref']);
+        unset($data['privacy_ip']);
 
         $clientService = new ClientService();
         $client = $clientService->create($data);
+        app(GdprService::class)->recordConsent($client, (string) config('app.privacy_policy_version', '1.0'), $privacyIp);
         app(AffiliateService::class)->recordSignup($client, $referralCode);
         $this->sendEmailVerification($client);
         app(ClientActivityService::class)->log($client, 'auth.registered', '账户注册成功', [

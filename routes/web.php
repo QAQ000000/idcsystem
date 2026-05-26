@@ -12,6 +12,7 @@ use App\Http\Controllers\Client\InvoiceController;
 use App\Http\Controllers\Client\InvoiceReceiptController;
 use App\Http\Controllers\Client\KnowledgeBaseController;
 use App\Http\Controllers\Client\ProductController;
+use App\Http\Controllers\Client\PrivacyController;
 use App\Http\Controllers\Client\SslController;
 use App\Http\Controllers\Client\TicketController;
 use App\Http\Controllers\Client\UsageAlertController;
@@ -83,6 +84,10 @@ Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.sta
     Route::get('/account/security', [AccountController::class, 'security'])->name('account.security');
     Route::get('/account/notifications', [AccountController::class, 'notifications'])->name('account.notifications');
     Route::post('/account/notifications', [AccountController::class, 'updateNotifications'])->name('account.notifications.update');
+    Route::get('/account/privacy', [PrivacyController::class, 'index'])->name('account.privacy');
+    Route::post('/account/export-data', [PrivacyController::class, 'exportData'])->name('account.export-data');
+    Route::get('/account/export-data/{request}/download', [PrivacyController::class, 'downloadExport'])->name('account.export-data.download');
+    Route::post('/account/delete-account', [PrivacyController::class, 'deleteAccount'])->name('account.delete-account');
     Route::put('/account/password', [AccountController::class, 'updatePassword'])->name('account.password.update');
     Route::post('/account/2fa/enable', [AccountController::class, 'enableTwoFactor'])->name('account.2fa.enable');
     Route::post('/account/2fa/disable', [AccountController::class, 'disableTwoFactor'])->name('account.2fa.disable');

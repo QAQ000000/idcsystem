@@ -64,6 +64,7 @@ class AuthWorkflowTest extends TestCase
             'email' => 'workflow-client@example.com',
             'password' => 'client123456',
             'password_confirmation' => 'client123456',
+            'privacy_policy' => '1',
         ])->assertRedirect(route('verification.notice'));
 
         $this->assertAuthenticated('client');
@@ -326,6 +327,7 @@ class AuthWorkflowTest extends TestCase
             'email' => 'captcha-register@example.com',
             'password' => 'client123456',
             'password_confirmation' => 'client123456',
+            'privacy_policy' => '1',
             'captcha_key' => 'missing-key',
             'captcha_code' => 'WRONG',
         ])->assertSessionHasErrors('captcha_code');

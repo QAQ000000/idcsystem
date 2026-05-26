@@ -15,6 +15,7 @@ use App\Http\Controllers\Admin\EmailLogController;
 use App\Http\Controllers\Admin\EmailCampaignController;
 use App\Http\Controllers\Admin\EmailTemplateController;
 use App\Http\Controllers\Admin\ExportController;
+use App\Http\Controllers\Admin\GdprDeletionRequestController;
 use App\Http\Controllers\Admin\HostController;
 use App\Http\Controllers\Admin\InvoiceController;
 use App\Http\Controllers\Admin\InvoiceReceiptController;
@@ -113,6 +114,12 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
         Route::get('invoices', [ExportController::class, 'invoices'])->name('invoices');
         Route::get('hosts', [ExportController::class, 'hosts'])->name('hosts');
         Route::get('credits', [ExportController::class, 'credits'])->name('credits');
+    });
+
+    Route::prefix('gdpr')->name('gdpr.')->middleware('admin.permission:gdpr.manage')->group(function (): void {
+        Route::get('deletion-requests', [GdprDeletionRequestController::class, 'index'])->name('deletion-requests.index');
+        Route::post('deletion-requests/{request}/approve', [GdprDeletionRequestController::class, 'approve'])->name('deletion-requests.approve');
+        Route::post('deletion-requests/{request}/reject', [GdprDeletionRequestController::class, 'reject'])->name('deletion-requests.reject');
     });
 
     Route::prefix('reports')->name('reports.')->middleware('admin.permission:report.view')->group(function (): void {

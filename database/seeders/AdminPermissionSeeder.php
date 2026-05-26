@@ -27,6 +27,7 @@ class AdminPermissionSeeder extends Seeder
             'affiliate.view',
             'affiliate.manage',
             'export.data',
+            'gdpr.manage',
             'report.view',
             'announcement.manage',
             'contract.view',
