@@ -68,6 +68,7 @@ Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.sta
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/account/profile', [AccountController::class, 'profile'])->name('account.profile');
     Route::put('/account/profile', [AccountController::class, 'updateProfile'])->name('account.profile.update');
+    Route::get('/account/activity', [AccountController::class, 'activity'])->name('account.activity');
     Route::get('/account/security', [AccountController::class, 'security'])->name('account.security');
     Route::get('/account/notifications', [AccountController::class, 'notifications'])->name('account.notifications');
     Route::post('/account/notifications', [AccountController::class, 'updateNotifications'])->name('account.notifications.update');

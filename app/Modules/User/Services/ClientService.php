@@ -3,6 +3,7 @@
 namespace App\Modules\User\Services;
 
 use App\Modules\User\Models\Client;
+use App\Services\ClientActivityService;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
 
@@ -69,7 +70,7 @@ class ClientService
             return false;
         }
 
-        return DB::transaction(function () use ($client, $amount, $description) {
+        $added = DB::transaction(function () use ($client, $amount, $description) {
             $lockedClient = Client::query()->whereKey($client->id)->lockForUpdate()->first();
             if (!$lockedClient || !$this->canAdjustCredit($lockedClient)) {
                 return false;
@@ -88,6 +89,17 @@ class ClientService
 
             return true;
         });
+
+        if ($added) {
+            $freshClient = $client->fresh();
+            app(ClientActivityService::class)->log($freshClient, 'credit.added', '账户余额已增加', [
+                'amount' => $amount,
+                'balance' => (float) $freshClient->credit,
+                'description' => $description,
+            ]);
+        }
+
+        return $added;
     }
 
     public function deductCredit(Client $client, float $amount, string $description = ''): bool

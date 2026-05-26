@@ -8,6 +8,7 @@ use App\Modules\Ticket\Models\TicketDepartment;
 use App\Modules\Ticket\Models\TicketReply;
 use App\Modules\Ticket\Models\TicketStatus;
 use App\Modules\User\Models\Client;
+use App\Services\ClientActivityService;
 use App\Services\Concerns\NotifiesClientsSafely;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -29,8 +30,8 @@ class TicketService
             throw new \RuntimeException('当前部门不允许客户创建工单。');
         }
 
-        return DB::transaction(function () use ($client, $departmentId, $subject, $message) {
-            return Ticket::create([
+        $ticket = DB::transaction(function () use ($client, $departmentId, $subject, $message) {
+            $ticket = Ticket::create([
                 'ticket_number' => $this->nextTicketNumber(),
                 'client_id' => $client->id,
                 'department_id' => $departmentId,
@@ -39,7 +40,18 @@ class TicketService
                 'message' => $message,
                 'priority' => 'Medium',
             ]);
+
+            return $ticket;
         });
+
+        app(ClientActivityService::class)->log($client, 'ticket.created', '工单已创建', [
+            'ticket_id' => $ticket->id,
+            'ticket_number' => $ticket->ticket_number,
+            'department_id' => $ticket->department_id,
+            'subject' => $ticket->subject,
+        ]);
+
+        return $ticket;
     }
 
     /**

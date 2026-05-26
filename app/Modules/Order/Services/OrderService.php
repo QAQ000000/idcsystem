@@ -12,6 +12,7 @@ use App\Modules\Product\Models\ProductAddon;
 use App\Modules\Product\Services\PricingService;
 use App\Modules\Product\Services\ProductService;
 use App\Modules\User\Models\Client;
+use App\Services\ClientActivityService;
 use App\Services\WebhookService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -88,6 +89,13 @@ class OrderService
             'host_ids' => $createdOrder->hosts->pluck('id')->values()->all(),
             'promo_code' => $createdOrder->promo_code,
             'created_at' => $createdOrder->created_at?->toIso8601String(),
+        ]);
+        app(ClientActivityService::class)->log($createdOrder->client, 'order.created', '订单已创建', [
+            'order_id' => $createdOrder->id,
+            'order_number' => $createdOrder->order_number,
+            'invoice_id' => $createdOrder->invoice_id,
+            'amount' => (float) $createdOrder->amount,
+            'host_ids' => $createdOrder->hosts->pluck('id')->values()->all(),
         ]);
 
         return $createdOrder;

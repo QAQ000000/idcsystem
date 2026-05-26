@@ -23,6 +23,7 @@
                     <a href="{{ route('client.account.profile') }}">{{ __('messages.nav.profile') }}</a>
                     <a href="{{ route('client.account.recharge') }}">{{ __('messages.nav.recharge') }}</a>
                     <a href="{{ route('client.affiliate') }}">{{ __('messages.nav.affiliate') }}</a>
+                    <a href="{{ route('client.account.activity') }}">{{ __('messages.nav.activity') }}</a>
                     <a href="{{ route('client.account.notifications') }}">{{ __('messages.nav.notifications') }}</a>
                     <a href="{{ route('client.account.security') }}">{{ __('messages.nav.security') }}</a>
                 @endauth

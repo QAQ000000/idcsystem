@@ -11,6 +11,7 @@ use App\Modules\Order\Models\Upgrade;
 use App\Modules\Order\Services\HostService;
 use App\Modules\User\Models\Client;
 use App\Modules\User\Services\ClientService;
+use App\Services\ClientActivityService;
 use App\Services\Concerns\NotifiesClientsSafely;
 use App\Services\WebhookService;
 use Illuminate\Support\Facades\DB;
@@ -285,6 +286,13 @@ class InvoiceService
                 'trans_id' => $transId,
                 'paid_at' => $freshInvoice->paid_at?->toIso8601String(),
                 'host_ids' => $freshInvoice->order?->hosts?->pluck('id')->values()->all() ?? [],
+            ]);
+            app(ClientActivityService::class)->log($freshInvoice->client, 'invoice.paid', '账单已支付', [
+                'invoice_id' => $freshInvoice->id,
+                'invoice_number' => $freshInvoice->invoice_number,
+                'order_id' => $freshInvoice->order_id,
+                'total' => (float) $freshInvoice->total,
+                'payment_method' => $freshInvoice->payment_method,
             ]);
             ProcessPaidInvoiceJob::dispatch($invoice->id)->onQueue('default');
         }

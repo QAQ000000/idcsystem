@@ -17,6 +17,7 @@ use App\Modules\Product\Services\ProductService;
 use App\Modules\Product\Services\PricingService;
 use App\Modules\Product\Services\AddonService;
 use App\Modules\User\Services\ClientService;
+use App\Services\ClientActivityService;
 use App\Services\Concerns\NotifiesClientsSafely;
 use App\Services\WebhookService;
 use App\Plugins\Contracts\ServerModuleInterface;
@@ -483,6 +484,7 @@ class HostService
                 return ['error' => '升级/降配目标未配置有效价格。'];
             }
 
+            $fromProductId = $lockedHost->product_id;
             $amount = round(max(0, $target - $current), 2);
             $type = $target >= $current ? 'upgrade' : 'downgrade';
 
@@ -511,6 +513,19 @@ class HostService
                     'rel_id' => $upgrade->id,
                 ]]);
                 $upgrade->update(['status' => 'Completed', 'completed_at' => now()]);
+                DB::afterCommit(fn () => app(ClientActivityService::class)->log(
+                    $lockedHost->client,
+                    'host.downgrade_requested',
+                    '服务降配已提交并生效',
+                    [
+                        'host_id' => $lockedHost->id,
+                        'invoice_id' => $invoice->id,
+                        'upgrade_id' => $upgrade->id,
+                        'from_product_id' => $fromProductId,
+                        'to_product_id' => $targetProduct->id,
+                        'type' => $type,
+                    ]
+                ));
 
                 return ['invoice' => $invoice->fresh(['items'])];
             }
@@ -526,6 +541,20 @@ class HostService
                 'invoice_id' => $invoice->id,
                 'upgrade_id' => $upgrade->id,
             ]);
+            DB::afterCommit(fn () => app(ClientActivityService::class)->log(
+                $lockedHost->client,
+                'host.upgrade_requested',
+                '服务升级账单已生成',
+                [
+                    'host_id' => $lockedHost->id,
+                    'invoice_id' => $invoice->id,
+                    'upgrade_id' => $upgrade->id,
+                    'from_product_id' => $fromProductId,
+                    'to_product_id' => $targetProduct->id,
+                    'type' => $type,
+                    'amount' => $amount,
+                ]
+            ));
 
             return ['invoice' => $invoice];
         });

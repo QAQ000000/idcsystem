@@ -6,6 +6,7 @@ use App\Models\ClientLoginLog;
 use App\Models\LoginAttempt;
 use App\Modules\User\Models\Client;
 use App\Modules\User\Models\ClientOauth;
+use App\Services\ClientActivityService;
 use App\Services\NotificationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -27,6 +28,10 @@ class AuthService
         $client = $clientService->create($data);
         app(AffiliateService::class)->recordSignup($client, $referralCode);
         $this->sendEmailVerification($client);
+        app(ClientActivityService::class)->log($client, 'auth.registered', '账户注册成功', [
+            'email' => $client->email,
+            'username' => $client->username,
+        ]);
 
         return $client;
     }
@@ -131,6 +136,10 @@ class AuthService
             'ip' => request()->ip(),
             'user_agent' => substr((string) request()->userAgent(), 0, 500),
             'logged_in_at' => now(),
+        ]);
+
+        app(ClientActivityService::class)->log($client, 'auth.login', '登录成功', [
+            'user_agent' => substr((string) request()->userAgent(), 0, 500),
         ]);
     }
 

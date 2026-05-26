@@ -8,6 +8,7 @@ use App\Modules\Finance\Services\InvoiceService;
 use App\Modules\User\Models\Client;
 use App\Modules\User\Services\AffiliateService;
 use App\Modules\User\Services\TwoFactorService;
+use App\Services\ClientActivityService;
 use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
@@ -43,11 +44,33 @@ class AccountController extends Controller
         $data['currency_id'] = $data['currency_id'] ?? $client->currency_id;
         $data['locale'] = $data['locale'] ?? $client->locale ?? config('app.locale');
 
+        $changed = array_keys(array_filter(
+            $data,
+            fn ($value, $field): bool => (string) ($client->{$field} ?? '') !== (string) ($value ?? ''),
+            ARRAY_FILTER_USE_BOTH
+        ));
         $client->update($data);
         $request->session()->put('locale', $data['locale']);
         app()->setLocale($data['locale']);
+        if ($changed !== []) {
+            app(ClientActivityService::class)->log($client->fresh(), 'profile.updated', '账户资料已更新', [
+                'fields' => $changed,
+            ]);
+        }
 
         return redirect()->route('client.account.profile')->with('status', __('messages.profile_updated'));
+    }
+
+    public function activity()
+    {
+        $client = Auth::guard('client')->user();
+
+        return view('theme::account.activity', [
+            'client' => $client,
+            'activities' => $client->activities()
+                ->latest('created_at')
+                ->paginate(50),
+        ]);
     }
 
     public function security(TwoFactorService $twoFactor)
