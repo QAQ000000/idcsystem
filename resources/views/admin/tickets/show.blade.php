@@ -25,6 +25,15 @@
                     <div class="py-3 text-sm">
                         <div class="text-slate-500">{{ $reply->author_type }} #{{ $reply->author_id }} · {{ $reply->created_at }}</div>
                         <div class="mt-1 whitespace-pre-line">{{ $reply->message }}</div>
+                        @if (is_array($reply->attachment) && $reply->attachment !== [])
+                            <div class="mt-3 flex flex-wrap gap-2">
+                                @foreach ($reply->attachment as $index => $attachment)
+                                    <a class="rounded border px-3 py-1 text-xs text-blue-600" href="{{ route('admin.tickets.attachments.download', [$ticket, $reply, $index]) }}">
+                                        {{ $attachment['name'] ?? '附件 ' . ($index + 1) }}
+                                    </a>
+                                @endforeach
+                            </div>
+                        @endif
                     </div>
                 @endforeach
             </div>
@@ -39,11 +48,15 @@
             @elseif ($isClosed)
                 <p class="mb-4 text-sm text-slate-500">工单已关闭，不能继续回复。</p>
             @else
-                <form method="post" action="{{ route('admin.tickets.reply', $ticket) }}">
+                <form method="post" action="{{ route('admin.tickets.reply', $ticket) }}" enctype="multipart/form-data">
                     @csrf
                     <label class="block text-sm">
                         回复内容
                         <textarea class="mt-1 w-full rounded border px-3 py-2" name="message" rows="5" required></textarea>
+                    </label>
+                    <label class="mt-3 block text-sm">
+                        附件
+                        <input class="mt-1 w-full rounded border px-3 py-2" type="file" name="attachments[]" multiple accept=".jpg,.jpeg,.png,.pdf,.doc,.docx,.txt,.zip">
                     </label>
                     <button class="mt-3 w-full rounded bg-slate-900 px-4 py-2 text-white">回复工单</button>
                 </form>

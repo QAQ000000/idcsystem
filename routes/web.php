@@ -99,5 +99,8 @@ Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.sta
     Route::get('/tickets/create', [TicketController::class, 'create'])->name('tickets.create');
     Route::post('/tickets', [TicketController::class, 'store'])->name('tickets.store');
     Route::get('/tickets/{ticket}', [TicketController::class, 'show'])->name('tickets.show');
+    Route::get('/tickets/{ticket}/attachments/{reply}/{index}', [TicketController::class, 'downloadAttachment'])
+        ->whereNumber('index')
+        ->name('tickets.attachments.download');
     Route::post('/tickets/{ticket}/reply', [TicketController::class, 'reply'])->name('tickets.reply');
 });

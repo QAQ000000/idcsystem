@@ -16,6 +16,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Http\UploadedFile;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -77,6 +79,77 @@ class TicketStatusBoundaryTest extends TestCase
             'department_id' => $openDepartment->id,
             'subject' => '错误部门',
         ]);
+    }
+
+    public function test_client_can_upload_and_download_ticket_reply_attachment(): void
+    {
+        Storage::fake('local');
+        $ticket = $this->ticket();
+
+        $this->actingAs($ticket->client, 'client')
+            ->post(route('client.tickets.reply', $ticket), [
+                'message' => '带附件回复',
+                'attachments' => [
+                    UploadedFile::fake()->create('evidence.txt', 4, 'text/plain'),
+                ],
+            ])
+            ->assertRedirect(route('client.tickets.show', $ticket));
+
+        $reply = TicketReply::query()->where('ticket_id', $ticket->id)->latest('id')->firstOrFail();
+        $this->assertSame('evidence.txt', $reply->attachment[0]['name']);
+        Storage::disk('local')->assertExists($reply->attachment[0]['path']);
+
+        $this->actingAs($ticket->client, 'client')
+            ->get(route('client.tickets.attachments.download', [$ticket, $reply, 0]))
+            ->assertOk();
+    }
+
+    public function test_client_cannot_download_other_client_ticket_attachment(): void
+    {
+        Storage::fake('local');
+        $ticket = $this->ticket();
+        $other = Client::query()->create([
+            'username' => 'ticket-other-client',
+            'email' => 'ticket-other-client@example.com',
+            'password' => Hash::make('client123456'),
+            'status' => 1,
+        ]);
+
+        $this->actingAs($ticket->client, 'client')
+            ->post(route('client.tickets.reply', $ticket), [
+                'message' => '带附件回复',
+                'attachments' => [
+                    UploadedFile::fake()->create('private.txt', 4, 'text/plain'),
+                ],
+            ]);
+        $reply = TicketReply::query()->where('ticket_id', $ticket->id)->latest('id')->firstOrFail();
+
+        $this->actingAs($other, 'client')
+            ->get(route('client.tickets.attachments.download', [$ticket, $reply, 0]))
+            ->assertForbidden();
+    }
+
+    public function test_admin_can_upload_and_download_ticket_reply_attachment(): void
+    {
+        Storage::fake('local');
+        $ticket = $this->ticket();
+
+        $this->actingAs($this->admin(), 'admin')
+            ->post(route('admin.tickets.reply', $ticket), [
+                'message' => '后台附件回复',
+                'attachments' => [
+                    UploadedFile::fake()->create('admin-note.pdf', 8, 'application/pdf'),
+                ],
+            ])
+            ->assertRedirect(route('admin.tickets.show', $ticket));
+
+        $reply = TicketReply::query()->where('ticket_id', $ticket->id)->latest('id')->firstOrFail();
+        $this->assertSame('admin-note.pdf', $reply->attachment[0]['name']);
+        Storage::disk('local')->assertExists($reply->attachment[0]['path']);
+
+        $this->actingAs($this->admin(), 'admin')
+            ->get(route('admin.tickets.attachments.download', [$ticket, $reply, 0]))
+            ->assertOk();
     }
 
     public function test_ticket_service_rejects_inactive_client_reply(): void
@@ -427,8 +500,8 @@ class TicketStatusBoundaryTest extends TestCase
     private function admin(): AdminUser
     {
         $admin = AdminUser::query()->create([
-            'username' => 'ticket-boundary-admin',
-            'email' => 'ticket-boundary-admin@example.com',
+            'username' => 'ticket-boundary-admin-' . random_int(1000, 9999),
+            'email' => 'ticket-boundary-admin-' . random_int(1000, 9999) . '@example.com',
             'password' => Hash::make('admin123456'),
             'status' => 1,
         ]);

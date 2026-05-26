@@ -17,17 +17,30 @@
                 <div class="py-3 text-sm">
                     <div class="text-zinc-500">{{ $reply->author_type }} #{{ $reply->author_id }} · {{ $reply->created_at }}</div>
                     <div class="mt-1 whitespace-pre-line">{{ $reply->message }}</div>
+                    @if (is_array($reply->attachment) && $reply->attachment !== [])
+                        <div class="mt-3 flex flex-wrap gap-2">
+                            @foreach ($reply->attachment as $index => $attachment)
+                                <a class="rounded border px-3 py-1 text-xs text-blue-600" href="{{ route('client.tickets.attachments.download', [$ticket, $reply, $index]) }}">
+                                    {{ $attachment['name'] ?? '附件 ' . ($index + 1) }}
+                                </a>
+                            @endforeach
+                        </div>
+                    @endif
                 </div>
             @empty
                 <p class="text-sm text-zinc-500">暂无回复</p>
             @endforelse
         </div>
 
-        <form method="post" action="{{ route('client.tickets.reply', $ticket) }}" class="mt-5">
+        <form method="post" action="{{ route('client.tickets.reply', $ticket) }}" enctype="multipart/form-data" class="mt-5">
             @csrf
             <label class="block text-sm">
                 新回复
                 <textarea class="mt-1 w-full rounded border px-3 py-2" name="message" rows="4" required></textarea>
+            </label>
+            <label class="mt-3 block text-sm">
+                附件
+                <input class="mt-1 w-full rounded border px-3 py-2" type="file" name="attachments[]" multiple accept=".jpg,.jpeg,.png,.pdf,.doc,.docx,.txt,.zip">
             </label>
             <button class="mt-3 rounded bg-zinc-900 px-4 py-2 text-white">提交回复</button>
         </form>

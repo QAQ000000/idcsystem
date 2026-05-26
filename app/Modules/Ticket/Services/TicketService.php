@@ -45,14 +45,14 @@ class TicketService
     /**
      * 回复工单。
      */
-    public function reply(Ticket $ticket, string $authorType, int $authorId, string $message): ?TicketReply
+    public function reply(Ticket $ticket, string $authorType, int $authorId, string $message, array $attachments = []): ?TicketReply
     {
         $ticket->loadMissing('client');
         if (!$ticket->client || !$this->canClientUseTicket($ticket->client)) {
             return null;
         }
 
-        $reply = DB::transaction(function () use ($ticket, $authorType, $authorId, $message) {
+        $reply = DB::transaction(function () use ($ticket, $authorType, $authorId, $message, $attachments) {
             $lockedTicket = Ticket::query()
                 ->with(['client', 'status'])
                 ->whereKey($ticket->id)
@@ -71,6 +71,7 @@ class TicketService
                 'author_type' => $authorType,
                 'author_id' => $authorId,
                 'message' => $message,
+                'attachment' => $attachments === [] ? null : $attachments,
             ]);
 
             $statusName = $authorType === 'admin' ? 'Answered' : 'Customer Reply';

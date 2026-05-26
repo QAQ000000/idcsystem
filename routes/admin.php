@@ -218,6 +218,10 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::post('/tickets/{ticket}/reply', [TicketController::class, 'reply'])
         ->middleware('admin.permission:ticket.manage')
         ->name('tickets.reply');
+    Route::get('/tickets/{ticket}/attachments/{reply}/{index}', [TicketController::class, 'downloadAttachment'])
+        ->whereNumber('index')
+        ->middleware('admin.permission:ticket.view')
+        ->name('tickets.attachments.download');
     Route::post('/tickets/{ticket}/assign', [TicketController::class, 'assign'])
         ->middleware('admin.permission:ticket.manage')
         ->name('tickets.assign');
