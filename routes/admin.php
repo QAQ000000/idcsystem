@@ -19,6 +19,7 @@ use App\Http\Controllers\Admin\ExportController;
 use App\Http\Controllers\Admin\FinancialStatementController;
 use App\Http\Controllers\Admin\GdprDeletionRequestController;
 use App\Http\Controllers\Admin\HostController;
+use App\Http\Controllers\Admin\ImportController;
 use App\Http\Controllers\Admin\InvoiceController;
 use App\Http\Controllers\Admin\InvoiceReceiptController;
 use App\Http\Controllers\Admin\KbArticleController;
@@ -144,6 +145,21 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
         Route::get('invoices', [ExportController::class, 'invoices'])->name('invoices');
         Route::get('hosts', [ExportController::class, 'hosts'])->name('hosts');
         Route::get('credits', [ExportController::class, 'credits'])->name('credits');
+    });
+    Route::prefix('imports')->name('imports.')->middleware('admin.permission:import.data')->group(function (): void {
+        Route::get('/', [ImportController::class, 'index'])->name('index');
+        Route::get('{type}/template', [ImportController::class, 'template'])
+            ->whereIn('type', ['clients', 'products', 'invoices'])
+            ->name('template');
+        Route::get('{importJob}', [ImportController::class, 'show'])
+            ->whereNumber('importJob')
+            ->name('show');
+        Route::get('{type}', [ImportController::class, 'create'])
+            ->whereIn('type', ['clients', 'products', 'invoices'])
+            ->name('create');
+        Route::post('{type}', [ImportController::class, 'store'])
+            ->whereIn('type', ['clients', 'products', 'invoices'])
+            ->name('store');
     });
 
     Route::view('/api-docs', 'admin.api-docs')
