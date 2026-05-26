@@ -37,6 +37,7 @@ class AdminPermissionSeeder extends Seeder
             'order.approve',
             'order.cancel',
             'cancel_request.manage',
+            'kb.manage',
             'promo.manage',
             'host.view',
             'host.manage',

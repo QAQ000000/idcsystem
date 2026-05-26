@@ -9,6 +9,7 @@ use App\Http\Controllers\Client\DashboardController;
 use App\Http\Controllers\Client\HostController;
 use App\Http\Controllers\Client\InvoiceController;
 use App\Http\Controllers\Client\InvoiceReceiptController;
+use App\Http\Controllers\Client\KnowledgeBaseController;
 use App\Http\Controllers\Client\ProductController;
 use App\Http\Controllers\Client\TicketController;
 use App\Http\Controllers\HealthController;
@@ -53,6 +54,11 @@ Route::post('/email/resend', [AuthController::class, 'resendVerification'])
 
 Route::get('/products', [ProductController::class, 'index'])->name('client.products.index');
 Route::get('/products/{product}', [ProductController::class, 'show'])->name('client.products.show');
+Route::get('/kb', [KnowledgeBaseController::class, 'index'])->name('client.kb.index');
+Route::get('/kb/search', [KnowledgeBaseController::class, 'search'])->name('client.kb.search');
+Route::get('/kb/{category:slug}', [KnowledgeBaseController::class, 'category'])->name('client.kb.category');
+Route::get('/kb/{category:slug}/{article:slug}', [KnowledgeBaseController::class, 'article'])->name('client.kb.article');
+Route::post('/kb/{article:slug}/feedback', [KnowledgeBaseController::class, 'feedback'])->name('client.kb.feedback');
 Route::post('/payment/{gateway}/callback', [InvoiceController::class, 'callback'])
     ->middleware('throttle:60,1')
     ->name('payment.callback');

@@ -12,6 +12,7 @@
             <a href="{{ route('client.products.index') }}" class="text-lg font-semibold">IDC System</a>
             <nav class="flex gap-4 text-sm text-zinc-600">
                 <a href="{{ route('client.products.index') }}">产品</a>
+                <a href="{{ route('client.kb.index') }}">知识库</a>
                 <a href="{{ route('client.dashboard') }}">控制台</a>
                 <a href="{{ route('client.cart.index') }}">购物车</a>
                 <a href="{{ route('client.hosts.index') }}">服务</a>

@@ -15,6 +15,8 @@ use App\Http\Controllers\Admin\ExportController;
 use App\Http\Controllers\Admin\HostController;
 use App\Http\Controllers\Admin\InvoiceController;
 use App\Http\Controllers\Admin\InvoiceReceiptController;
+use App\Http\Controllers\Admin\KbArticleController;
+use App\Http\Controllers\Admin\KbCategoryController;
 use App\Http\Controllers\Admin\LoginAttemptController;
 use App\Http\Controllers\Admin\OrderController;
 use App\Http\Controllers\Admin\PromoCodeController;
@@ -79,6 +81,10 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::resource('announcements', AnnouncementController::class)
         ->except(['show'])
         ->middleware('admin.permission:announcement.manage');
+    Route::prefix('kb')->name('kb.')->middleware('admin.permission:kb.manage')->group(function (): void {
+        Route::resource('categories', KbCategoryController::class)->except(['show']);
+        Route::resource('articles', KbArticleController::class)->except(['show']);
+    });
     Route::get('/settings', [SettingController::class, 'index'])
         ->middleware('admin.permission:setting.manage')
         ->name('settings.index');
