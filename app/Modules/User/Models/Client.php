@@ -15,7 +15,7 @@ class Client extends Authenticatable
         'username', 'email', 'password', 'status', 'group_id',
         'company_name', 'phone_code', 'phone', 'country', 'province', 'city', 'address',
         'currency_id', 'credit', 'credit_limit',
-        'two_factor_enabled', 'two_factor_secret',
+        'two_factor_enabled', 'two_factor_secret', 'notification_preferences',
         'email_verified_at', 'last_login_at', 'last_login_ip', 'locked_until',
     ];
 
@@ -26,6 +26,7 @@ class Client extends Authenticatable
         'credit'             => 'decimal:2',
         'credit_limit'       => 'decimal:2',
         'two_factor_enabled' => 'boolean',
+        'notification_preferences' => 'array',
         'email_verified_at'  => 'datetime',
         'last_login_at'      => 'datetime',
         'locked_until'       => 'datetime',

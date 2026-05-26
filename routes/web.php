@@ -62,6 +62,8 @@ Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.sta
     Route::get('/account/profile', [AccountController::class, 'profile'])->name('account.profile');
     Route::put('/account/profile', [AccountController::class, 'updateProfile'])->name('account.profile.update');
     Route::get('/account/security', [AccountController::class, 'security'])->name('account.security');
+    Route::get('/account/notifications', [AccountController::class, 'notifications'])->name('account.notifications');
+    Route::post('/account/notifications', [AccountController::class, 'updateNotifications'])->name('account.notifications.update');
     Route::put('/account/password', [AccountController::class, 'updatePassword'])->name('account.password.update');
     Route::post('/account/2fa/enable', [AccountController::class, 'enableTwoFactor'])->name('account.2fa.enable');
     Route::post('/account/2fa/disable', [AccountController::class, 'disableTwoFactor'])->name('account.2fa.disable');

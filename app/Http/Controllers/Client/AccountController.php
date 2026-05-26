@@ -10,6 +10,8 @@ use App\Modules\User\Services\AffiliateService;
 use App\Modules\User\Services\TwoFactorService;
 use App\Services\NotificationService;
 use Illuminate\Http\Request;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
@@ -66,6 +68,41 @@ class AccountController extends Controller
             'twoFactorSecret' => $secret,
             'twoFactorQrCodeUrl' => $qrCodeUrl,
         ]);
+    }
+
+    public function notifications(): View
+    {
+        $client = Auth::guard('client')->user();
+
+        return view('theme::account.notifications', [
+            'client' => $client,
+            'events' => NotificationService::preferenceEvents(),
+            'preferences' => $client->notification_preferences ?? [],
+            'mandatory' => NotificationService::MANDATORY_NOTIFICATIONS,
+        ]);
+    }
+
+    public function updateNotifications(Request $request): RedirectResponse
+    {
+        $events = array_keys(NotificationService::preferenceEvents());
+        $data = $request->validate([
+            'notifications' => ['nullable', 'array'],
+            'notifications.*' => ['nullable', 'boolean'],
+        ]);
+
+        $submitted = $data['notifications'] ?? [];
+        $preferences = [];
+        foreach ($events as $event) {
+            $preferences[$event] = NotificationService::isMandatory($event)
+                ? true
+                : filter_var($submitted[$event] ?? false, FILTER_VALIDATE_BOOLEAN);
+        }
+
+        Auth::guard('client')->user()->update([
+            'notification_preferences' => $preferences,
+        ]);
+
+        return redirect()->route('client.account.notifications')->with('status', '通知偏好已更新');
     }
 
     public function recharge(Request $request, InvoiceService $invoices)

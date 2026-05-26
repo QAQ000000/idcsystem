@@ -7,6 +7,13 @@ use Throwable;
 
 class NotificationService
 {
+    public const MANDATORY_NOTIFICATIONS = [
+        'email_verification',
+        'account_locked',
+        'suspicious_login',
+        'password_changed',
+    ];
+
     public function __construct(
         private ?SettingsService $settings = null,
         private ?MailService $mail = null,
@@ -27,6 +34,12 @@ class NotificationService
 
         if ($client->trashed() || (!$client->isActive() && $event !== 'email_verification')) {
             $result['errors']['client'] = '客户账号未启用或已删除，跳过通知。';
+
+            return $result;
+        }
+
+        if (!$this->clientAllows($client, $event)) {
+            $result['errors']['preference'] = '客户已关闭该通知。';
 
             return $result;
         }
@@ -64,6 +77,29 @@ class NotificationService
         return $channel === 'mail'
             ? ($this->settings->get('mail_queue_enabled', false) ? 'async' : 'sync')
             : ($this->settings->get('sms_queue_enabled', false) ? 'async' : 'sync');
+    }
+
+    public function clientAllows(Client $client, string $event): bool
+    {
+        if (in_array($event, self::MANDATORY_NOTIFICATIONS, true)) {
+            return true;
+        }
+
+        $preferences = is_array($client->notification_preferences) ? $client->notification_preferences : [];
+
+        return (bool) ($preferences[$event] ?? true);
+    }
+
+    public static function preferenceEvents(): array
+    {
+        return collect(self::events())
+            ->except(['custom_email'])
+            ->all();
+    }
+
+    public static function isMandatory(string $event): bool
+    {
+        return in_array($event, self::MANDATORY_NOTIFICATIONS, true);
     }
 
     public static function events(): array

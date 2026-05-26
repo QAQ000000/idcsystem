@@ -350,6 +350,71 @@ class NotificationTest extends TestCase
         $this->assertSame(0, SmsLog::query()->count());
     }
 
+    public function test_client_can_manage_notification_preferences_and_mandatory_notifications_remain_enabled(): void
+    {
+        $client = $this->client();
+
+        $this->actingAs($client, 'client')
+            ->get(route('client.account.notifications'))
+            ->assertOk()
+            ->assertSee('通知偏好');
+
+        $this->actingAs($client, 'client')
+            ->post(route('client.account.notifications.update'), [
+                'notifications' => [
+                    'invoice_created' => 0,
+                    'invoice_paid' => 0,
+                    'password_changed' => 0,
+                ],
+            ])
+            ->assertRedirect(route('client.account.notifications'))
+            ->assertSessionHas('status', '通知偏好已更新');
+
+        $client->refresh();
+        $this->assertFalse((bool) $client->notification_preferences['invoice_created']);
+        $this->assertFalse((bool) $client->notification_preferences['invoice_paid']);
+        $this->assertTrue((bool) $client->notification_preferences['password_changed']);
+    }
+
+    public function test_closed_client_notification_preferences_prevent_delivery(): void
+    {
+        Mail::fake();
+        $this->seed(\Database\Seeders\EmailTemplateSeeder::class);
+        $this->seed(\Database\Seeders\SmsTemplateSeeder::class);
+        $this->installSmtp();
+        $this->installSms();
+        $client = $this->client();
+        $client->update([
+            'notification_preferences' => [
+                'invoice_created' => false,
+                'invoice_paid' => true,
+                'password_changed' => true,
+                'email_verification' => true,
+                'account_locked' => true,
+                'suspicious_login' => true,
+                'host_due_reminder' => true,
+                'invoice_receipt_submitted' => true,
+                'invoice_receipt_issued' => true,
+                'host_cancel_requested' => true,
+                'host_cancel_approved' => true,
+                'host_cancel_rejected' => true,
+                'host_cancel_completed' => true,
+                'host_renewal_invoice_created' => true,
+                'host_upgrade_completed' => true,
+                'ticket_replied' => true,
+            ],
+        ]);
+
+        app(InvoiceService::class)->generate($client, [[
+            'type' => 'product',
+            'description' => '测试产品',
+            'amount' => 100,
+        ]]);
+
+        $this->assertDatabaseMissing('email_logs', ['template' => 'invoice_created', 'to' => $client->email]);
+        $this->assertDatabaseMissing('sms_logs', ['template' => 'invoice_created', 'phone' => $client->phone]);
+    }
+
     private function installSmtp(): void
     {
         $manager = app(PluginManager::class);
