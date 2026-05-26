@@ -44,6 +44,41 @@
             @endif
         </section>
 
+        <section class="rounded bg-white p-6 shadow-sm lg:col-span-2">
+            <h2 class="mb-4 font-semibold">附加项</h2>
+            <div class="divide-y divide-zinc-100">
+                @forelse ($host->addons as $hostAddon)
+                    <div class="flex items-center justify-between py-3 text-sm">
+                        <div>
+                            <div class="font-medium">{{ $hostAddon->addon?->name ?: 'Addon #' . $hostAddon->addon_id }}</div>
+                            <div class="text-zinc-500">{{ $hostAddon->billing_cycle }} / {{ $hostAddon->status }} / 到期 {{ $hostAddon->next_due_date?->format('Y-m-d') ?: '-' }}</div>
+                        </div>
+                        <div>{{ number_format((float) $hostAddon->price, 2) }}</div>
+                    </div>
+                @empty
+                    <p class="text-sm text-zinc-500">暂无附加项</p>
+                @endforelse
+            </div>
+            @php
+                $activeAddonIds = $host->addons->where('status', '!=', 'Terminated')->pluck('addon_id')->map(fn ($id) => (int) $id)->all();
+                $availableAddons = $host->product?->addons?->whereNotIn('id', $activeAddonIds) ?? collect();
+            @endphp
+            @if (in_array($host->status, ['Active', 'Suspended'], true) && $availableAddons->isNotEmpty())
+                <form method="post" action="{{ route('client.hosts.addons.store', $host) }}" class="mt-5 flex flex-wrap items-end gap-3 border-t pt-4">
+                    @csrf
+                    <label class="block text-sm">
+                        添加附加项
+                        <select class="mt-1 rounded border px-3 py-2" name="addon_id">
+                            @foreach ($availableAddons as $addon)
+                                <option value="{{ $addon->id }}">{{ $addon->name }} / {{ $addon->billing_cycle === 'recurring' ? '周期' : '一次性' }} / {{ number_format((float) $addon->price, 2) }}</option>
+                            @endforeach
+                        </select>
+                    </label>
+                    <button class="rounded bg-zinc-900 px-4 py-2 text-sm text-white">添加附加项</button>
+                </form>
+            @endif
+        </section>
+
         <aside class="rounded bg-white p-6 shadow-sm">
             <h2 class="mb-4 font-semibold">续费</h2>
             @if (!in_array($host->status, ['Terminated', 'Cancelled'], true))

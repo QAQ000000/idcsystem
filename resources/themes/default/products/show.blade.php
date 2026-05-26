@@ -65,6 +65,26 @@
                 </label>
             @endforeach
 
+            @if ($product->addons->isNotEmpty())
+                <section class="mb-4 rounded border bg-zinc-50 p-4">
+                    <h2 class="mb-3 font-semibold">可选附加项</h2>
+                    <div class="space-y-3">
+                        @foreach ($product->addons as $addon)
+                            <label class="flex items-start gap-3 text-sm">
+                                <input class="mt-1" type="checkbox" name="addons[]" value="{{ $addon->id }}">
+                                <span>
+                                    <span class="font-medium">{{ $addon->name }}</span>
+                                    <span class="text-zinc-500"> / {{ $addon->billing_cycle === 'recurring' ? '周期' : '一次性' }} / {{ number_format((float) $addon->price, 2) }}</span>
+                                    @if ($addon->description)
+                                        <span class="mt-1 block text-xs text-zinc-500">{{ $addon->description }}</span>
+                                    @endif
+                                </span>
+                            </label>
+                        @endforeach
+                    </div>
+                </section>
+            @endif
+
             <button class="w-full rounded bg-zinc-900 px-4 py-2 text-white">加入购物车</button>
         </form>
     </div>

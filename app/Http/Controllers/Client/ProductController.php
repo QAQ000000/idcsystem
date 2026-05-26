@@ -35,6 +35,13 @@ class ProductController extends Controller
                 ->where('admin_only', false)
                 ->orderBy('sort_order')
                 ->orderBy('id'),
+            'addons' => fn ($query) => $query
+                ->where('active', true)
+                ->where(function ($query): void {
+                    $query->whereNull('stock_qty')->orWhere('stock_qty', '>', 0);
+                })
+                ->orderBy('sort_order')
+                ->orderBy('id'),
         ]);
         $currency = $this->displayCurrency($currencies);
 

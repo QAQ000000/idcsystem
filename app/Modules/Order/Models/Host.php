@@ -54,6 +54,11 @@ class Host extends Model
         return $this->hasMany(Upgrade::class);
     }
 
+    public function addons()
+    {
+        return $this->hasMany(HostAddon::class);
+    }
+
     public function cancelRequests()
     {
         return $this->hasMany(CancelRequest::class);

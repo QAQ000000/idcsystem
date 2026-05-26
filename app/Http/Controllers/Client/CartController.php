@@ -8,6 +8,7 @@ use App\Modules\Order\Services\CartService;
 use App\Modules\Order\Services\HostService;
 use App\Modules\Product\Models\CustomField;
 use App\Modules\Product\Models\Product;
+use App\Modules\Product\Models\ProductAddon;
 use App\Modules\Product\Services\ProductService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -46,6 +47,8 @@ class CartController extends Controller
             'product_id' => ['required', 'integer', 'exists:products,id'],
             'billing_cycle' => ['nullable', 'string', 'max:50', 'in:' . implode(',', $hosts->availableCycles())],
             'qty' => ['nullable', 'integer', 'min:1', 'max:' . CartService::MAX_ITEM_QUANTITY],
+            'addons' => ['nullable', 'array'],
+            'addons.*' => ['integer', 'exists:product_addons,id'],
             'custom_fields' => ['nullable', 'array'],
             'custom_fields.*' => ['nullable', 'string', 'max:2000'],
         ]);
@@ -56,6 +59,11 @@ class CartController extends Controller
             ->findOrFail($data['product_id']);
         if (!$products->isPurchasable($product, (int) ($data['qty'] ?? 1))) {
             abort(404);
+        }
+        if (!$this->addonsArePurchasable($product, $data['addons'] ?? [])) {
+            return redirect()->route('client.products.show', $product)->withErrors([
+                'addons' => '所选附加项不可购买或库存不足',
+            ]);
         }
         $data['custom_fields'] = $this->validatedCustomFields($request, $product);
 
@@ -177,5 +185,29 @@ class CartController extends Controller
         }
 
         return $values;
+    }
+
+    private function addonsArePurchasable(Product $product, mixed $addonIds): bool
+    {
+        $ids = collect(is_array($addonIds) ? $addonIds : [])
+            ->map(fn ($id): int => (int) $id)
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($ids->isEmpty()) {
+            return true;
+        }
+
+        $count = ProductAddon::query()
+            ->where('product_id', $product->id)
+            ->where('active', true)
+            ->where(function ($query): void {
+                $query->whereNull('stock_qty')->orWhere('stock_qty', '>', 0);
+            })
+            ->whereIn('id', $ids)
+            ->count();
+
+        return $count === $ids->count();
     }
 }

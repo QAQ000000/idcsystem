@@ -8,6 +8,7 @@ use App\Models\PaymentAttempt;
 use App\Modules\Order\Models\Order;
 use App\Modules\Order\Models\PromoCode;
 use App\Modules\Product\Models\Product;
+use App\Modules\Product\Models\ProductAddon;
 use App\Modules\Product\Services\PricingService;
 use App\Modules\Product\Services\ProductService;
 use App\Modules\User\Models\Client;
@@ -125,6 +126,21 @@ class OrderService
                 'amount' => $lineTotal,
                 'rel_id' => $product->id,
             ];
+
+            foreach ($this->resolveAddons($product, $item['addons'] ?? []) as $addon) {
+                $addonTotal = round((float) $addon->price * $quantity, 2);
+                $subtotal += $addonTotal;
+                $invoiceItems[] = [
+                    'type' => 'addon',
+                    'description' => '附加项：' . $addon->name,
+                    'amount' => $addonTotal,
+                    'rel_id' => $addon->id,
+                    'meta' => [
+                        'product_id' => $product->id,
+                        'billing_cycle' => $addon->billing_cycle,
+                    ],
+                ];
+            }
         }
 
         $promoDiscount = $this->calculatePromoDiscount($subtotal, $promoCode);
@@ -262,6 +278,25 @@ class OrderService
         }
 
         return Product::query()->findOrFail((int) ($item['product_id'] ?? 0));
+    }
+
+    private function resolveAddons(Product $product, mixed $addonIds)
+    {
+        $ids = collect(is_array($addonIds) ? $addonIds : [])
+            ->map(fn ($id): int => (int) $id)
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        return ProductAddon::query()
+            ->where('product_id', $product->id)
+            ->where('active', true)
+            ->whereIn('id', $ids)
+            ->get();
     }
 
     private function assertOrderItemsPurchasable(array $items): void

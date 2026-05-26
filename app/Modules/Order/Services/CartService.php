@@ -6,6 +6,7 @@ use App\Modules\Order\Models\Order;
 use App\Modules\Order\Models\PromoCode;
 use App\Modules\Product\Models\CustomField;
 use App\Modules\Product\Models\Product;
+use App\Modules\Product\Models\ProductAddon;
 use App\Modules\Product\Services\PricingService;
 use App\Modules\Product\Services\ProductService;
 use App\Modules\User\Models\Client;
@@ -58,6 +59,8 @@ class CartService
         if ($price <= 0) {
             return null;
         }
+        $addons = $this->selectedAddons($freshProduct, $config['addons'] ?? []);
+        $addonTotal = round($addons->sum(fn (ProductAddon $addon): float => (float) $addon->price), 2);
 
         $cart['items'][] = [
             'id' => $this->nextItemId($cart),
@@ -66,6 +69,13 @@ class CartService
             'billing_cycle' => $billingCycle,
             'qty' => $qty,
             'price' => $price,
+            'addon_total' => $addonTotal,
+            'addons' => $addons->map(fn (ProductAddon $addon): array => [
+                'id' => $addon->id,
+                'name' => $addon->name,
+                'price' => (float) $addon->price,
+                'billing_cycle' => $addon->billing_cycle,
+            ])->values()->all(),
             'config' => $config,
             'custom_field_labels' => $this->customFieldLabels($freshProduct, is_array($config['custom_fields'] ?? null) ? $config['custom_fields'] : []),
             'currency_id' => $config['currency_id'],
@@ -144,6 +154,7 @@ class CartService
                     if ($price <= 0) {
                         throw new RuntimeException('购物车包含不可结算的商品，请移除后重试。');
                     }
+                    $addons = $this->selectedAddons($product, $item['config']['addons'] ?? []);
 
                     return ($item['config'] ?? []) + [
                         'product_id' => $item['product_id'],
@@ -151,6 +162,7 @@ class CartService
                         'currency_id' => $item['currency_id'],
                         'qty' => $qty,
                         'price' => $price,
+                        'addons' => $addons->pluck('id')->values()->all(),
                     ];
                 }, $cart['items']);
 
@@ -239,7 +251,7 @@ class CartService
     private function calculateDiscount(array $cart, PromoCode $promo): float
     {
         $subtotal = round(array_sum(array_map(
-            fn (array $item) => round((float) ($item['price'] ?? 0) * (int) ($item['qty'] ?? 1), 2),
+            fn (array $item) => round(((float) ($item['price'] ?? 0) + (float) ($item['addon_total'] ?? 0)) * (int) ($item['qty'] ?? 1), 2),
             $cart['items'] ?? []
         )), 2);
 
@@ -268,7 +280,7 @@ class CartService
                 return 0.0;
             }
 
-            return round((float) ($item['price'] ?? 0) * (int) ($item['qty'] ?? 1), 2);
+            return round(((float) ($item['price'] ?? 0) + (float) ($item['addon_total'] ?? 0)) * (int) ($item['qty'] ?? 1), 2);
         }, $cart['items'] ?? [])), 2);
     }
 
@@ -276,7 +288,7 @@ class CartService
     {
         $cart['items'] ??= [];
         $subtotal = round(array_sum(array_map(
-            fn (array $item) => round((float) ($item['price'] ?? 0) * (int) ($item['qty'] ?? 1), 2),
+            fn (array $item) => round(((float) ($item['price'] ?? 0) + (float) ($item['addon_total'] ?? 0)) * (int) ($item['qty'] ?? 1), 2),
             $cart['items']
         )), 2);
 
@@ -363,6 +375,30 @@ class CartService
         }
 
         return $labels;
+    }
+
+    private function selectedAddons(Product $product, mixed $addonIds)
+    {
+        $ids = collect(is_array($addonIds) ? $addonIds : [])
+            ->map(fn ($id): int => (int) $id)
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($ids->isEmpty()) {
+            return ProductAddon::query()->whereRaw('1 = 0')->get();
+        }
+
+        return ProductAddon::query()
+            ->where('product_id', $product->id)
+            ->where('active', true)
+            ->where(function ($query): void {
+                $query->whereNull('stock_qty')->orWhere('stock_qty', '>', 0);
+            })
+            ->whereIn('id', $ids)
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get();
     }
 
     private function normalizeQuantity(mixed $qty): ?int

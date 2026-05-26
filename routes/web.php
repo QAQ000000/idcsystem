@@ -89,6 +89,7 @@ Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.sta
     Route::get('/hosts/{host}', [HostController::class, 'show'])->name('hosts.show');
     Route::post('/hosts/{host}/renew', [HostController::class, 'renew'])->name('hosts.renew');
     Route::post('/hosts/{host}/upgrade', [HostController::class, 'upgrade'])->name('hosts.upgrade');
+    Route::post('/hosts/{host}/addons', [HostController::class, 'addAddon'])->name('hosts.addons.store');
     Route::post('/hosts/{host}/cancel', [CancelRequestController::class, 'store'])->name('hosts.cancel');
     Route::post('/hosts/{host}/action', [HostController::class, 'action'])->name('hosts.action');
 

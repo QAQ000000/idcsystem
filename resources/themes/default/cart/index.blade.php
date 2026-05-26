@@ -27,10 +27,16 @@
                                     @endforeach
                                 </dl>
                             @endif
+                            @if (!empty($item['addons']))
+                                <div class="mt-2 text-xs text-zinc-500">
+                                    附加项：
+                                    {{ collect($item['addons'])->map(fn ($addon) => $addon['name'] . ' +' . number_format((float) $addon['price'], 2))->join('、') }}
+                                </div>
+                            @endif
                         </td>
                         <td class="px-4 py-3">{{ $item['billing_cycle'] }}</td>
                         <td class="px-4 py-3">{{ $item['qty'] }}</td>
-                        <td class="px-4 py-3">{{ $currencies->format((float) $item['price'], $currency) }}</td>
+                        <td class="px-4 py-3">{{ $currencies->format((float) $item['price'] + (float) ($item['addon_total'] ?? 0), $currency) }}</td>
                         <td class="px-4 py-3">
                             <form method="post" action="{{ route('client.cart.remove', $item['id']) }}">
                                 @csrf

@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Modules\Order\Models\Host;
 use App\Modules\Order\Services\HostService;
 use App\Modules\Product\Models\Product;
+use App\Modules\Product\Models\ProductAddon;
+use App\Modules\Product\Services\AddonService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -33,7 +35,7 @@ class HostController extends Controller
         }
 
         abort_unless((int) $host->client_id === (int) $client->id, 403);
-        $host->load(['product.pricings', 'order.invoice', 'customFieldValues.field', 'pendingCancelRequest', 'actionLogs' => fn ($query) => $query->latest()->limit(10), 'upgrades']);
+        $host->load(['product.pricings', 'product.addons' => fn ($query) => $query->where('active', true)->orderBy('sort_order'), 'order.invoice', 'customFieldValues.field', 'addons.addon', 'pendingCancelRequest', 'actionLogs' => fn ($query) => $query->latest()->limit(10), 'upgrades']);
 
         return view('theme::hosts.show', [
             'host' => $host,
@@ -95,6 +97,25 @@ class HostController extends Controller
         }
 
         return redirect()->route('client.invoices.show', $invoice)->with('status', '升级/降配账单已生成');
+    }
+
+    public function addAddon(Request $request, Host $host, AddonService $addons)
+    {
+        $this->authorizeHost($host);
+        $data = $request->validate([
+            'addon_id' => ['required', 'integer', 'exists:product_addons,id'],
+        ]);
+
+        $addon = ProductAddon::query()->findOrFail((int) $data['addon_id']);
+        try {
+            $invoice = $addons->createAttachInvoice($host->load('client'), $addon);
+        } catch (\RuntimeException $exception) {
+            return redirect()->route('client.hosts.show', $host)->withErrors([
+                'addon_id' => $exception->getMessage(),
+            ]);
+        }
+
+        return redirect()->route('client.invoices.show', $invoice)->with('status', '附加项账单已生成');
     }
 
     public function action(Request $request, Host $host, HostService $hosts)

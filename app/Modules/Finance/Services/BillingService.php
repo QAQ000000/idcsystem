@@ -4,7 +4,9 @@ namespace App\Modules\Finance\Services;
 
 use App\Modules\Finance\Models\InvoiceItem;
 use App\Modules\Order\Models\Host;
+use App\Modules\Order\Models\HostAddon;
 use App\Modules\Order\Services\HostService;
+use App\Modules\Product\Services\AddonService;
 use App\Services\HostMonitoringService;
 use Illuminate\Support\Facades\DB;
 
@@ -60,6 +62,28 @@ class BillingService
                 }
             });
 
+        HostAddon::query()
+            ->with(['host.client', 'addon'])
+            ->where('status', 'Active')
+            ->where('billing_cycle', 'recurring')
+            ->whereNotNull('next_due_date')
+            ->where('next_due_date', '<=', $cutoff)
+            ->chunkById(100, function ($addons) use (&$count): void {
+                foreach ($addons as $addon) {
+                    if (!$addon->host?->client || $addon->host->client->trashed() || !$addon->host->client->isActive()) {
+                        continue;
+                    }
+
+                    if ($this->hasUnpaidAddonInvoice($addon)) {
+                        continue;
+                    }
+
+                    app(AddonService::class)->renew($addon);
+                    $addon->update(['next_due_date' => $addon->host->next_due_date]);
+                    $count++;
+                }
+            });
+
         return $count;
     }
 
@@ -102,6 +126,15 @@ class BillingService
         return InvoiceItem::query()
             ->where('type', 'renewal')
             ->where('rel_id', $host->id)
+            ->whereHas('invoice', fn ($query) => $query->where('status', 'Unpaid'))
+            ->exists();
+    }
+
+    private function hasUnpaidAddonInvoice(HostAddon $addon): bool
+    {
+        return InvoiceItem::query()
+            ->where('type', 'addon')
+            ->where('rel_id', $addon->id)
             ->whereHas('invoice', fn ($query) => $query->where('status', 'Unpaid'))
             ->exists();
     }

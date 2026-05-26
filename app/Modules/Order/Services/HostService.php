@@ -15,6 +15,7 @@ use App\Modules\Product\Models\CustomFieldValue;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Services\ProductService;
 use App\Modules\Product\Services\PricingService;
+use App\Modules\Product\Services\AddonService;
 use App\Modules\User\Services\ClientService;
 use App\Services\Concerns\NotifiesClientsSafely;
 use App\Services\WebhookService;
@@ -74,6 +75,7 @@ class HostService
 
             $this->log($host, 'created', '服务已创建');
             $this->storeCustomFieldValues($host, $product, is_array($config['custom_fields'] ?? null) ? $config['custom_fields'] : []);
+            $this->storeAddons($host, is_array($config['addons'] ?? null) ? $config['addons'] : []);
 
             return $host;
         });
@@ -553,6 +555,10 @@ class HostService
                 $this->applyUpgradeItem($item);
             }
 
+            if ($item->type === 'addon') {
+                $this->applyAddonItem($item);
+            }
+
             if ($item->type === 'recharge') {
                 $this->applyRechargeItem($invoice, $item);
             }
@@ -984,6 +990,41 @@ class HostService
     private function logFailure(Host $host, string $action, string $message, array $meta = []): void
     {
         $this->log($host, $action . '_failed', $message, $meta);
+    }
+
+    private function storeAddons(Host $host, array $addonIds): void
+    {
+        $addons = \App\Modules\Product\Models\ProductAddon::query()
+            ->where('product_id', $host->product_id)
+            ->where('active', true)
+            ->whereIn('id', array_values(array_unique(array_map('intval', $addonIds))))
+            ->get();
+
+        foreach ($addons as $addon) {
+            app(AddonService::class)->attach($host, $addon);
+        }
+    }
+
+    private function applyAddonItem(InvoiceItem $item): void
+    {
+        $meta = is_array($item->meta) ? $item->meta : [];
+        if (($meta['action'] ?? null) !== 'attach' || empty($meta['host_id'])) {
+            return;
+        }
+
+        $host = Host::query()->find((int) $meta['host_id']);
+        $addon = \App\Modules\Product\Models\ProductAddon::query()->find((int) ($meta['addon_id'] ?? $item->rel_id));
+        if (!$host || !$addon) {
+            return;
+        }
+
+        $exists = $host->addons()
+            ->where('addon_id', $addon->id)
+            ->where('status', '!=', 'Terminated')
+            ->exists();
+        if (!$exists) {
+            app(AddonService::class)->attach($host, $addon);
+        }
     }
 
     private function dispatchHostWebhook(string $event, int $hostId, array $extra = []): void

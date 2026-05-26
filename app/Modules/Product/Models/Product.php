@@ -39,6 +39,11 @@ class Product extends Model
         return $this->hasMany(CustomField::class, 'rel_id')->where('type', 'product');
     }
 
+    public function addons()
+    {
+        return $this->hasMany(ProductAddon::class);
+    }
+
     public function hosts()
     {
         return $this->hasMany(\App\Modules\Order\Models\Host::class);

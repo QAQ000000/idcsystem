@@ -23,6 +23,7 @@ use App\Http\Controllers\Admin\PromoCodeController;
 use App\Http\Controllers\Admin\NotificationCenterController;
 use App\Http\Controllers\Admin\PluginController;
 use App\Http\Controllers\Admin\ProductController;
+use App\Http\Controllers\Admin\ProductAddonController;
 use App\Http\Controllers\Admin\ProductCustomFieldController;
 use App\Http\Controllers\Admin\ReportController;
 use App\Http\Controllers\Admin\SystemTaskController;
@@ -163,6 +164,18 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::delete('/products/{product}/custom-fields/{customField}', [ProductCustomFieldController::class, 'destroy'])
         ->middleware('admin.permission:product.manage')
         ->name('products.custom-fields.destroy');
+    Route::get('/products/{product}/addons', [ProductAddonController::class, 'index'])
+        ->middleware('admin.permission:product.manage')
+        ->name('products.addons.index');
+    Route::post('/products/{product}/addons', [ProductAddonController::class, 'store'])
+        ->middleware('admin.permission:product.manage')
+        ->name('products.addons.store');
+    Route::put('/products/{product}/addons/{addon}', [ProductAddonController::class, 'update'])
+        ->middleware('admin.permission:product.manage')
+        ->name('products.addons.update');
+    Route::delete('/products/{product}/addons/{addon}', [ProductAddonController::class, 'destroy'])
+        ->middleware('admin.permission:product.manage')
+        ->name('products.addons.destroy');
     Route::get('/products', [ProductController::class, 'index'])
         ->middleware('admin.permission:product.view')
         ->name('products.index');
