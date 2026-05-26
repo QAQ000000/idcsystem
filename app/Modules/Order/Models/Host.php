@@ -49,6 +49,16 @@ class Host extends Model
         return $this->hasMany(\App\Models\HostUsageSnapshot::class);
     }
 
+    public function usageAlerts()
+    {
+        return $this->hasMany(\App\Models\UsageAlert::class);
+    }
+
+    public function usageAlertLogs()
+    {
+        return $this->hasMany(\App\Models\UsageAlertLog::class);
+    }
+
     public function upgrades()
     {
         return $this->hasMany(Upgrade::class);

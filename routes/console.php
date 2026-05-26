@@ -39,6 +39,20 @@ Artisan::command('host:send-due-reminders {--days=}', function () {
     return 0;
 })->purpose('Send host due reminder notifications');
 
+Artisan::command('usage:check-alerts', function () {
+    $task = app(\App\Services\SystemTaskService::class)->run('usage:check-alerts', function () {
+        return app(\App\Services\UsageAlertService::class)->checkAll();
+    });
+
+    if ($task->status === 'failed') {
+        $this->error($task->error ?: 'Usage alert check failed');
+        return 1;
+    }
+
+    $this->info($task->output ?: 'Usage alert check completed');
+    return 0;
+})->purpose('Check host usage alerts');
+
 Artisan::command('notifications:recover-stale {--minutes=15}', function () {
     $minutes = max(1, (int) $this->option('minutes'));
     $task = app(\App\Services\SystemTaskService::class)->run('notifications:recover-stale', function () use ($minutes) {
@@ -111,4 +125,5 @@ Schedule::command('billing:suspend-overdue')->dailyAt('03:00');
 Schedule::command('cancel:process-approved')->dailyAt('03:30');
 Schedule::command('host:send-due-reminders')->dailyAt('09:00');
 Schedule::command('host:sync-usage')->hourly();
+Schedule::command('usage:check-alerts')->hourly();
 Schedule::command('notifications:recover-stale')->everyFifteenMinutes();

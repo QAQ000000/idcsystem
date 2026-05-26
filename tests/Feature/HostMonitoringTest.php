@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Models\HostUsageSnapshot;
 use App\Models\DueReminder;
 use App\Models\Plugin;
+use App\Models\UsageAlert;
+use App\Models\UsageAlertLog;
 use App\Modules\Admin\Models\AdminUser;
 use App\Modules\Finance\Models\Currency;
 use App\Modules\Order\Models\Host;
@@ -361,6 +363,131 @@ class HostMonitoringTest extends TestCase
         $this->artisan('host:sync-usage')->assertExitCode(0);
 
         $this->assertDatabaseHas('host_usage_snapshots', ['host_id' => $host->id]);
+    }
+
+    public function test_client_can_manage_usage_alerts(): void
+    {
+        $host = $this->host(['status' => 'Active']);
+        HostUsageSnapshot::query()->create([
+            'host_id' => $host->id,
+            'cpu' => 20,
+            'memory' => 30,
+            'disk' => 40,
+            'bandwidth' => 50,
+            'collected_at' => now(),
+        ]);
+
+        $this->actingAs($host->client, 'client')
+            ->get(route('client.hosts.show', $host))
+            ->assertOk()
+            ->assertSee('用量告警');
+
+        $this->actingAs($host->client, 'client')
+            ->get(route('client.hosts.alerts.index', $host))
+            ->assertOk()
+            ->assertSee('新增或更新规则')
+            ->assertSee('40.00%');
+
+        $this->actingAs($host->client, 'client')
+            ->post(route('client.hosts.alerts.store', $host), [
+                'metric' => 'disk',
+                'threshold' => 80,
+                'active' => 1,
+            ])
+            ->assertRedirect(route('client.hosts.alerts.index', $host))
+            ->assertSessionHas('status', '用量告警已保存');
+
+        $alert = UsageAlert::query()->where('host_id', $host->id)->where('metric', 'disk')->firstOrFail();
+        $this->assertSame(80, $alert->threshold);
+
+        $this->actingAs($host->client, 'client')
+            ->delete(route('client.hosts.alerts.destroy', [$host, $alert]))
+            ->assertRedirect(route('client.hosts.alerts.index', $host))
+            ->assertSessionHas('status', '用量告警已删除');
+
+        $this->assertDatabaseMissing('usage_alerts', ['id' => $alert->id]);
+    }
+
+    public function test_usage_alert_check_triggers_notification_and_respects_cooldown(): void
+    {
+        Mail::fake();
+        $this->seed(\Database\Seeders\EmailTemplateSeeder::class);
+        $this->installSmtp();
+        $host = $this->host(['status' => 'Active']);
+        HostUsageSnapshot::query()->create([
+            'host_id' => $host->id,
+            'cpu' => 85,
+            'memory' => 30,
+            'disk' => 75,
+            'bandwidth' => 20,
+            'collected_at' => now(),
+        ]);
+        $alert = UsageAlert::query()->create([
+            'host_id' => $host->id,
+            'metric' => 'cpu',
+            'threshold' => 80,
+            'active' => true,
+        ]);
+
+        $first = app(\App\Services\UsageAlertService::class)->check($host);
+        $second = app(\App\Services\UsageAlertService::class)->check($host);
+
+        $this->assertSame(1, $first);
+        $this->assertSame(0, $second);
+        $this->assertDatabaseHas('usage_alert_logs', [
+            'alert_id' => $alert->id,
+            'host_id' => $host->id,
+            'metric' => 'cpu',
+            'threshold' => 80,
+        ]);
+        $this->assertDatabaseHas('email_logs', [
+            'to' => $host->client->email,
+            'template' => 'usage_alert',
+        ]);
+        $this->assertDatabaseHas('host_action_logs', [
+            'host_id' => $host->id,
+            'action' => 'usage_alert',
+            'message' => '服务用量告警已触发',
+        ]);
+        $this->assertSame(1, UsageAlertLog::query()->where('alert_id', $alert->id)->count());
+
+        $alert->refresh()->update(['last_triggered_at' => now()->subMinutes(61)]);
+        $this->assertSame(1, app(\App\Services\UsageAlertService::class)->check($host));
+        $this->assertSame(2, UsageAlertLog::query()->where('alert_id', $alert->id)->count());
+    }
+
+    public function test_usage_alert_command_writes_system_task_log(): void
+    {
+        Mail::fake();
+        $this->seed(\Database\Seeders\EmailTemplateSeeder::class);
+        $this->installSmtp();
+        $host = $this->host(['status' => 'Active']);
+        HostUsageSnapshot::query()->create([
+            'host_id' => $host->id,
+            'cpu' => 10,
+            'memory' => 30,
+            'disk' => 91,
+            'bandwidth' => 20,
+            'collected_at' => now(),
+        ]);
+        UsageAlert::query()->create([
+            'host_id' => $host->id,
+            'metric' => 'disk',
+            'threshold' => 90,
+            'active' => true,
+        ]);
+
+        $this->artisan('usage:check-alerts')->assertExitCode(0);
+
+        $this->assertDatabaseHas('system_task_logs', [
+            'task_name' => 'usage:check-alerts',
+            'status' => 'success',
+        ]);
+        $this->assertDatabaseHas('usage_alert_logs', [
+            'host_id' => $host->id,
+            'metric' => 'disk',
+            'threshold' => 90,
+        ]);
     }
 
     private function installMockServer(array $config = []): void

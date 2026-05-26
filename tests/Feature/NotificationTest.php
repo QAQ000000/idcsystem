@@ -43,6 +43,35 @@ class NotificationTest extends TestCase
         $this->assertSame('新账单 {{invoice_number}}', $template->fresh()->subject);
     }
 
+    public function test_usage_alert_templates_are_seeded_and_sendable(): void
+    {
+        Mail::fake();
+        $this->seed(\Database\Seeders\EmailTemplateSeeder::class);
+        $this->seed(\Database\Seeders\SmsTemplateSeeder::class);
+        $this->installSmtp();
+        $this->installSms();
+        $client = $this->client();
+        $client->update(['phone' => '13800138000']);
+
+        $this->assertArrayHasKey('usage_alert', NotificationService::events());
+        $this->assertDatabaseHas('email_templates', ['name' => 'usage_alert']);
+        $this->assertDatabaseHas('sms_templates', ['name' => 'usage_alert']);
+
+        $result = app(NotificationService::class)->notifyClient($client->fresh(), 'usage_alert', [
+            'client_name' => $client->username,
+            'product_name' => 'Monitor VPS',
+            'host_id' => 10001,
+            'metric' => '磁盘',
+            'current_value' => '91.20',
+            'threshold' => 90,
+        ]);
+
+        $this->assertTrue($result['mail']);
+        $this->assertTrue($result['sms']);
+        $this->assertDatabaseHas('email_logs', ['template' => 'usage_alert', 'to' => $client->email, 'status' => 'sent']);
+        $this->assertDatabaseHas('sms_logs', ['template' => 'usage_alert', 'phone' => '13800138000', 'status' => 'sent']);
+    }
+
     public function test_admin_can_edit_sms_template(): void
     {
         $admin = $this->admin();

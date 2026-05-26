@@ -68,6 +68,12 @@ class EmailTemplateSeeder extends Seeder
                 'body' => '您好 {{client_name}}，您的 {{product_name}} 升级/降配已完成。',
                 'enabled' => true,
             ],
+            [
+                'name' => 'usage_alert',
+                'subject' => '{{product_name}} 用量告警',
+                'body' => '您好 {{client_name}}，您的服务 {{product_name}} 的 {{metric}} 使用率已达到 {{current_value}}%，超过设定阈值 {{threshold}}%。',
+                'enabled' => true,
+            ],
         ];
     }
 }

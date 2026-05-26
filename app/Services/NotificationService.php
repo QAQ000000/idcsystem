@@ -153,6 +153,10 @@ class NotificationService
                 'label' => '升级/降配完成',
                 'variables' => ['client_name', 'product_name'],
             ],
+            'usage_alert' => [
+                'label' => '服务用量告警',
+                'variables' => ['client_name', 'product_name', 'host_id', 'metric', 'current_value', 'threshold'],
+            ],
             'host_cancel_requested' => [
                 'label' => '取消申请提交',
                 'variables' => ['client_name', 'product_name', 'host_id', 'cancel_type', 'cancel_reason'],

@@ -10,6 +10,9 @@
         </div>
         <a class="rounded border px-4 py-2 text-sm" href="{{ route('client.hosts.index') }}">返回服务列表</a>
     </div>
+    <div class="mb-6 flex flex-wrap gap-3 text-sm">
+        <a class="rounded border px-4 py-2" href="{{ route('client.hosts.alerts.index', $host) }}">用量告警</a>
+    </div>
 
     <div class="grid gap-6 lg:grid-cols-3">
         <section class="rounded bg-white p-6 shadow-sm lg:col-span-2">

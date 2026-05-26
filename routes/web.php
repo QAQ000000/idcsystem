@@ -12,6 +12,7 @@ use App\Http\Controllers\Client\InvoiceReceiptController;
 use App\Http\Controllers\Client\KnowledgeBaseController;
 use App\Http\Controllers\Client\ProductController;
 use App\Http\Controllers\Client\TicketController;
+use App\Http\Controllers\Client\UsageAlertController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\Install\InstallController;
 use Illuminate\Support\Facades\Route;
@@ -87,6 +88,9 @@ Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.sta
 
     Route::get('/hosts', [HostController::class, 'index'])->name('hosts.index');
     Route::get('/hosts/{host}', [HostController::class, 'show'])->name('hosts.show');
+    Route::get('/hosts/{host}/alerts', [UsageAlertController::class, 'index'])->name('hosts.alerts.index');
+    Route::post('/hosts/{host}/alerts', [UsageAlertController::class, 'store'])->name('hosts.alerts.store');
+    Route::delete('/hosts/{host}/alerts/{alert}', [UsageAlertController::class, 'destroy'])->name('hosts.alerts.destroy');
     Route::post('/hosts/{host}/renew', [HostController::class, 'renew'])->name('hosts.renew');
     Route::post('/hosts/{host}/upgrade', [HostController::class, 'upgrade'])->name('hosts.upgrade');
     Route::post('/hosts/{host}/addons', [HostController::class, 'addAddon'])->name('hosts.addons.store');
