@@ -52,6 +52,36 @@ class ProductStockAlertTest extends TestCase
         ]);
     }
 
+    public function test_create_triggers_alert_and_disabling_resolves_active_alert(): void
+    {
+        $group = ProductGroup::query()->create(['name' => '新建低库存分组']);
+        $service = app(ProductService::class);
+
+        $product = $service->create([
+            'group_id' => $group->id,
+            'name' => '新建低库存产品',
+            'type' => 'hosting',
+            'pay_type' => 'recurring',
+            'pay_method' => 'prepaid',
+            'auto_setup' => 'manual',
+            'stock_control' => true,
+            'stock_qty' => 1,
+            'stock_alert_threshold' => 2,
+            'stock_alert_enabled' => true,
+        ]);
+
+        $this->assertDatabaseHas('product_stock_alerts', [
+            'product_id' => $product->id,
+            'stock_qty' => 1,
+            'threshold' => 2,
+            'resolved_at' => null,
+        ]);
+
+        $this->assertTrue($service->update($product->fresh(), ['stock_alert_enabled' => false]));
+
+        $this->assertNotNull($product->stockAlerts()->first()->fresh()->resolved_at);
+    }
+
     private function product(array $overrides = []): Product
     {
         $group = ProductGroup::query()->create(['name' => '默认分组']);

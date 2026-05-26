@@ -19,7 +19,10 @@ class ProductService
     public function create(array $data): Product
     {
         return DB::transaction(function () use ($data) {
-            return Product::create($this->normalizeProductPayload($data));
+            $product = Product::create($this->normalizeProductPayload($data));
+            $this->checkProductStockAlert($product);
+
+            return $product;
         });
     }
 
@@ -159,35 +162,49 @@ class ProductService
 
     public function checkProductStockAlert(Product $product): bool
     {
-        if (!$product->stock_control || !$product->stock_alert_enabled || (int) $product->stock_alert_threshold <= 0) {
-            return false;
-        }
-
-        $activeAlert = ProductStockAlert::query()
-            ->where('product_id', $product->id)
-            ->whereNull('resolved_at')
-            ->first();
-
-        if ((int) $product->stock_qty <= (int) $product->stock_alert_threshold) {
-            if ($activeAlert) {
+        return DB::transaction(function () use ($product): bool {
+            $lockedProduct = Product::query()->whereKey($product->id)->lockForUpdate()->first();
+            if (!$lockedProduct) {
                 return false;
             }
 
-            ProductStockAlert::query()->create([
-                'product_id' => $product->id,
-                'stock_qty' => (int) $product->stock_qty,
-                'threshold' => (int) $product->stock_alert_threshold,
-                'triggered_at' => now(),
-            ]);
+            $activeAlert = ProductStockAlert::query()
+                ->where('product_id', $lockedProduct->id)
+                ->whereNull('resolved_at')
+                ->lockForUpdate()
+                ->first();
 
-            return true;
-        }
+            if (!$lockedProduct->stock_control
+                || !$lockedProduct->stock_alert_enabled
+                || (int) $lockedProduct->stock_alert_threshold <= 0) {
+                if ($activeAlert) {
+                    $activeAlert->update(['resolved_at' => now()]);
+                }
 
-        if ($activeAlert) {
-            $activeAlert->update(['resolved_at' => now()]);
-        }
+                return false;
+            }
 
-        return false;
+            if ((int) $lockedProduct->stock_qty <= (int) $lockedProduct->stock_alert_threshold) {
+                if ($activeAlert) {
+                    return false;
+                }
+
+                ProductStockAlert::query()->create([
+                    'product_id' => $lockedProduct->id,
+                    'stock_qty' => (int) $lockedProduct->stock_qty,
+                    'threshold' => (int) $lockedProduct->stock_alert_threshold,
+                    'triggered_at' => now(),
+                ]);
+
+                return true;
+            }
+
+            if ($activeAlert) {
+                $activeAlert->update(['resolved_at' => now()]);
+            }
+
+            return false;
+        });
     }
 
     private function normalizeProductPayload(array $data, ?Product $product = null): array
