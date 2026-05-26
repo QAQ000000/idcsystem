@@ -14,6 +14,7 @@
                     <th class="px-4 py-3 font-medium">主题</th>
                     <th class="px-4 py-3 font-medium">客户</th>
                     <th class="px-4 py-3 font-medium">状态</th>
+                    <th class="px-4 py-3 font-medium">负责人</th>
                     <th class="px-4 py-3 font-medium">SLA</th>
                     <th class="px-4 py-3 font-medium">操作</th>
                 </tr>
@@ -31,6 +32,7 @@
                             @endif
                         </td>
                         <td class="px-4 py-3">{{ $ticket->status?->name }}</td>
+                        <td class="px-4 py-3">{{ $ticket->assignedUser?->username ?: '-' }}</td>
                         <td class="px-4 py-3">
                             @if ($ticket->slaLog)
                                 <span @class([
@@ -48,7 +50,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td class="px-4 py-6 text-center text-slate-500" colspan="7">暂无数据</td>
+                        <td class="px-4 py-6 text-center text-slate-500" colspan="8">暂无数据</td>
                     </tr>
                 @endforelse
             </tbody>

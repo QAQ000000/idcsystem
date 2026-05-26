@@ -45,6 +45,7 @@ class TicketService
         });
 
         app(SlaService::class)->applyToTicket($ticket);
+        $this->autoAssign($ticket);
 
         app(ClientActivityService::class)->log($client, 'ticket.created', '工单已创建', [
             'ticket_id' => $ticket->id,
@@ -161,7 +162,12 @@ class TicketService
                 return false;
             }
 
-            return $lockedTicket->update(['assigned_to' => $adminId]);
+            $adminUser = AdminUser::query()->find($adminId);
+            if (!$adminUser) {
+                return false;
+            }
+
+            return app(TicketAssignmentService::class)->assignTicket($lockedTicket, $adminUser);
         });
     }
 
@@ -185,9 +191,16 @@ class TicketService
                 return true;
             }
 
+            $assignedAdminId = (int) $lockedTicket->assigned_to;
             $updated = $lockedTicket->update(['status_id' => $statusId]);
             if ($updated) {
                 app(SlaService::class)->recordResolution($lockedTicket);
+                if ($assignedAdminId > 0) {
+                    $adminUser = AdminUser::query()->find($assignedAdminId);
+                    if ($adminUser) {
+                        app(TicketAssignmentService::class)->decrementCount($adminUser);
+                    }
+                }
             }
 
             return $updated;
@@ -247,6 +260,18 @@ class TicketService
             ->whereKey($statusId)
             ->where('name', 'Closed')
             ->exists();
+    }
+
+    private function autoAssign(Ticket $ticket): void
+    {
+        if (!filter_var(config('ticket.auto_assign', true), FILTER_VALIDATE_BOOLEAN)) {
+            return;
+        }
+
+        $adminUser = app(TicketAssignmentService::class)->autoAssign($ticket);
+        if ($adminUser) {
+            app(TicketAssignmentService::class)->assignTicket($ticket, $adminUser);
+        }
     }
 
     private function defaultStatusId(): int

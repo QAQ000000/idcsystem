@@ -18,6 +18,7 @@
                 @endif
             </p>
             <p>状态：{{ $ticket->status?->name }}</p>
+            <p>负责人：{{ $ticket->assignedUser?->username ?: '未分配' }}</p>
             @if ($ticket->slaLog)
                 <div class="mt-4 rounded border p-3 text-sm">
                     <div class="font-semibold">SLA 状态</div>

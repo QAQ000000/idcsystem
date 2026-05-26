@@ -40,6 +40,7 @@ use App\Http\Controllers\Admin\SmsLogController;
 use App\Http\Controllers\Admin\SmsTemplateController;
 use App\Http\Controllers\Admin\SslController;
 use App\Http\Controllers\Admin\TaxRuleController;
+use App\Http\Controllers\Admin\TicketAssignmentRuleController;
 use App\Http\Controllers\Admin\TicketController;
 use App\Http\Controllers\Admin\TicketSlaController;
 use App\Http\Controllers\Admin\WebhookController;
@@ -407,6 +408,15 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::put('/ticket-slas/{ticketSla}', [TicketSlaController::class, 'update'])
         ->middleware('admin.permission:ticket.manage')
         ->name('ticket-slas.update');
+    Route::get('/ticket-assignment-rules', [TicketAssignmentRuleController::class, 'index'])
+        ->middleware('admin.permission:ticket.view')
+        ->name('ticket-assignment-rules.index');
+    Route::post('/ticket-assignment-rules', [TicketAssignmentRuleController::class, 'store'])
+        ->middleware('admin.permission:ticket.manage')
+        ->name('ticket-assignment-rules.store');
+    Route::put('/ticket-assignment-rules/{ticketAssignmentRule}', [TicketAssignmentRuleController::class, 'update'])
+        ->middleware('admin.permission:ticket.manage')
+        ->name('ticket-assignment-rules.update');
     Route::resource('tickets', TicketController::class)
         ->only(['index', 'show'])
         ->middleware('admin.permission:ticket.view');

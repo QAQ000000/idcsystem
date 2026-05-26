@@ -16,7 +16,7 @@ class AdminUser extends Authenticatable
     protected $fillable = [
         'username', 'email', 'password', 'real_name', 'phone',
         'two_factor_enabled', 'two_factor_secret',
-        'status', 'last_login_at', 'last_login_ip',
+        'assigned_ticket_count', 'status', 'last_login_at', 'last_login_ip',
     ];
 
     protected $hidden = ['password', 'remember_token', 'two_factor_secret'];
@@ -24,6 +24,7 @@ class AdminUser extends Authenticatable
     protected $casts = [
         'status'             => 'integer',
         'two_factor_enabled' => 'boolean',
+        'assigned_ticket_count' => 'integer',
         'last_login_at'      => 'datetime',
     ];
 

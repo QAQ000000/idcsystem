@@ -26,6 +26,11 @@ class Ticket extends Model
         return $this->belongsTo(TicketStatus::class, 'status_id');
     }
 
+    public function assignedUser()
+    {
+        return $this->belongsTo(\App\Modules\Admin\Models\AdminUser::class, 'assigned_to');
+    }
+
     public function replies()
     {
         return $this->hasMany(TicketReply::class);

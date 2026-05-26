@@ -87,6 +87,7 @@
                     @if ($canAdmin('ticket.view'))
                         <a href="{{ route('admin.tickets.index') }}">工单</a>
                         <a href="{{ route('admin.ticket-slas.index') }}">工单 SLA</a>
+                        <a href="{{ route('admin.ticket-assignment-rules.index') }}">工单分配</a>
                     @endif
                     @if ($canAdmin('notification.manage'))
                         <a href="{{ route('admin.notifications.index') }}">通知中心</a>
