@@ -67,6 +67,19 @@ return [
 
     'token_prefix' => env('SANCTUM_TOKEN_PREFIX', ''),
 
+    'abilities' => [
+        'products:read' => '查看产品',
+        'products:write' => '管理产品',
+        'hosts:read' => '查看服务',
+        'hosts:write' => '管理服务',
+        'invoices:read' => '查看账单',
+        'invoices:write' => '管理账单',
+        'tickets:read' => '查看工单',
+        'tickets:write' => '管理工单',
+        'account:read' => '查看账户信息',
+        'account:write' => '修改账户信息',
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Sanctum Middleware

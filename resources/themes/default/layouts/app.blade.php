@@ -25,6 +25,7 @@
                     <a href="{{ route('client.notifications.index') }}">消息<span id="notification-unread-badge" class="ml-1 rounded bg-red-600 px-1.5 py-0.5 text-xs text-white" hidden>0</span></a>
                     <a href="{{ route('client.account.profile') }}">{{ __('messages.nav.profile') }}</a>
                     <a href="{{ route('client.account.recharge') }}">{{ __('messages.nav.recharge') }}</a>
+                    <a href="{{ route('client.api-tokens.index') }}">API Token</a>
                     <a href="{{ route('client.affiliate') }}">{{ __('messages.nav.affiliate') }}</a>
                     <a href="{{ route('client.account.activity') }}">{{ __('messages.nav.activity') }}</a>
                     <a href="{{ route('client.account.notifications') }}">{{ __('messages.nav.notifications') }}</a>

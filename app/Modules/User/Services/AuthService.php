@@ -147,9 +147,9 @@ class AuthService
         ]);
     }
 
-    public function createToken(Client $client, string $deviceName = 'web'): string
+    public function createToken(Client $client, string $deviceName = 'web', array $abilities = ['*']): string
     {
-        return $client->createToken($deviceName)->plainTextToken;
+        return $client->createToken($deviceName, $abilities)->plainTextToken;
     }
 
     public function logout(Client $client): void

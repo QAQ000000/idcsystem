@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Client\AuthController;
 use App\Http\Controllers\Client\AccountController;
+use App\Http\Controllers\Client\ApiTokenController;
 use App\Http\Controllers\Client\CartController;
 use App\Http\Controllers\Client\CancelRequestController;
 use App\Http\Controllers\Client\ContractController;
@@ -94,6 +95,9 @@ Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.sta
     Route::post('/account/2fa/disable', [AccountController::class, 'disableTwoFactor'])->name('account.2fa.disable');
     Route::get('/account/recharge', [AccountController::class, 'recharge'])->name('account.recharge');
     Route::post('/account/recharge', [AccountController::class, 'recharge'])->name('account.recharge.store');
+    Route::get('/api-tokens', [ApiTokenController::class, 'index'])->name('api-tokens.index');
+    Route::post('/api-tokens', [ApiTokenController::class, 'store'])->name('api-tokens.store');
+    Route::delete('/api-tokens/{token}', [ApiTokenController::class, 'destroy'])->name('api-tokens.destroy');
     Route::get('/affiliate', [AccountController::class, 'affiliate'])->name('affiliate');
     Route::post('/affiliate/withdraw', [AccountController::class, 'withdrawAffiliate'])->name('affiliate.withdraw');
     Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');

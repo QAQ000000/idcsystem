@@ -22,6 +22,7 @@
                     <a href="{{ route('client.notifications.index') }}">消息</a>
                     <a href="{{ route('client.account.profile') }}">资料</a>
                     <a href="{{ route('client.account.recharge') }}">充值</a>
+                    <a href="{{ route('client.api-tokens.index') }}">API Token</a>
                     <a href="{{ route('client.affiliate') }}">推介</a>
                     <a href="{{ route('client.account.security') }}">安全</a>
                 @endauth

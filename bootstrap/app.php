@@ -33,6 +33,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'admin.status' => CheckAdminStatus::class,
             'client.status' => CheckClientStatus::class,
             'admin.permission' => \App\Http\Middleware\EnsureAdminPermission::class,
+            'api.ability' => \App\Http\Middleware\CheckApiAbility::class,
+            'api.log' => \App\Http\Middleware\LogApiRequest::class,
         ]);
         $middleware->redirectGuestsTo(function ($request) {
             return $request->is('admin/*') || $request->is('admin')
