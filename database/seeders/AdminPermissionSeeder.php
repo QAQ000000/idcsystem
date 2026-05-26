@@ -42,6 +42,8 @@ class AdminPermissionSeeder extends Seeder
             'promo.manage',
             'tax_rule.view',
             'tax_rule.manage',
+            'domain.view',
+            'domain.manage',
             'host.view',
             'host.manage',
             'invoice.view',

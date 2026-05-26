@@ -51,6 +51,11 @@ class SmsTemplateSeeder extends Seeder
                 'enabled' => true,
             ],
             [
+                'name' => 'domain_expiry_reminder',
+                'content' => '您好 {{client_name}}，您的域名 {{domain}} 将在 {{days}} 天后（{{expiry_date}}）到期，请及时续费。',
+                'enabled' => true,
+            ],
+            [
                 'name' => 'host_upgrade_completed',
                 'content' => '您好 {{client_name}}，您的 {{product_name}} 升级/降配已完成。',
                 'enabled' => true,

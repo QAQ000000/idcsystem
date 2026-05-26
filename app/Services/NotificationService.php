@@ -149,6 +149,10 @@ class NotificationService
                 'label' => '服务到期提醒',
                 'variables' => ['client_name', 'product_name', 'due_date'],
             ],
+            'domain_expiry_reminder' => [
+                'label' => '域名到期提醒',
+                'variables' => ['client_name', 'domain', 'expiry_date', 'days'],
+            ],
             'host_upgrade_completed' => [
                 'label' => '升级/降配完成',
                 'variables' => ['client_name', 'product_name'],

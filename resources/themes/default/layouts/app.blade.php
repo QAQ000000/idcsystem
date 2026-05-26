@@ -16,6 +16,7 @@
                 <a href="{{ route('client.dashboard') }}">{{ __('messages.nav.dashboard') }}</a>
                 <a href="{{ route('client.cart.index') }}">{{ __('messages.nav.cart') }}</a>
                 <a href="{{ route('client.hosts.index') }}">{{ __('messages.nav.hosts') }}</a>
+                <a href="{{ route('client.domains.index') }}">域名</a>
                 <a href="{{ route('client.invoices.index') }}">{{ __('messages.nav.invoices') }}</a>
                 <a href="{{ route('client.contracts.index') }}">{{ __('messages.nav.contracts') }}</a>
                 <a href="{{ route('client.tickets.index') }}">{{ __('messages.nav.tickets') }}</a>

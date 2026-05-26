@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\SystemTaskLog;
 use App\Modules\Finance\Models\Invoice;
 use App\Modules\Order\Services\HostService;
+use App\Modules\Product\Services\DomainService;
 use App\Modules\User\Services\AffiliateService;
 use App\Services\NotificationService;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -24,7 +25,12 @@ class ProcessPaidInvoiceJob implements ShouldQueue
         $this->onQueue('default');
     }
 
-    public function handle(HostService $hostService, NotificationService $notifications, AffiliateService $affiliates): void
+    public function handle(
+        HostService $hostService,
+        DomainService $domainService,
+        NotificationService $notifications,
+        AffiliateService $affiliates
+    ): void
     {
         $invoice = Invoice::query()->find($this->invoiceId);
         if (!$invoice || $invoice->status !== 'Paid') {
@@ -37,6 +43,7 @@ class ProcessPaidInvoiceJob implements ShouldQueue
         }
 
         $hostService->applyPaidInvoice($fresh);
+        $domainService->applyPaidInvoice($fresh);
 
         if ($fresh->client) {
             $notifications->notifyClient($fresh->client, 'invoice_paid', [

@@ -708,6 +708,7 @@ class PaymentTest extends TestCase
         Queue::assertPushed(ProcessPaidInvoiceJob::class, fn (ProcessPaidInvoiceJob $job) => $job->invoiceId === $invoice->id);
         (new ProcessPaidInvoiceJob($invoice->id))->handle(
             app(\App\Modules\Order\Services\HostService::class),
+            app(\App\Modules\Product\Services\DomainService::class),
             app(\App\Services\NotificationService::class),
             app(\App\Modules\User\Services\AffiliateService::class)
         );

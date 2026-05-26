@@ -135,11 +135,45 @@ Artisan::command('cancel:process-approved', function () {
     return 0;
 })->purpose('Process approved end-of-billing-period cancel requests');
 
+Artisan::command('domains:send-expiry-reminders', function () {
+    $task = app(\App\Services\SystemTaskService::class)->run('domains:send-expiry-reminders', function () {
+        return [
+            'sent' => app(\App\Modules\Product\Services\DomainService::class)->sendExpiryReminders(),
+        ];
+    });
+
+    if ($task->status === 'failed') {
+        $this->error($task->error ?: 'Domain expiry reminders failed');
+        return 1;
+    }
+
+    $this->info($task->output ?: 'Domain expiry reminders completed');
+    return 0;
+})->purpose('Send domain expiry reminder notifications');
+
+Artisan::command('domains:auto-renew', function () {
+    $task = app(\App\Services\SystemTaskService::class)->run('domains:auto-renew', function () {
+        return [
+            'generated' => app(\App\Modules\Product\Services\DomainService::class)->autoRenewDue(),
+        ];
+    });
+
+    if ($task->status === 'failed') {
+        $this->error($task->error ?: 'Domain auto renew failed');
+        return 1;
+    }
+
+    $this->info($task->output ?: 'Domain auto renew completed');
+    return 0;
+})->purpose('Generate renewal invoices for auto-renew domains');
+
 // 核心业务调度：由系统 cron 每分钟触发 schedule:run 后按频率执行。
 Schedule::command('billing:generate-invoices')->dailyAt('02:00');
 Schedule::command('billing:suspend-overdue')->dailyAt('03:00');
 Schedule::command('cancel:process-approved')->dailyAt('03:30');
+Schedule::command('domains:auto-renew')->dailyAt('04:00');
 Schedule::command('host:send-due-reminders')->dailyAt('09:00');
+Schedule::command('domains:send-expiry-reminders')->dailyAt('09:30');
 Schedule::command('host:sync-usage')->hourly();
 Schedule::command('usage:check-alerts')->hourly();
 Schedule::command('notifications:recover-stale')->everyFifteenMinutes();

@@ -9,6 +9,8 @@ use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\ClientGroupController;
 use App\Http\Controllers\Admin\ContractTemplateController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\DomainController;
+use App\Http\Controllers\Admin\DomainPricingController;
 use App\Http\Controllers\Admin\EmailLogController;
 use App\Http\Controllers\Admin\EmailCampaignController;
 use App\Http\Controllers\Admin\EmailTemplateController;
@@ -244,6 +246,19 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::delete('/tax-rules/{taxRule}', [TaxRuleController::class, 'destroy'])
         ->middleware('admin.permission:tax_rule.manage')
         ->name('tax-rules.destroy');
+
+    Route::get('/domains', [DomainController::class, 'index'])
+        ->middleware('admin.permission:domain.view')
+        ->name('domains.index');
+    Route::get('/domain-pricings', [DomainPricingController::class, 'index'])
+        ->middleware('admin.permission:domain.manage')
+        ->name('domain-pricings.index');
+    Route::post('/domain-pricings', [DomainPricingController::class, 'store'])
+        ->middleware('admin.permission:domain.manage')
+        ->name('domain-pricings.store');
+    Route::put('/domain-pricings/{domainPricing}', [DomainPricingController::class, 'update'])
+        ->middleware('admin.permission:domain.manage')
+        ->name('domain-pricings.update');
 
     Route::get('/campaigns', [EmailCampaignController::class, 'index'])
         ->middleware('admin.permission:campaign.view')

@@ -47,6 +47,12 @@
                     @if ($canAdmin('tax_rule.view'))
                         <a href="{{ route('admin.tax-rules.index') }}">税率规则</a>
                     @endif
+                    @if ($canAdmin('domain.view'))
+                        <a href="{{ route('admin.domains.index') }}">域名</a>
+                    @endif
+                    @if ($canAdmin('domain.manage'))
+                        <a href="{{ route('admin.domain-pricings.index') }}">TLD价格</a>
+                    @endif
                     @if ($canAdmin('invoice.view'))
                         <a href="{{ route('admin.invoices.index') }}">账单</a>
                         <a href="{{ route('admin.invoice-receipts.index') }}">发票申请</a>

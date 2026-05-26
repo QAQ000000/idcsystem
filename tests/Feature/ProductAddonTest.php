@@ -203,6 +203,7 @@ class ProductAddonTest extends TestCase
         $this->assertTrue(app(InvoiceService::class)->markAsPaid($invoice, 'manual', 'ADDON-ATTACH-1'));
         (new ProcessPaidInvoiceJob($invoice->id))->handle(
             app(\App\Modules\Order\Services\HostService::class),
+            app(\App\Modules\Product\Services\DomainService::class),
             app(\App\Services\NotificationService::class),
             app(\App\Modules\User\Services\AffiliateService::class)
         );

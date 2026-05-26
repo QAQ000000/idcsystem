@@ -6,6 +6,7 @@ use App\Http\Controllers\Client\CartController;
 use App\Http\Controllers\Client\CancelRequestController;
 use App\Http\Controllers\Client\ContractController;
 use App\Http\Controllers\Client\DashboardController;
+use App\Http\Controllers\Client\DomainController;
 use App\Http\Controllers\Client\HostController;
 use App\Http\Controllers\Client\InvoiceController;
 use App\Http\Controllers\Client\InvoiceReceiptController;
@@ -106,6 +107,13 @@ Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.sta
     Route::post('/hosts/{host}/addons', [HostController::class, 'addAddon'])->name('hosts.addons.store');
     Route::post('/hosts/{host}/cancel', [CancelRequestController::class, 'store'])->name('hosts.cancel');
     Route::post('/hosts/{host}/action', [HostController::class, 'action'])->name('hosts.action');
+
+    Route::get('/domains', [DomainController::class, 'index'])->name('domains.index');
+    Route::get('/domains/register', [DomainController::class, 'register'])->name('domains.register');
+    Route::post('/domains/register', [DomainController::class, 'store'])->name('domains.store');
+    Route::get('/domains/{domain}', [DomainController::class, 'show'])->name('domains.show');
+    Route::post('/domains/{domain}/nameservers', [DomainController::class, 'updateNameservers'])->name('domains.nameservers');
+    Route::post('/domains/{domain}/renew', [DomainController::class, 'renew'])->name('domains.renew');
 
     Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
     Route::get('/invoices/{invoice}', [InvoiceController::class, 'show'])->name('invoices.show');

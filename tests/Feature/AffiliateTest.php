@@ -58,6 +58,7 @@ class AffiliateTest extends TestCase
         $this->assertTrue(app(InvoiceService::class)->markAsPaid($invoice, 'manual', 'AFF-PAID-1'));
         (new ProcessPaidInvoiceJob($invoice->id))->handle(
             app(\App\Modules\Order\Services\HostService::class),
+            app(\App\Modules\Product\Services\DomainService::class),
             app(\App\Services\NotificationService::class),
             $affiliateService
         );
