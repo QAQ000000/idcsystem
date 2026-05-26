@@ -52,6 +52,8 @@
                 <div>余额：{{ $client->credit }}</div>
                 <div>信用额度：{{ $client->credit_limit }}</div>
                 <div>可用额度：{{ number_format($client->availableCredit(), 2, '.', '') }}</div>
+                <div>信用评分：{{ $client->credit_score }} / {{ $client->credit_level }}</div>
+                <div>评分更新时间：{{ $client->credit_score_updated_at?->format('Y-m-d H:i:s') ?: '-' }}</div>
                 <div>邮箱：{{ $client->email }}</div>
                 <div>锁定状态：{{ $client->locked_until && $client->locked_until->isFuture() ? '已锁定' : '正常' }}</div>
                 <div>
@@ -134,6 +136,35 @@
                 @empty
                     <tr>
                         <td class="px-4 py-6 text-center text-slate-500" colspan="3">暂无登录记录</td>
+                    </tr>
+                @endforelse
+            </tbody>
+        </table>
+    </section>
+
+    <section class="mt-6 rounded bg-white p-6 shadow-sm">
+        <div class="mb-4 flex items-center justify-between">
+            <h2 class="font-semibold">信用评分记录</h2>
+            <a class="text-sm text-blue-600" href="{{ route('admin.clients.credit-score-logs', $client) }}">查看全部</a>
+        </div>
+        <table class="min-w-full divide-y divide-slate-200 text-sm">
+            <thead class="bg-slate-50 text-left text-slate-600">
+                <tr>
+                    <th class="px-4 py-3">时间</th>
+                    <th class="px-4 py-3">原因</th>
+                    <th class="px-4 py-3">变动</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                @forelse ($client->creditScoreLogs->take(5) as $log)
+                    <tr>
+                        <td class="px-4 py-3">{{ $log->created_at?->format('Y-m-d H:i:s') }}</td>
+                        <td class="px-4 py-3">{{ $log->reason }}</td>
+                        <td class="px-4 py-3">{{ $log->old_score }} → {{ $log->new_score }}</td>
+                    </tr>
+                @empty
+                    <tr>
+                        <td class="px-4 py-6 text-center text-slate-500" colspan="3">暂无信用评分记录</td>
                     </tr>
                 @endforelse
             </tbody>

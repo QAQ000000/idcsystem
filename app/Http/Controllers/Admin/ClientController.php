@@ -21,6 +21,9 @@ class ClientController extends Controller
         $tagValue = $request->query('tag_id');
         $tagId = is_scalar($tagValue) ? (int) $tagValue : null;
         $tagId = $tagId > 0 ? $tagId : null;
+        $creditLevel = $this->queryString($request, 'credit_level');
+        $creditLevel = in_array($creditLevel, ['Excellent', 'Good', 'Fair', 'Poor'], true) ? $creditLevel : null;
+        $sort = $this->queryString($request, 'sort');
 
         $clients = Client::query()
             ->with('tags')
@@ -29,11 +32,15 @@ class ClientController extends Controller
                     ->orWhere('email', 'like', "%{$keyword}%");
             })
             ->when($tagId, fn ($query) => $query->whereHas('tags', fn ($query) => $query->where('client_tags.id', $tagId)))
-            ->latest()
-            ->paginate(20);
+            ->when($creditLevel, fn ($query) => $query->where('credit_level', $creditLevel))
+            ->when($sort === 'credit_score_asc', fn ($query) => $query->orderBy('credit_score'))
+            ->when($sort === 'credit_score_desc', fn ($query) => $query->orderByDesc('credit_score'))
+            ->when(!in_array($sort, ['credit_score_asc', 'credit_score_desc'], true), fn ($query) => $query->latest())
+            ->paginate(20)
+            ->withQueryString();
         $tags = ClientTag::query()->orderBy('name')->get();
 
-        return view('admin.clients.index', compact('clients', 'tags', 'tagId', 'keyword'));
+        return view('admin.clients.index', compact('clients', 'tags', 'tagId', 'keyword', 'creditLevel', 'sort'));
     }
 
     public function bulkAction(Request $request, ClientService $clients, AdminAuditService $audit): RedirectResponse
@@ -72,10 +79,17 @@ class ClientController extends Controller
 
     public function show(Client $client)
     {
-        $client->load(['orders', 'hosts.product', 'invoices', 'tickets.status', 'loginLogs', 'tags']);
+        $client->load(['orders', 'hosts.product', 'invoices', 'tickets.status', 'loginLogs', 'tags', 'creditScoreLogs']);
         $tags = ClientTag::query()->orderBy('name')->get();
 
         return view('admin.clients.show', compact('client', 'tags'));
+    }
+
+    public function creditScoreLogs(Client $client)
+    {
+        $logs = $client->creditScoreLogs()->latest('created_at')->paginate(20);
+
+        return view('admin.clients.credit-score-logs', compact('client', 'logs'));
     }
 
     public function store(Request $request, ClientService $clients, AdminAuditService $audit)

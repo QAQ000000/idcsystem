@@ -8,7 +8,7 @@
         <a class="rounded border px-4 py-2 text-sm" href="{{ route('admin.export.clients', request()->query()) }}">导出 CSV</a>
     </div>
 
-    <form method="get" action="{{ route('admin.clients.index') }}" class="mb-6 grid gap-4 rounded bg-white p-5 text-sm shadow-sm md:grid-cols-3">
+    <form method="get" action="{{ route('admin.clients.index') }}" class="mb-6 grid gap-4 rounded bg-white p-5 text-sm shadow-sm md:grid-cols-5">
         <label>
             关键词
             <input class="mt-1 w-full rounded border px-3 py-2" name="keyword" value="{{ $keyword }}">
@@ -20,6 +20,23 @@
                 @foreach ($tags as $tag)
                     <option value="{{ $tag->id }}" @selected((int) $tagId === (int) $tag->id)>{{ $tag->name }}</option>
                 @endforeach
+            </select>
+        </label>
+        <label>
+            信用等级
+            <select class="mt-1 w-full rounded border px-3 py-2" name="credit_level">
+                <option value="">全部等级</option>
+                @foreach (['Excellent' => '优秀', 'Good' => '良好', 'Fair' => '一般', 'Poor' => '较差'] as $level => $label)
+                    <option value="{{ $level }}" @selected($creditLevel === $level)>{{ $label }}</option>
+                @endforeach
+            </select>
+        </label>
+        <label>
+            排序
+            <select class="mt-1 w-full rounded border px-3 py-2" name="sort">
+                <option value="">默认</option>
+                <option value="credit_score_desc" @selected($sort === 'credit_score_desc')>信用分从高到低</option>
+                <option value="credit_score_asc" @selected($sort === 'credit_score_asc')>信用分从低到高</option>
             </select>
         </label>
         <div class="flex items-end">
@@ -69,6 +86,7 @@
                     <th class="px-4 py-3">标签</th>
                     <th class="px-4 py-3">状态</th>
                     <th class="px-4 py-3">余额</th>
+                    <th class="px-4 py-3">信用等级</th>
                     <th class="px-4 py-3">操作</th>
                 </tr>
             </thead>
@@ -88,11 +106,12 @@
                         </td>
                         <td class="px-4 py-3">{{ $client->status }}</td>
                         <td class="px-4 py-3">{{ $client->credit }}</td>
+                        <td class="px-4 py-3">{{ $client->credit_score }} / {{ $client->credit_level }}</td>
                         <td class="px-4 py-3"><a class="text-blue-600" href="{{ route('admin.clients.show', $client) }}">查看</a></td>
                     </tr>
                 @empty
                     <tr>
-                        <td class="px-4 py-6 text-center text-slate-500" colspan="8">暂无客户</td>
+                        <td class="px-4 py-6 text-center text-slate-500" colspan="9">暂无客户</td>
                     </tr>
                 @endforelse
             </tbody>

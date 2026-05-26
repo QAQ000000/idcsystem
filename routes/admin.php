@@ -213,6 +213,9 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::delete('/clients/{client}/tags/{tag}', [ClientController::class, 'detachTag'])
         ->middleware('admin.permission:client.manage')
         ->name('clients.tags.detach');
+    Route::get('/clients/{client}/credit-score-logs', [ClientController::class, 'creditScoreLogs'])
+        ->middleware('admin.permission:client.view')
+        ->name('clients.credit-score-logs');
     Route::get('/clients', [ClientController::class, 'index'])
         ->middleware('admin.permission:client.view')
         ->name('clients.index');

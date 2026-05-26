@@ -12,6 +12,7 @@ use App\Modules\Order\Services\HostService;
 use App\Modules\User\Models\Client;
 use App\Modules\User\Services\ClientService;
 use App\Modules\User\Services\ClientTagService;
+use App\Modules\User\Services\CreditScoreService;
 use App\Services\ClientActivityService;
 use App\Services\Concerns\NotifiesClientsSafely;
 use App\Services\NotificationCenterService;
@@ -313,6 +314,7 @@ class InvoiceService
                 'payment_method' => $freshInvoice->payment_method,
             ]);
             app(ClientTagService::class)->applyAutoRules($freshInvoice->client);
+            app(CreditScoreService::class)->adjustForPayment($freshInvoice->client, $freshInvoice);
             app(NotificationCenterService::class)->create(
                 $freshInvoice->client,
                 'invoice',
@@ -402,7 +404,8 @@ class InvoiceService
      */
     public function refund(Invoice $invoice, float $amount): bool
     {
-        $refunded = DB::transaction(function () use ($invoice, $amount) {
+        $refundMeta = null;
+        $refunded = DB::transaction(function () use ($invoice, $amount, &$refundMeta) {
             $orderId = $invoice->order()->value('id');
             if ($orderId) {
                 \App\Modules\Order\Models\Order::query()->whereKey($orderId)->lockForUpdate()->first();
@@ -439,11 +442,25 @@ class InvoiceService
                 'refunded' => 0,
             ]);
 
+            $refundMeta = [
+                'amount' => $amount,
+                'refunded_total' => $newRefundedTotal,
+            ];
+
             return true;
         });
 
         if ($refunded) {
-            $this->syncRefundedHosts($invoice->fresh(['order.hosts.product']));
+            $freshInvoice = $invoice->fresh(['order.hosts.product', 'client']);
+            if ($freshInvoice->client) {
+                app(CreditScoreService::class)->adjustForRefund(
+                    $freshInvoice->client,
+                    $freshInvoice,
+                    $refundMeta['amount'] ?? $amount,
+                    $refundMeta['refunded_total'] ?? null
+                );
+            }
+            $this->syncRefundedHosts($freshInvoice);
         }
 
         return $refunded;

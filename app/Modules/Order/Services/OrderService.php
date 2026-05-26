@@ -13,6 +13,7 @@ use App\Modules\Product\Services\PricingService;
 use App\Modules\Product\Services\ProductService;
 use App\Modules\User\Models\Client;
 use App\Modules\User\Services\ClientTagService;
+use App\Modules\User\Services\CreditScoreService;
 use App\Services\ClientActivityService;
 use App\Services\WebhookService;
 use Illuminate\Support\Facades\DB;
@@ -52,6 +53,7 @@ class OrderService
                 'client_id' => $lockedClient->id,
                 'order_number' => $this->nextOrderNumber(),
                 'status' => 'Pending',
+                'requires_approval' => $this->requiresManualApproval($lockedClient, $totals['total']),
                 'amount' => $totals['total'],
                 'currency_id' => (int) ($totals['currency_id'] ?? $lockedClient->currency_id ?? 1),
                 'promo_code' => $totals['promo_code'],
@@ -398,6 +400,14 @@ class OrderService
         $discountBase = max(0, $subtotal - $promoDiscount);
 
         return round(min($discountBase, $discountBase * ($percent / 100)), 2);
+    }
+
+    private function requiresManualApproval(Client $client, float $total): bool
+    {
+        $score = (int) ($client->credit_score ?? CreditScoreService::BASE_SCORE);
+        $level = $client->credit_level ?: app(CreditScoreService::class)->getLevel($score);
+
+        return $level === 'Poor' && $total > 1000;
     }
 
     private function nextOrderNumber(): string

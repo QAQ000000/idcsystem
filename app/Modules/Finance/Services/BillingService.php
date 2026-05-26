@@ -8,6 +8,7 @@ use App\Modules\Order\Models\HostAddon;
 use App\Modules\Order\Services\HostService;
 use App\Modules\Product\Services\AddonService;
 use App\Modules\User\Services\ClientTagService;
+use App\Modules\User\Services\CreditScoreService;
 use App\Services\HostMonitoringService;
 use Illuminate\Support\Facades\DB;
 
@@ -115,8 +116,10 @@ class BillingService
                 foreach ($hosts as $host) {
                     if ($this->hostService->suspend($host, 'Overdue payment')) {
                         $count++;
-                        if ($host->client) {
-                            app(ClientTagService::class)->applyAutoRules($host->client);
+                        $freshHost = $host->fresh(['client']);
+                        if ($freshHost?->client) {
+                            app(CreditScoreService::class)->adjustForOverdue($freshHost->client, $freshHost);
+                            app(ClientTagService::class)->applyAutoRules($freshHost->client);
                         }
                     }
                 }

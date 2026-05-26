@@ -327,6 +327,22 @@ Artisan::command('products:check-stock-alerts', function () {
     return 0;
 })->purpose('Check product stock alerts');
 
+Artisan::command('credit:recalculate-scores', function () {
+    $task = app(\App\Services\SystemTaskService::class)->run('credit:recalculate-scores', function () {
+        return [
+            'clients' => app(\App\Modules\User\Services\CreditScoreService::class)->recalculateAll(),
+        ];
+    });
+
+    if ($task->status === 'failed') {
+        $this->error($task->error ?: 'Credit score recalculation failed');
+        return 1;
+    }
+
+    $this->info($task->output ?: 'Credit score recalculation completed');
+    return 0;
+})->purpose('Recalculate client credit scores');
+
 // 核心业务调度：由系统 cron 每分钟触发 schedule:run 后按频率执行。
 Schedule::command('logs:cleanup')->dailyAt('01:00');
 Schedule::command('billing:generate-invoices')->dailyAt('02:00');
@@ -338,6 +354,7 @@ Schedule::command('backup:cleanup')->dailyAt('04:15');
 Schedule::command('ssl:auto-renew-letsencrypt')->dailyAt('04:30');
 Schedule::command('backup:files')->weeklyOn(0, '03:00');
 Schedule::command('financial:generate-monthly-statement')->monthlyOn(1, '05:00');
+Schedule::command('credit:recalculate-scores')->monthlyOn(1, '05:30');
 Schedule::command('host:send-due-reminders')->dailyAt('09:00');
 Schedule::command('domains:send-expiry-reminders')->dailyAt('09:30');
 Schedule::command('ssl:send-expiry-reminders')->dailyAt('10:00');

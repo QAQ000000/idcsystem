@@ -10,7 +10,7 @@ class Order extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'client_id', 'order_number', 'status', 'amount', 'currency_id',
+        'client_id', 'order_number', 'status', 'requires_approval', 'amount', 'currency_id',
         'payment_method', 'paid_at', 'promo_code', 'promo_value',
         'invoice_id', 'notes', 'admin_notes',
     ];
@@ -18,6 +18,7 @@ class Order extends Model
     protected $casts = [
         'amount'      => 'decimal:2',
         'promo_value' => 'decimal:2',
+        'requires_approval' => 'boolean',
         'paid_at'     => 'datetime',
     ];
 
