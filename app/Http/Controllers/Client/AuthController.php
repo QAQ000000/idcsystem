@@ -41,7 +41,9 @@ class AuthController extends Controller
         $client = $auth->login($data['email'], $data['password']);
 
         if (!$client) {
-            return back()->withErrors(['email' => '账号或密码错误，或账号未启用。'])->onlyInput('email');
+            return back()
+                ->withErrors(['email' => $auth->lastLoginFailureMessage() ?: '账号或密码错误，或账号未启用。'])
+                ->onlyInput('email');
         }
 
         if ($client->two_factor_enabled) {

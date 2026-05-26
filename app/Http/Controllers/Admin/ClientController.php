@@ -172,6 +172,16 @@ class ClientController extends Controller
         return redirect()->route('admin.clients.show', $client)->with('status', '信用额度已更新');
     }
 
+    public function unlock(Request $request, Client $client, AdminAuditService $audit): RedirectResponse
+    {
+        $client->forceFill(['locked_until' => null])->save();
+        $audit->record($request, 'client.unlock', $client, 'success', [
+            'client_id' => $client->id,
+        ]);
+
+        return redirect()->route('admin.clients.show', $client)->with('status', '账户已解锁');
+    }
+
     private function queryString(Request $request, string $key): ?string
     {
         $value = $request->query($key);

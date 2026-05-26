@@ -21,7 +21,7 @@ class AuthController extends ApiController
 
         $client = $auth->login($data['email'], $data['password']);
         if (!$client) {
-            return $this->error('邮箱或密码错误，或账号不可用。', 422);
+            return $this->error($auth->lastLoginFailureMessage() ?: '邮箱或密码错误，或账号不可用。', 422);
         }
 
         $auth->recordLogin($client);

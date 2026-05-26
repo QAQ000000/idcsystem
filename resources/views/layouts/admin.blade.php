@@ -73,6 +73,9 @@
                     @if ($canAdmin('admin_action_log.view'))
                         <a href="{{ route('admin.admin-action-logs.index') }}">后台审计</a>
                     @endif
+                    @if ($canAdmin('login_attempt.view'))
+                        <a href="{{ route('admin.login-attempts.index') }}">登录记录</a>
+                    @endif
                     @if ($canAdmin('plugin.manage'))
                         <a href="{{ route('admin.plugins.index') }}">插件</a>
                     @endif

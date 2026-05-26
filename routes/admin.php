@@ -15,6 +15,7 @@ use App\Http\Controllers\Admin\ExportController;
 use App\Http\Controllers\Admin\HostController;
 use App\Http\Controllers\Admin\InvoiceController;
 use App\Http\Controllers\Admin\InvoiceReceiptController;
+use App\Http\Controllers\Admin\LoginAttemptController;
 use App\Http\Controllers\Admin\OrderController;
 use App\Http\Controllers\Admin\PromoCodeController;
 use App\Http\Controllers\Admin\NotificationCenterController;
@@ -54,6 +55,9 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::resource('admin-action-logs', AdminActionLogController::class)
         ->only(['index', 'show'])
         ->middleware('admin.permission:admin_action_log.view');
+    Route::get('/login-attempts', [LoginAttemptController::class, 'index'])
+        ->middleware('admin.permission:login_attempt.view')
+        ->name('login-attempts.index');
     Route::get('/affiliates', [AffiliateController::class, 'index'])
         ->middleware('admin.permission:affiliate.view')
         ->name('affiliates.index');
@@ -106,6 +110,9 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::post('/clients/{client}/credit-limit', [ClientController::class, 'updateCreditLimit'])
         ->middleware('admin.permission:client.credit')
         ->name('clients.credit-limit');
+    Route::post('/clients/{client}/unlock', [ClientController::class, 'unlock'])
+        ->middleware('admin.permission:client.manage')
+        ->name('clients.unlock');
     Route::get('/clients', [ClientController::class, 'index'])
         ->middleware('admin.permission:client.view')
         ->name('clients.index');

@@ -34,6 +34,14 @@
                 <div>最近登录：{{ $client->last_login_at?->format('Y-m-d H:i:s') ?: '-' }}</div>
                 <div>最近登录 IP：{{ $client->last_login_ip ?: '-' }}</div>
                 <div>两步验证：{{ $client->two_factor_enabled ? '已开启' : '未开启' }}</div>
+                <div>
+                    登录锁定：
+                    @if ($client->locked_until && $client->locked_until->isFuture())
+                        <span class="font-medium text-red-600">锁定至 {{ $client->locked_until->format('Y-m-d H:i:s') }}</span>
+                    @else
+                        <span class="text-slate-500">未锁定</span>
+                    @endif
+                </div>
             </div>
         </section>
 
@@ -45,11 +53,18 @@
                 <div>信用额度：{{ $client->credit_limit }}</div>
                 <div>可用额度：{{ number_format($client->availableCredit(), 2, '.', '') }}</div>
                 <div>邮箱：{{ $client->email }}</div>
+                <div>锁定状态：{{ $client->locked_until && $client->locked_until->isFuture() ? '已锁定' : '正常' }}</div>
                 <div>
                     未完结服务：
                     {{ $client->hosts->whereIn('status', \App\Modules\User\Services\ClientService::BLOCKING_HOST_STATUSES)->count() }}
                 </div>
             </div>
+            @if ($canAdmin('client.manage') && $client->locked_until && $client->locked_until->isFuture())
+                <form method="post" action="{{ route('admin.clients.unlock', $client) }}" class="mt-5 border-t pt-5">
+                    @csrf
+                    <button class="rounded bg-emerald-600 px-4 py-2 text-sm text-white">解锁账户</button>
+                </form>
+            @endif
             @if ($canAdmin('client.credit'))
                 <form method="post" action="{{ route('admin.clients.credit-limit', $client) }}" class="mt-5 border-t pt-5">
                     @csrf

@@ -93,6 +93,14 @@ class NotificationService
                 'label' => '密码修改',
                 'variables' => ['client_name'],
             ],
+            'account_locked' => [
+                'label' => '账户锁定',
+                'variables' => ['client_name', 'locked_until'],
+            ],
+            'suspicious_login' => [
+                'label' => '异常登录提醒',
+                'variables' => ['client_name', 'ip', 'user_agent'],
+            ],
             'email_verification' => [
                 'label' => '邮件验证',
                 'variables' => ['client_name', 'verify_url'],

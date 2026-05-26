@@ -3,6 +3,7 @@
 namespace App\Modules\User\Services;
 
 use App\Models\ClientLoginLog;
+use App\Models\LoginAttempt;
 use App\Modules\User\Models\Client;
 use App\Modules\User\Models\ClientOauth;
 use App\Services\NotificationService;
@@ -14,6 +15,8 @@ use Illuminate\Support\Str;
 class AuthService
 {
     public const TWO_FACTOR_SESSION_KEY = 'client_2fa_pending_id';
+
+    private ?string $lastLoginFailureMessage = null;
 
     public function register(array $data): Client
     {
@@ -30,17 +33,46 @@ class AuthService
 
     public function login(string $email, string $password): ?Client
     {
+        $this->lastLoginFailureMessage = null;
+        $email = Str::lower(trim($email));
         $client = Client::where('email', $email)->first();
 
-        if (!$client || !Hash::check($password, $client->password)) {
+        if (!$client) {
+            $this->recordLoginAttempt($email, 'failed', 'account_not_found');
+
+            return null;
+        }
+
+        if ($client->locked_until && $client->locked_until->isFuture()) {
+            $this->lastLoginFailureMessage = '账户已被锁定，请稍后再试。';
+            $this->recordLoginAttempt($email, 'failed', 'account_locked');
+
+            return null;
+        }
+
+        if (!Hash::check($password, $client->password)) {
+            $this->recordLoginAttempt($email, 'failed', 'invalid_password');
+            $this->lockClientAfterTooManyFailures($client);
+
             return null;
         }
 
         if (!$client->isActive()) {
+            $this->recordLoginAttempt($email, 'failed', 'account_inactive');
+
             return null;
         }
 
+        // 凭证校验通过后记录安全审计；完整登录日志仍由 recordLogin() 在 Web/API 成功登录后写入。
+        $this->notifyIfSuspiciousLogin($client);
+        $this->recordLoginAttempt($email, 'success');
+
         return $client;
+    }
+
+    public function lastLoginFailureMessage(): ?string
+    {
+        return $this->lastLoginFailureMessage;
     }
 
     public function loginWithOAuth(string $provider, array $userInfo): Client
@@ -176,5 +208,71 @@ class AuthService
                 ? now()->addSeconds((int) $userInfo['expires_in'])
                 : null,
         ];
+    }
+
+    private function recordLoginAttempt(string $email, string $status, ?string $failureReason = null): void
+    {
+        LoginAttempt::query()->create([
+            'email' => $email,
+            'ip' => (string) request()->ip(),
+            'user_agent' => request()->userAgent(),
+            'status' => $status,
+            'failure_reason' => $status === 'failed' ? $failureReason : null,
+            'created_at' => now(),
+        ]);
+    }
+
+    private function lockClientAfterTooManyFailures(Client $client): void
+    {
+        $failedCount = LoginAttempt::query()
+            ->where('email', Str::lower((string) $client->email))
+            ->where('status', 'failed')
+            ->where('failure_reason', 'invalid_password')
+            ->where('created_at', '>=', now()->subMinutes(30))
+            ->count();
+
+        if ($failedCount < 5) {
+            return;
+        }
+
+        $lockedUntil = now()->addHour();
+        $client->forceFill(['locked_until' => $lockedUntil])->save();
+        $this->lastLoginFailureMessage = '账户已被锁定，请稍后再试。';
+
+        app(NotificationService::class)->notifyClient($client->fresh(), 'account_locked', [
+            'client_name' => $client->username,
+            'locked_until' => $lockedUntil->format('Y-m-d H:i:s'),
+        ]);
+    }
+
+    private function notifyIfSuspiciousLogin(Client $client): void
+    {
+        $ip = (string) request()->ip();
+        $email = Str::lower((string) $client->email);
+        $hasCurrentIp = LoginAttempt::query()
+            ->where('email', $email)
+            ->where('status', 'success')
+            ->where('ip', $ip)
+            ->exists();
+
+        if ($hasCurrentIp) {
+            return;
+        }
+
+        $hasOtherIp = LoginAttempt::query()
+            ->where('email', $email)
+            ->where('status', 'success')
+            ->where('ip', '!=', $ip)
+            ->exists();
+
+        if (!$hasOtherIp) {
+            return;
+        }
+
+        app(NotificationService::class)->notifyClient($client, 'suspicious_login', [
+            'client_name' => $client->username,
+            'ip' => $ip,
+            'user_agent' => (string) request()->userAgent(),
+        ]);
     }
 }
