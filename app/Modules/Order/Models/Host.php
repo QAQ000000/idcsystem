@@ -54,6 +54,16 @@ class Host extends Model
         return $this->hasMany(Upgrade::class);
     }
 
+    public function cancelRequests()
+    {
+        return $this->hasMany(CancelRequest::class);
+    }
+
+    public function pendingCancelRequest()
+    {
+        return $this->hasOne(CancelRequest::class)->where('status', 'pending')->latestOfMany();
+    }
+
     public function customFieldValues()
     {
         return $this->hasMany(\App\Modules\Product\Models\CustomFieldValue::class, 'rel_id');

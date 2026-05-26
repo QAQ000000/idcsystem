@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\AdminActionLogController;
 use App\Http\Controllers\Admin\AffiliateController;
 use App\Http\Controllers\Admin\AnnouncementController;
+use App\Http\Controllers\Admin\CancelRequestController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\ClientGroupController;
 use App\Http\Controllers\Admin\ContractTemplateController;
@@ -161,6 +162,16 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::resource('orders', OrderController::class)
         ->only(['index', 'show'])
         ->middleware('admin.permission:order.view');
+
+    Route::get('/cancel-requests', [CancelRequestController::class, 'index'])
+        ->middleware('admin.permission:cancel_request.manage')
+        ->name('cancel-requests.index');
+    Route::post('/cancel-requests/{cancelRequest}/approve', [CancelRequestController::class, 'approve'])
+        ->middleware('admin.permission:cancel_request.manage')
+        ->name('cancel-requests.approve');
+    Route::post('/cancel-requests/{cancelRequest}/reject', [CancelRequestController::class, 'reject'])
+        ->middleware('admin.permission:cancel_request.manage')
+        ->name('cancel-requests.reject');
 
     Route::post('/promo-codes/{promoCode}/toggle', [PromoCodeController::class, 'toggle'])
         ->middleware('admin.permission:promo.manage')

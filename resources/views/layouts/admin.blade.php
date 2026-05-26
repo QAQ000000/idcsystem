@@ -35,6 +35,9 @@
                     @if ($canAdmin('order.view'))
                         <a href="{{ route('admin.orders.index') }}">订单</a>
                     @endif
+                    @if ($canAdmin('cancel_request.manage'))
+                        <a href="{{ route('admin.cancel-requests.index') }}">取消申请</a>
+                    @endif
                     @if ($canAdmin('promo.manage'))
                         <a href="{{ route('admin.promo-codes.index') }}">优惠码</a>
                     @endif

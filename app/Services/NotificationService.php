@@ -109,6 +109,22 @@ class NotificationService
                 'label' => '升级/降配完成',
                 'variables' => ['client_name', 'product_name'],
             ],
+            'host_cancel_requested' => [
+                'label' => '取消申请提交',
+                'variables' => ['client_name', 'product_name', 'host_id', 'cancel_type', 'cancel_reason'],
+            ],
+            'host_cancel_approved' => [
+                'label' => '取消申请已批准',
+                'variables' => ['client_name', 'product_name', 'host_id', 'cancel_type', 'admin_notes'],
+            ],
+            'host_cancel_rejected' => [
+                'label' => '取消申请已拒绝',
+                'variables' => ['client_name', 'product_name', 'host_id', 'admin_notes'],
+            ],
+            'host_cancel_completed' => [
+                'label' => '服务取消已执行',
+                'variables' => ['client_name', 'product_name', 'host_id'],
+            ],
             'custom_email' => [
                 'label' => '自定义邮件',
                 'variables' => ['client_name', 'subject', 'body'],

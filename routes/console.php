@@ -87,9 +87,26 @@ Artisan::command('billing:suspend-overdue', function () {
     return 0;
 })->purpose('Suspend hosts with overdue unpaid invoices');
 
+Artisan::command('cancel:process-approved', function () {
+    $task = app(\App\Services\SystemTaskService::class)->run('cancel:process-approved', function () {
+        return [
+            'completed' => app(\App\Modules\Order\Services\CancelRequestService::class)->processApproved(),
+        ];
+    });
+
+    if ($task->status === 'failed') {
+        $this->error($task->error ?: 'Approved cancel request processing failed');
+        return 1;
+    }
+
+    $this->info($task->output ?: 'Approved cancel request processing completed');
+    return 0;
+})->purpose('Process approved end-of-billing-period cancel requests');
+
 // 核心业务调度：由系统 cron 每分钟触发 schedule:run 后按频率执行。
 Schedule::command('billing:generate-invoices')->dailyAt('02:00');
 Schedule::command('billing:suspend-overdue')->dailyAt('03:00');
+Schedule::command('cancel:process-approved')->dailyAt('03:30');
 Schedule::command('host:send-due-reminders')->dailyAt('09:00');
 Schedule::command('host:sync-usage')->hourly();
 Schedule::command('notifications:recover-stale')->everyFifteenMinutes();

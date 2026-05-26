@@ -80,6 +80,32 @@
             @else
                 <p class="text-sm text-zinc-500">仅 Active 状态可调整配置。</p>
             @endif
+
+            <h2 class="mb-4 mt-6 font-semibold">取消申请</h2>
+            @php($pendingCancelRequest = $host->pendingCancelRequest)
+            @if ($pendingCancelRequest)
+                <div class="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    已提交取消申请，类型：{{ $pendingCancelRequest->type }}，请等待管理员审核。
+                </div>
+            @elseif (in_array($host->status, ['Active', 'Suspended'], true))
+                <form method="post" action="{{ route('client.hosts.cancel', $host) }}" class="space-y-3">
+                    @csrf
+                    <label class="block text-sm">
+                        取消类型
+                        <select class="mt-1 w-full rounded border px-3 py-2" name="type">
+                            <option value="end_of_billing_period">到期取消</option>
+                            <option value="immediate">立即取消</option>
+                        </select>
+                    </label>
+                    <label class="block text-sm">
+                        原因
+                        <textarea class="mt-1 w-full rounded border px-3 py-2" name="reason" rows="3"></textarea>
+                    </label>
+                    <button class="w-full rounded border border-red-300 px-4 py-2 text-red-700" onclick="return confirm('确定提交取消申请？')">提交取消申请</button>
+                </form>
+            @else
+                <p class="text-sm text-zinc-500">当前状态不可申请取消。</p>
+            @endif
         </aside>
     </div>
 

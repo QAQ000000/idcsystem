@@ -33,7 +33,7 @@ class HostController extends Controller
         }
 
         abort_unless((int) $host->client_id === (int) $client->id, 403);
-        $host->load(['product.pricings', 'order.invoice', 'customFieldValues.field', 'actionLogs' => fn ($query) => $query->latest()->limit(10), 'upgrades']);
+        $host->load(['product.pricings', 'order.invoice', 'customFieldValues.field', 'pendingCancelRequest', 'actionLogs' => fn ($query) => $query->latest()->limit(10), 'upgrades']);
 
         return view('theme::hosts.show', [
             'host' => $host,
