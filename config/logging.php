@@ -36,6 +36,18 @@ return [
         'trace' => env('LOG_DEPRECATIONS_TRACE', false),
     ],
 
+    'retention' => [
+        'admin_action_logs' => env('LOG_RETENTION_ADMIN_ACTION', 365),
+        'email_logs' => env('LOG_RETENTION_EMAIL', 90),
+        'sms_logs' => env('LOG_RETENTION_SMS', 90),
+        'client_login_logs' => env('LOG_RETENTION_LOGIN', 180),
+        'webhook_deliveries' => env('LOG_RETENTION_WEBHOOK', 30),
+        'client_activity_logs' => env('LOG_RETENTION_ACTIVITY', 365),
+        'usage_alert_logs' => env('LOG_RETENTION_USAGE_ALERT', 90),
+        'login_attempts' => env('LOG_RETENTION_LOGIN_ATTEMPT', 90),
+        'due_reminders' => env('LOG_RETENTION_DUE_REMINDER', 90),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Log Channels

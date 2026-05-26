@@ -103,6 +103,9 @@
                     @if ($canAdmin('login_attempt.view'))
                         <a href="{{ route('admin.login-attempts.index') }}">登录记录</a>
                     @endif
+                    @if ($canAdmin('log.view'))
+                        <a href="{{ route('admin.logs.index') }}">日志中心</a>
+                    @endif
                     @if ($canAdmin('plugin.manage'))
                         <a href="{{ route('admin.plugins.index') }}">插件</a>
                     @endif

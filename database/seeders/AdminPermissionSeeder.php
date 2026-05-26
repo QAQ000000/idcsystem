@@ -62,6 +62,8 @@ class AdminPermissionSeeder extends Seeder
             'backup.manage',
             'admin_action_log.view',
             'login_attempt.view',
+            'log.view',
+            'log.manage',
             'plugin.manage',
             'setting.manage',
         ];

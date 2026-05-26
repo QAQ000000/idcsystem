@@ -22,6 +22,7 @@ use App\Http\Controllers\Admin\InvoiceController;
 use App\Http\Controllers\Admin\InvoiceReceiptController;
 use App\Http\Controllers\Admin\KbArticleController;
 use App\Http\Controllers\Admin\KbCategoryController;
+use App\Http\Controllers\Admin\LogController;
 use App\Http\Controllers\Admin\LoginAttemptController;
 use App\Http\Controllers\Admin\OrderController;
 use App\Http\Controllers\Admin\PromoCodeController;
@@ -87,6 +88,15 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::get('/login-attempts', [LoginAttemptController::class, 'index'])
         ->middleware('admin.permission:login_attempt.view')
         ->name('login-attempts.index');
+    Route::get('/logs', [LogController::class, 'index'])
+        ->middleware('admin.permission:log.view')
+        ->name('logs.index');
+    Route::post('/logs/cleanup', [LogController::class, 'cleanup'])
+        ->middleware('admin.permission:log.manage')
+        ->name('logs.cleanup');
+    Route::get('/logs/{type}', [LogController::class, 'show'])
+        ->middleware('admin.permission:log.view')
+        ->name('logs.show');
     Route::get('/affiliates', [AffiliateController::class, 'index'])
         ->middleware('admin.permission:affiliate.view')
         ->name('affiliates.index');

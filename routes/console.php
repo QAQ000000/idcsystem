@@ -256,7 +256,22 @@ Artisan::command('backup:cleanup {--days=}', function () {
     return 0;
 })->purpose('Delete expired backup files');
 
+Artisan::command('logs:cleanup', function () {
+    $task = app(\App\Services\SystemTaskService::class)->run('logs:cleanup', function () {
+        return app(\App\Services\LogCleanupService::class)->cleanup();
+    });
+
+    if ($task->status === 'failed') {
+        $this->error($task->error ?: 'Log cleanup failed');
+        return 1;
+    }
+
+    $this->info($task->output ?: 'Log cleanup completed');
+    return 0;
+})->purpose('Delete expired operational logs');
+
 // 核心业务调度：由系统 cron 每分钟触发 schedule:run 后按频率执行。
+Schedule::command('logs:cleanup')->dailyAt('01:00');
 Schedule::command('billing:generate-invoices')->dailyAt('02:00');
 Schedule::command('backup:database')->dailyAt('02:30');
 Schedule::command('billing:suspend-overdue')->dailyAt('03:00');
