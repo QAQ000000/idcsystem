@@ -8,6 +8,7 @@ use App\Http\Controllers\Admin\BackupController;
 use App\Http\Controllers\Admin\CancelRequestController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\ClientGroupController;
+use App\Http\Controllers\Admin\ClientTagController;
 use App\Http\Controllers\Admin\ContractTemplateController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\DomainController;
@@ -206,6 +207,12 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::post('/clients/{client}/unlock', [ClientController::class, 'unlock'])
         ->middleware('admin.permission:client.manage')
         ->name('clients.unlock');
+    Route::post('/clients/{client}/tags', [ClientController::class, 'attachTag'])
+        ->middleware('admin.permission:client.manage')
+        ->name('clients.tags.attach');
+    Route::delete('/clients/{client}/tags/{tag}', [ClientController::class, 'detachTag'])
+        ->middleware('admin.permission:client.manage')
+        ->name('clients.tags.detach');
     Route::get('/clients', [ClientController::class, 'index'])
         ->middleware('admin.permission:client.view')
         ->name('clients.index');
@@ -221,6 +228,19 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::delete('/clients/{client}', [ClientController::class, 'destroy'])
         ->middleware('admin.permission:client.manage')
         ->name('clients.destroy');
+    Route::get('/client-tags/{tag}/clients', [ClientTagController::class, 'clients'])
+        ->middleware('admin.permission:client.view')
+        ->name('client-tags.clients');
+    Route::post('/tag-auto-rules', [ClientTagController::class, 'storeRule'])
+        ->middleware('admin.permission:client.manage')
+        ->name('tag-auto-rules.store');
+    Route::put('/tag-auto-rules/{rule}', [ClientTagController::class, 'updateRule'])
+        ->middleware('admin.permission:client.manage')
+        ->name('tag-auto-rules.update');
+    Route::resource('client-tags', ClientTagController::class)
+        ->except(['show', 'create', 'edit'])
+        ->parameters(['client-tags' => 'tag'])
+        ->middleware('admin.permission:client.manage');
     Route::resource('client-groups', ClientGroupController::class)
         ->except(['show'])
         ->middleware('admin.permission:client_group.manage');

@@ -7,6 +7,7 @@ use App\Modules\Order\Models\Host;
 use App\Modules\Order\Models\HostAddon;
 use App\Modules\Order\Services\HostService;
 use App\Modules\Product\Services\AddonService;
+use App\Modules\User\Services\ClientTagService;
 use App\Services\HostMonitoringService;
 use Illuminate\Support\Facades\DB;
 
@@ -114,6 +115,9 @@ class BillingService
                 foreach ($hosts as $host) {
                     if ($this->hostService->suspend($host, 'Overdue payment')) {
                         $count++;
+                        if ($host->client) {
+                            app(ClientTagService::class)->applyAutoRules($host->client);
+                        }
                     }
                 }
             });

@@ -12,6 +12,7 @@ use App\Modules\Product\Models\ProductAddon;
 use App\Modules\Product\Services\PricingService;
 use App\Modules\Product\Services\ProductService;
 use App\Modules\User\Models\Client;
+use App\Modules\User\Services\ClientTagService;
 use App\Services\ClientActivityService;
 use App\Services\WebhookService;
 use Illuminate\Support\Facades\DB;
@@ -97,6 +98,7 @@ class OrderService
             'amount' => (float) $createdOrder->amount,
             'host_ids' => $createdOrder->hosts->pluck('id')->values()->all(),
         ]);
+        app(ClientTagService::class)->applyAutoRules($createdOrder->client);
 
         return $createdOrder;
     }

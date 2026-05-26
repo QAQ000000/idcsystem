@@ -17,6 +17,9 @@
                     @if ($canAdmin('client.view'))
                         <a href="{{ route('admin.clients.index') }}">客户</a>
                     @endif
+                    @if ($canAdmin('client.manage'))
+                        <a href="{{ route('admin.client-tags.index') }}">客户标签</a>
+                    @endif
                     @if ($canAdmin('client_group.manage'))
                         <a href="{{ route('admin.client-groups.index') }}">客户分组</a>
                     @endif

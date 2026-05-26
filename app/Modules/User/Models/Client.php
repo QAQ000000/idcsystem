@@ -102,6 +102,12 @@ class Client extends Authenticatable
         return $this->hasMany(\App\Models\ClientActivityLog::class);
     }
 
+    public function tags()
+    {
+        return $this->belongsToMany(ClientTag::class, 'client_tag_pivot')
+            ->withPivot('tagged_at');
+    }
+
     public function credits()
     {
         return $this->hasMany(\App\Modules\Finance\Models\Credit::class);

@@ -8,6 +8,25 @@
         <a class="rounded border px-4 py-2 text-sm" href="{{ route('admin.export.clients', request()->query()) }}">导出 CSV</a>
     </div>
 
+    <form method="get" action="{{ route('admin.clients.index') }}" class="mb-6 grid gap-4 rounded bg-white p-5 text-sm shadow-sm md:grid-cols-3">
+        <label>
+            关键词
+            <input class="mt-1 w-full rounded border px-3 py-2" name="keyword" value="{{ $keyword }}">
+        </label>
+        <label>
+            标签
+            <select class="mt-1 w-full rounded border px-3 py-2" name="tag_id">
+                <option value="">全部标签</option>
+                @foreach ($tags as $tag)
+                    <option value="{{ $tag->id }}" @selected((int) $tagId === (int) $tag->id)>{{ $tag->name }}</option>
+                @endforeach
+            </select>
+        </label>
+        <div class="flex items-end">
+            <button class="rounded bg-slate-900 px-4 py-2 text-white">筛选</button>
+        </div>
+    </form>
+
     <form id="client-bulk-form" method="post" action="{{ route('admin.clients.bulk-action') }}" class="mb-6 rounded bg-white p-5 shadow-sm">
         @csrf
         <div class="grid gap-4 md:grid-cols-4">
@@ -47,6 +66,7 @@
                     <th class="px-4 py-3">ID</th>
                     <th class="px-4 py-3">用户名</th>
                     <th class="px-4 py-3">邮箱</th>
+                    <th class="px-4 py-3">标签</th>
                     <th class="px-4 py-3">状态</th>
                     <th class="px-4 py-3">余额</th>
                     <th class="px-4 py-3">操作</th>
@@ -59,13 +79,20 @@
                         <td class="px-4 py-3">{{ $client->id }}</td>
                         <td class="px-4 py-3">{{ $client->username }}</td>
                         <td class="px-4 py-3">{{ $client->email }}</td>
+                        <td class="px-4 py-3">
+                            <div class="flex flex-wrap gap-1">
+                                @foreach ($client->tags as $tag)
+                                    <span class="rounded px-2 py-0.5 text-xs text-white" style="background-color: {{ $tag->color }}">{{ $tag->name }}</span>
+                                @endforeach
+                            </div>
+                        </td>
                         <td class="px-4 py-3">{{ $client->status }}</td>
                         <td class="px-4 py-3">{{ $client->credit }}</td>
                         <td class="px-4 py-3"><a class="text-blue-600" href="{{ route('admin.clients.show', $client) }}">查看</a></td>
                     </tr>
                 @empty
                     <tr>
-                        <td class="px-4 py-6 text-center text-slate-500" colspan="7">暂无客户</td>
+                        <td class="px-4 py-6 text-center text-slate-500" colspan="8">暂无客户</td>
                     </tr>
                 @endforelse
             </tbody>

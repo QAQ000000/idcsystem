@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
             AdminPermissionSeeder::class,
             AdminUserSeeder::class,
             ClientGroupSeeder::class,
+            ClientTagSeeder::class,
             EmailTemplateSeeder::class,
             SmsTemplateSeeder::class,
             DemoDataSeeder::class,

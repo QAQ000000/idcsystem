@@ -82,6 +82,39 @@
     </div>
 
     <section class="mt-6 rounded bg-white p-6 shadow-sm">
+        <h2 class="mb-4 font-semibold">客户标签</h2>
+        <div class="mb-4 flex flex-wrap gap-2">
+            @forelse ($client->tags as $tag)
+                @if ($canAdmin('client.manage'))
+                    <form method="post" action="{{ route('admin.clients.tags.detach', [$client, $tag]) }}">
+                        @csrf
+                        @method('DELETE')
+                        <button class="rounded px-2 py-1 text-sm text-white" style="background-color: {{ $tag->color }}">{{ $tag->name }} ×</button>
+                    </form>
+                @else
+                    <span class="rounded px-2 py-1 text-sm text-white" style="background-color: {{ $tag->color }}">{{ $tag->name }}</span>
+                @endif
+            @empty
+                <span class="text-sm text-slate-500">暂无标签</span>
+            @endforelse
+        </div>
+        @if ($canAdmin('client.manage'))
+            <form method="post" action="{{ route('admin.clients.tags.attach', $client) }}" class="flex flex-wrap items-end gap-3 text-sm">
+                @csrf
+                <label>
+                    添加标签
+                    <select class="mt-1 rounded border px-3 py-2" name="client_tag_id" required>
+                        @foreach ($tags as $tag)
+                            <option value="{{ $tag->id }}">{{ $tag->name }}</option>
+                        @endforeach
+                    </select>
+                </label>
+                <button class="rounded bg-slate-900 px-4 py-2 text-white">添加</button>
+            </form>
+        @endif
+    </section>
+
+    <section class="mt-6 rounded bg-white p-6 shadow-sm">
         <h2 class="mb-4 font-semibold">登录记录</h2>
         <table class="min-w-full divide-y divide-slate-200 text-sm">
             <thead class="bg-slate-50 text-left text-slate-600">

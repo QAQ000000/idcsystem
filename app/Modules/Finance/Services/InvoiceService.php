@@ -11,6 +11,7 @@ use App\Modules\Order\Models\Upgrade;
 use App\Modules\Order\Services\HostService;
 use App\Modules\User\Models\Client;
 use App\Modules\User\Services\ClientService;
+use App\Modules\User\Services\ClientTagService;
 use App\Services\ClientActivityService;
 use App\Services\Concerns\NotifiesClientsSafely;
 use App\Services\WebhookService;
@@ -303,6 +304,7 @@ class InvoiceService
                 'total' => (float) $freshInvoice->total,
                 'payment_method' => $freshInvoice->payment_method,
             ]);
+            app(ClientTagService::class)->applyAutoRules($freshInvoice->client);
             ProcessPaidInvoiceJob::dispatch($invoice->id)->onQueue('default');
         }
 

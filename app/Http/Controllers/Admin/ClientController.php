@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Modules\User\Models\Client;
+use App\Modules\User\Models\ClientTag;
+use App\Modules\User\Services\ClientTagService;
 use App\Modules\User\Services\ClientService;
 use App\Services\AdminAuditService;
 use App\Services\MailService;
@@ -16,16 +18,22 @@ class ClientController extends Controller
     public function index(Request $request)
     {
         $keyword = $this->queryString($request, 'keyword');
+        $tagValue = $request->query('tag_id');
+        $tagId = is_scalar($tagValue) ? (int) $tagValue : null;
+        $tagId = $tagId > 0 ? $tagId : null;
 
         $clients = Client::query()
+            ->with('tags')
             ->when($keyword, function ($query, string $keyword) {
                 $query->where('username', 'like', "%{$keyword}%")
                     ->orWhere('email', 'like', "%{$keyword}%");
             })
+            ->when($tagId, fn ($query) => $query->whereHas('tags', fn ($query) => $query->where('client_tags.id', $tagId)))
             ->latest()
             ->paginate(20);
+        $tags = ClientTag::query()->orderBy('name')->get();
 
-        return view('admin.clients.index', compact('clients'));
+        return view('admin.clients.index', compact('clients', 'tags', 'tagId', 'keyword'));
     }
 
     public function bulkAction(Request $request, ClientService $clients, AdminAuditService $audit): RedirectResponse
@@ -64,9 +72,10 @@ class ClientController extends Controller
 
     public function show(Client $client)
     {
-        $client->load(['orders', 'hosts.product', 'invoices', 'tickets.status', 'loginLogs']);
+        $client->load(['orders', 'hosts.product', 'invoices', 'tickets.status', 'loginLogs', 'tags']);
+        $tags = ClientTag::query()->orderBy('name')->get();
 
-        return view('admin.clients.show', compact('client'));
+        return view('admin.clients.show', compact('client', 'tags'));
     }
 
     public function store(Request $request, ClientService $clients, AdminAuditService $audit)
@@ -180,6 +189,33 @@ class ClientController extends Controller
         ]);
 
         return redirect()->route('admin.clients.show', $client)->with('status', '账户已解锁');
+    }
+
+    public function attachTag(Request $request, Client $client, ClientTagService $tags, AdminAuditService $audit): RedirectResponse
+    {
+        $data = $request->validate([
+            'client_tag_id' => ['required', 'integer', Rule::exists('client_tags', 'id')],
+        ]);
+
+        $tag = ClientTag::query()->findOrFail((int) $data['client_tag_id']);
+        $tags->attachTag($client, $tag);
+        $audit->record($request, 'client.tag_attach', $client, 'success', [
+            'client_tag_id' => $tag->id,
+            'tag' => $tag->slug,
+        ]);
+
+        return redirect()->route('admin.clients.show', $client)->with('status', '客户标签已添加');
+    }
+
+    public function detachTag(Request $request, Client $client, ClientTag $tag, ClientTagService $tags, AdminAuditService $audit): RedirectResponse
+    {
+        $tags->detachTag($client, $tag);
+        $audit->record($request, 'client.tag_detach', $client, 'success', [
+            'client_tag_id' => $tag->id,
+            'tag' => $tag->slug,
+        ]);
+
+        return redirect()->route('admin.clients.show', $client)->with('status', '客户标签已移除');
     }
 
     private function queryString(Request $request, string $key): ?string
