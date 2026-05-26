@@ -8,7 +8,10 @@
             <h1 class="text-2xl font-semibold">编辑短信模板</h1>
             <p class="mt-1 text-sm text-slate-500">{{ $smsTemplate->name }}</p>
         </div>
-        <a class="rounded border px-4 py-2 text-sm" href="{{ route('admin.sms-templates.index') }}">返回列表</a>
+        <div class="flex gap-2">
+            <a class="rounded border px-4 py-2 text-sm" href="{{ route('admin.sms-templates.preview', $smsTemplate) }}">预览测试</a>
+            <a class="rounded border px-4 py-2 text-sm" href="{{ route('admin.sms-templates.index') }}">返回列表</a>
+        </div>
     </div>
 
     <form method="post" action="{{ route('admin.sms-templates.update', $smsTemplate) }}" class="rounded bg-white p-6 shadow-sm">

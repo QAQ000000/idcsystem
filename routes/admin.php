@@ -262,6 +262,12 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::get('/email-templates/{emailTemplate}/edit', [EmailTemplateController::class, 'edit'])
         ->middleware('admin.permission:notification.template')
         ->name('email-templates.edit');
+    Route::get('/email-templates/{emailTemplate}/preview', [EmailTemplateController::class, 'preview'])
+        ->middleware('admin.permission:notification.template')
+        ->name('email-templates.preview');
+    Route::post('/email-templates/{emailTemplate}/test', [EmailTemplateController::class, 'test'])
+        ->middleware('admin.permission:notification.template')
+        ->name('email-templates.test');
     Route::put('/email-templates/{emailTemplate}', [EmailTemplateController::class, 'update'])
         ->middleware('admin.permission:notification.template')
         ->name('email-templates.update');
@@ -278,6 +284,12 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::get('/sms-templates/{smsTemplate}/edit', [SmsTemplateController::class, 'edit'])
         ->middleware('admin.permission:notification.template')
         ->name('sms-templates.edit');
+    Route::get('/sms-templates/{smsTemplate}/preview', [SmsTemplateController::class, 'preview'])
+        ->middleware('admin.permission:notification.template')
+        ->name('sms-templates.preview');
+    Route::post('/sms-templates/{smsTemplate}/test', [SmsTemplateController::class, 'test'])
+        ->middleware('admin.permission:notification.template')
+        ->name('sms-templates.test');
     Route::put('/sms-templates/{smsTemplate}', [SmsTemplateController::class, 'update'])
         ->middleware('admin.permission:notification.template')
         ->name('sms-templates.update');

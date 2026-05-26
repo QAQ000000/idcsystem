@@ -78,6 +78,38 @@ class NotificationTest extends TestCase
             ->assertDontSee('polluted');
     }
 
+    public function test_admin_can_preview_and_send_test_email_template(): void
+    {
+        $admin = $this->admin();
+        $this->seed(\Database\Seeders\EmailTemplateSeeder::class);
+        $this->installSmtp();
+        $template = EmailTemplate::query()->where('name', 'invoice_paid')->firstOrFail();
+        $template->update([
+            'subject' => '支付成功 {{invoice_number}}',
+            'body' => '<p>{{client_name}} 已支付 {{amount}}</p>',
+            'enabled' => true,
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.email-templates.preview', $template))
+            ->assertOk()
+            ->assertSee('支付成功 INV-TEST-001')
+            ->assertSee('测试客户 已支付 99.00', false);
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.email-templates.test', $template), [
+                'email' => 'ops@example.com',
+            ])
+            ->assertRedirect(route('admin.email-templates.preview', $template))
+            ->assertSessionHas('status', '测试邮件已发送');
+
+        $this->assertDatabaseHas('email_logs', [
+            'to' => 'ops@example.com',
+            'template' => 'invoice_paid',
+            'status' => 'sent',
+        ]);
+    }
+
     public function test_admin_sms_template_edit_ignores_array_old_input_values(): void
     {
         $admin = $this->admin();
@@ -93,6 +125,36 @@ class NotificationTest extends TestCase
             ->assertOk()
             ->assertSee($template->content)
             ->assertDontSee('polluted');
+    }
+
+    public function test_admin_can_preview_and_send_test_sms_template(): void
+    {
+        $admin = $this->admin();
+        $this->seed(\Database\Seeders\SmsTemplateSeeder::class);
+        $this->installSms();
+        $template = SmsTemplate::query()->where('name', 'invoice_paid')->firstOrFail();
+        $template->update([
+            'content' => '短信 {{client_name}} {{invoice_number}} {{amount}}',
+            'enabled' => true,
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.sms-templates.preview', $template))
+            ->assertOk()
+            ->assertSee('短信 测试客户 INV-TEST-001 99.00');
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.sms-templates.test', $template), [
+                'phone' => '13800138000',
+            ])
+            ->assertRedirect(route('admin.sms-templates.preview', $template))
+            ->assertSessionHas('status', '测试短信已发送');
+
+        $this->assertDatabaseHas('sms_logs', [
+            'phone' => '13800138000',
+            'template' => 'invoice_paid',
+            'status' => 'sent',
+        ]);
     }
 
     public function test_disabled_templates_do_not_send_notifications(): void

@@ -8,7 +8,10 @@
             <h1 class="text-2xl font-semibold">编辑邮件模板</h1>
             <p class="mt-1 text-sm text-slate-500">{{ $emailTemplate->name }}</p>
         </div>
-        <a class="rounded border px-4 py-2 text-sm" href="{{ route('admin.email-templates.index') }}">返回列表</a>
+        <div class="flex gap-2">
+            <a class="rounded border px-4 py-2 text-sm" href="{{ route('admin.email-templates.preview', $emailTemplate) }}">预览测试</a>
+            <a class="rounded border px-4 py-2 text-sm" href="{{ route('admin.email-templates.index') }}">返回列表</a>
+        </div>
     </div>
 
     <form method="post" action="{{ route('admin.email-templates.update', $emailTemplate) }}" class="rounded bg-white p-6 shadow-sm">
