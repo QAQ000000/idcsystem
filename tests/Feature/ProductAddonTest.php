@@ -204,6 +204,7 @@ class ProductAddonTest extends TestCase
         (new ProcessPaidInvoiceJob($invoice->id))->handle(
             app(\App\Modules\Order\Services\HostService::class),
             app(\App\Modules\Product\Services\DomainService::class),
+            app(\App\Modules\Product\Services\SslService::class),
             app(\App\Services\NotificationService::class),
             app(\App\Modules\User\Services\AffiliateService::class)
         );

@@ -44,6 +44,8 @@ class AdminPermissionSeeder extends Seeder
             'tax_rule.manage',
             'domain.view',
             'domain.manage',
+            'ssl.view',
+            'ssl.manage',
             'host.view',
             'host.manage',
             'invoice.view',

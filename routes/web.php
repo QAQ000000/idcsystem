@@ -12,6 +12,7 @@ use App\Http\Controllers\Client\InvoiceController;
 use App\Http\Controllers\Client\InvoiceReceiptController;
 use App\Http\Controllers\Client\KnowledgeBaseController;
 use App\Http\Controllers\Client\ProductController;
+use App\Http\Controllers\Client\SslController;
 use App\Http\Controllers\Client\TicketController;
 use App\Http\Controllers\Client\UsageAlertController;
 use App\Http\Controllers\CampaignTrackingController;
@@ -114,6 +115,13 @@ Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.sta
     Route::get('/domains/{domain}', [DomainController::class, 'show'])->name('domains.show');
     Route::post('/domains/{domain}/nameservers', [DomainController::class, 'updateNameservers'])->name('domains.nameservers');
     Route::post('/domains/{domain}/renew', [DomainController::class, 'renew'])->name('domains.renew');
+
+    Route::get('/ssl', [SslController::class, 'index'])->name('ssl.index');
+    Route::get('/ssl/purchase', [SslController::class, 'purchase'])->name('ssl.purchase');
+    Route::post('/ssl/purchase', [SslController::class, 'store'])->name('ssl.store');
+    Route::get('/ssl/{certificate}', [SslController::class, 'show'])->name('ssl.show');
+    Route::post('/ssl/{certificate}/deploy', [SslController::class, 'deploy'])->name('ssl.deploy');
+    Route::get('/ssl/{certificate}/download', [SslController::class, 'download'])->name('ssl.download');
 
     Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
     Route::get('/invoices/{invoice}', [InvoiceController::class, 'show'])->name('invoices.show');

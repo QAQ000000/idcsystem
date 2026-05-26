@@ -69,6 +69,12 @@ class EmailTemplateSeeder extends Seeder
                 'enabled' => true,
             ],
             [
+                'name' => 'ssl_expiry_reminder',
+                'subject' => 'SSL 证书 {{domain}} 即将到期',
+                'body' => '您好 {{client_name}}，您的 SSL 证书 {{domain}} 将在 {{days}} 天后（{{expiry_date}}）到期，请及时续费。',
+                'enabled' => true,
+            ],
+            [
                 'name' => 'host_upgrade_completed',
                 'subject' => '{{product_name}} 调整已完成',
                 'body' => '您好 {{client_name}}，您的 {{product_name}} 升级/降配已完成。',

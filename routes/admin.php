@@ -33,6 +33,7 @@ use App\Http\Controllers\Admin\SystemTaskController;
 use App\Http\Controllers\Admin\SettingController;
 use App\Http\Controllers\Admin\SmsLogController;
 use App\Http\Controllers\Admin\SmsTemplateController;
+use App\Http\Controllers\Admin\SslController;
 use App\Http\Controllers\Admin\TaxRuleController;
 use App\Http\Controllers\Admin\TicketController;
 use App\Http\Controllers\Admin\WebhookController;
@@ -259,6 +260,12 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::put('/domain-pricings/{domainPricing}', [DomainPricingController::class, 'update'])
         ->middleware('admin.permission:domain.manage')
         ->name('domain-pricings.update');
+    Route::get('/ssl', [SslController::class, 'index'])
+        ->middleware('admin.permission:ssl.view')
+        ->name('ssl.index');
+    Route::post('/ssl/{certificate}/issue', [SslController::class, 'issue'])
+        ->middleware('admin.permission:ssl.manage')
+        ->name('ssl.issue');
 
     Route::get('/campaigns', [EmailCampaignController::class, 'index'])
         ->middleware('admin.permission:campaign.view')

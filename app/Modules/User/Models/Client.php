@@ -62,6 +62,11 @@ class Client extends Authenticatable
         return $this->hasMany(\App\Modules\Product\Models\Domain::class);
     }
 
+    public function sslCertificates()
+    {
+        return $this->hasMany(\App\Modules\Product\Models\SslCertificate::class);
+    }
+
     public function invoices()
     {
         return $this->hasMany(\App\Modules\Finance\Models\Invoice::class);

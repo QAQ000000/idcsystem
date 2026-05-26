@@ -74,6 +74,11 @@ class Host extends Model
         return $this->hasMany(CancelRequest::class);
     }
 
+    public function sslCertificates()
+    {
+        return $this->hasMany(\App\Modules\Product\Models\SslCertificate::class);
+    }
+
     public function pendingCancelRequest()
     {
         return $this->hasOne(CancelRequest::class)->where('status', 'pending')->latestOfMany();

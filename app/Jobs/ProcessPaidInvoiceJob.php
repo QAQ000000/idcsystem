@@ -6,6 +6,7 @@ use App\Models\SystemTaskLog;
 use App\Modules\Finance\Models\Invoice;
 use App\Modules\Order\Services\HostService;
 use App\Modules\Product\Services\DomainService;
+use App\Modules\Product\Services\SslService;
 use App\Modules\User\Services\AffiliateService;
 use App\Services\NotificationService;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -28,6 +29,7 @@ class ProcessPaidInvoiceJob implements ShouldQueue
     public function handle(
         HostService $hostService,
         DomainService $domainService,
+        SslService $sslService,
         NotificationService $notifications,
         AffiliateService $affiliates
     ): void
@@ -44,6 +46,7 @@ class ProcessPaidInvoiceJob implements ShouldQueue
 
         $hostService->applyPaidInvoice($fresh);
         $domainService->applyPaidInvoice($fresh);
+        $sslService->applyPaidInvoice($fresh);
 
         if ($fresh->client) {
             $notifications->notifyClient($fresh->client, 'invoice_paid', [

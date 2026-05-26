@@ -153,6 +153,10 @@ class NotificationService
                 'label' => '域名到期提醒',
                 'variables' => ['client_name', 'domain', 'expiry_date', 'days'],
             ],
+            'ssl_expiry_reminder' => [
+                'label' => 'SSL 证书到期提醒',
+                'variables' => ['client_name', 'domain', 'expiry_date', 'days'],
+            ],
             'host_upgrade_completed' => [
                 'label' => '升级/降配完成',
                 'variables' => ['client_name', 'product_name'],

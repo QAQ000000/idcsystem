@@ -53,6 +53,9 @@
                     @if ($canAdmin('domain.manage'))
                         <a href="{{ route('admin.domain-pricings.index') }}">TLD价格</a>
                     @endif
+                    @if ($canAdmin('ssl.view'))
+                        <a href="{{ route('admin.ssl.index') }}">SSL证书</a>
+                    @endif
                     @if ($canAdmin('invoice.view'))
                         <a href="{{ route('admin.invoices.index') }}">账单</a>
                         <a href="{{ route('admin.invoice-receipts.index') }}">发票申请</a>
