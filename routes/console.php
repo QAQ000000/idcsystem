@@ -71,6 +71,22 @@ Artisan::command('notifications:recover-stale {--minutes=15}', function () {
     return 0;
 })->purpose('Recover stale notification logs stuck in processing status');
 
+Artisan::command('campaigns:send-scheduled', function () {
+    $task = app(\App\Services\SystemTaskService::class)->run('campaigns:send-scheduled', function () {
+        return [
+            'dispatched' => app(\App\Services\EmailCampaignService::class)->sendScheduled(),
+        ];
+    });
+
+    if ($task->status === 'failed') {
+        $this->error($task->error ?: 'Scheduled email campaign dispatch failed');
+        return 1;
+    }
+
+    $this->info($task->output ?: 'Scheduled email campaign dispatch completed');
+    return 0;
+})->purpose('Dispatch scheduled email campaigns');
+
 Artisan::command('billing:generate-invoices', function () {
     $task = app(\App\Services\SystemTaskService::class)->run('billing:generate-invoices', function () {
         return [
@@ -127,3 +143,4 @@ Schedule::command('host:send-due-reminders')->dailyAt('09:00');
 Schedule::command('host:sync-usage')->hourly();
 Schedule::command('usage:check-alerts')->hourly();
 Schedule::command('notifications:recover-stale')->everyFifteenMinutes();
+Schedule::command('campaigns:send-scheduled')->everyMinute();

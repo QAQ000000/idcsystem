@@ -71,6 +71,9 @@
                         <a href="{{ route('admin.email-logs.index') }}">邮件日志</a>
                         <a href="{{ route('admin.sms-logs.index') }}">短信日志</a>
                     @endif
+                    @if ($canAdmin('campaign.view'))
+                        <a href="{{ route('admin.campaigns.index') }}">邮件活动</a>
+                    @endif
                     @if ($canAdmin('notification.template'))
                         <a href="{{ route('admin.email-templates.index') }}">邮件模板</a>
                         <a href="{{ route('admin.sms-templates.index') }}">短信模板</a>

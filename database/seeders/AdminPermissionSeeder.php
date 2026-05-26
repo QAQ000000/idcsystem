@@ -49,6 +49,8 @@ class AdminPermissionSeeder extends Seeder
             'invoice.refund',
             'ticket.view',
             'ticket.manage',
+            'campaign.view',
+            'campaign.manage',
             'notification.manage',
             'notification.template',
             'system_task.view',

@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\ClientGroupController;
 use App\Http\Controllers\Admin\ContractTemplateController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\EmailLogController;
+use App\Http\Controllers\Admin\EmailCampaignController;
 use App\Http\Controllers\Admin\EmailTemplateController;
 use App\Http\Controllers\Admin\ExportController;
 use App\Http\Controllers\Admin\HostController;
@@ -243,6 +244,25 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::delete('/tax-rules/{taxRule}', [TaxRuleController::class, 'destroy'])
         ->middleware('admin.permission:tax_rule.manage')
         ->name('tax-rules.destroy');
+
+    Route::get('/campaigns', [EmailCampaignController::class, 'index'])
+        ->middleware('admin.permission:campaign.view')
+        ->name('campaigns.index');
+    Route::get('/campaigns/create', [EmailCampaignController::class, 'create'])
+        ->middleware('admin.permission:campaign.manage')
+        ->name('campaigns.create');
+    Route::post('/campaigns', [EmailCampaignController::class, 'store'])
+        ->middleware('admin.permission:campaign.manage')
+        ->name('campaigns.store');
+    Route::get('/campaigns/{campaign}', [EmailCampaignController::class, 'show'])
+        ->middleware('admin.permission:campaign.view')
+        ->name('campaigns.show');
+    Route::post('/campaigns/{campaign}/send', [EmailCampaignController::class, 'send'])
+        ->middleware('admin.permission:campaign.manage')
+        ->name('campaigns.send');
+    Route::post('/campaigns/{campaign}/schedule', [EmailCampaignController::class, 'schedule'])
+        ->middleware('admin.permission:campaign.manage')
+        ->name('campaigns.schedule');
 
     Route::post('/hosts/bulk-action', [HostController::class, 'bulkAction'])
         ->middleware('admin.permission:host.manage')
