@@ -32,9 +32,9 @@ return [
     'due_days' => (int) $legacySetting('billing_due_days', 'invoice_due_days', env('BILLING_DUE_DAYS', 7)),
 
     /*
-     * 到期提醒提前天数。
+     * 到期提醒提前天数。支持配置为单个数字或逗号分隔列表。
      */
-    'reminder_days' => (int) $legacySetting('billing_reminder_days', 'renewal_reminder_days', env('BILLING_REMINDER_DAYS', 7)),
+    'reminder_days' => $legacySetting('billing_reminder_days', 'renewal_reminder_days', env('BILLING_REMINDER_DAYS', '7,3,1')),
 
     /*
      * 逾期宽限天数（到期后多少天才暂停服务）。

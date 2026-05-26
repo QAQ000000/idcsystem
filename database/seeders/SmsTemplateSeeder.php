@@ -47,7 +47,7 @@ class SmsTemplateSeeder extends Seeder
             ],
             [
                 'name' => 'host_due_reminder',
-                'content' => '您好 {{client_name}}，您的 {{product_name}} 将于 {{due_date}} 到期，请及时续费。',
+                'content' => '您好 {{client_name}}，您的 {{product_name}} 将在 {{days}} 天后（{{due_date}}）到期，请及时续费。',
                 'enabled' => true,
             ],
             [

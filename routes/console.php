@@ -22,10 +22,12 @@ Artisan::command('host:sync-usage', function () {
     return 0;
 })->purpose('Sync host usage snapshots from server modules');
 
-Artisan::command('host:send-due-reminders {--days=7}', function () {
-    $days = max(1, (int) $this->option('days'));
+Artisan::command('host:send-due-reminders {--days=}', function () {
+    $days = $this->option('days');
     $task = app(\App\Services\SystemTaskService::class)->run('host:send-due-reminders', function () use ($days) {
-        return app(\App\Services\HostMonitoringService::class)->sendDueReminders($days);
+        return app(\App\Services\HostMonitoringService::class)->sendDueReminders(
+            $days === null || $days === '' ? null : max(1, (int) $days)
+        );
     });
 
     if ($task->status === 'failed') {

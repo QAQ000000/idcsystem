@@ -5,6 +5,7 @@ namespace App\Modules\Finance\Services;
 use App\Modules\Finance\Models\InvoiceItem;
 use App\Modules\Order\Models\Host;
 use App\Modules\Order\Services\HostService;
+use App\Services\HostMonitoringService;
 use Illuminate\Support\Facades\DB;
 
 class BillingService
@@ -63,17 +64,13 @@ class BillingService
     }
 
     /**
-     * 发送到期提醒，当前阶段记录待提醒数量，后续接入邮件/短信队列。
+     * 发送到期提醒，兼容旧调用点并委托给主机监控服务执行实际通知。
      */
     public function sendDueReminders(): int
     {
-        $reminderDays = (int) config('billing.reminder_days', 7);
+        $result = app(HostMonitoringService::class)->sendDueReminders();
 
-        return Host::query()
-            ->where('status', 'Active')
-            ->whereNotNull('next_due_date')
-            ->whereBetween('next_due_date', [now(), now()->addDays($reminderDays)])
-            ->count();
+        return (int) ($result['notified'] ?? 0);
     }
 
     /**

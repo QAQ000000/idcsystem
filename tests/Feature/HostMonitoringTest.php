@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\HostUsageSnapshot;
+use App\Models\DueReminder;
 use App\Models\Plugin;
 use App\Modules\Admin\Models\AdminUser;
 use App\Modules\Finance\Models\Currency;
@@ -184,6 +185,46 @@ class HostMonitoringTest extends TestCase
             'host_id' => $host->id,
             'action' => 'due_reminder',
         ]);
+        $this->assertDatabaseHas('due_reminders', [
+            'host_id' => $host->id,
+            'days_before' => 3,
+        ]);
+    }
+
+    public function test_due_reminders_use_configured_multiple_days_and_do_not_repeat_successful_reminders(): void
+    {
+        Mail::fake();
+        $this->seed(\Database\Seeders\EmailTemplateSeeder::class);
+        $this->installSmtp();
+        config(['billing.reminder_days' => [7, 3, 1]]);
+        $sevenDayHost = $this->host([
+            'status' => 'Active',
+            'next_due_date' => now()->addDays(7),
+        ]);
+        $threeDayHost = $this->host([
+            'status' => 'Active',
+            'next_due_date' => now()->addDays(3),
+        ]);
+        $oneDayHost = $this->host([
+            'status' => 'Active',
+            'next_due_date' => now()->addDay(),
+        ]);
+        $this->host([
+            'status' => 'Active',
+            'next_due_date' => now()->addDays(5),
+        ]);
+
+        $first = app(HostMonitoringService::class)->sendDueReminders();
+        $second = app(HostMonitoringService::class)->sendDueReminders();
+
+        $this->assertSame(3, $first['processed']);
+        $this->assertSame(3, $first['notified']);
+        $this->assertSame(3, $second['processed']);
+        $this->assertSame(0, $second['notified']);
+        $this->assertDatabaseHas('due_reminders', ['host_id' => $sevenDayHost->id, 'days_before' => 7]);
+        $this->assertDatabaseHas('due_reminders', ['host_id' => $threeDayHost->id, 'days_before' => 3]);
+        $this->assertDatabaseHas('due_reminders', ['host_id' => $oneDayHost->id, 'days_before' => 1]);
+        $this->assertSame(3, DueReminder::query()->count());
     }
 
     public function test_due_reminders_skip_inactive_and_deleted_clients(): void
@@ -219,26 +260,28 @@ class HostMonitoringTest extends TestCase
         ]);
     }
 
-    public function test_due_reminders_do_not_repeat_recent_failed_attempts(): void
+    public function test_due_reminders_retry_failed_attempts_until_success_record_exists(): void
     {
-        Mail::fake();
-        $this->seed(\Database\Seeders\EmailTemplateSeeder::class);
-        $this->installSmtp();
         $host = $this->host([
             'status' => 'Active',
             'next_due_date' => now()->addDays(3),
         ]);
-        $host->client->update(['status' => 2]);
-
+        $this->instance(NotificationService::class, new class extends NotificationService {
+            public function notifyClient(\App\Modules\User\Models\Client $client, string $event, array $variables = []): array
+            {
+                return ['mail' => false, 'sms' => null, 'errors' => ['mail' => 'disabled']];
+            }
+        });
         $first = app(HostMonitoringService::class)->sendDueReminders(7);
         $second = app(HostMonitoringService::class)->sendDueReminders(7);
 
         $this->assertSame(1, $first['processed']);
         $this->assertSame(1, $second['processed']);
-        $this->assertSame(1, \App\Models\HostActionLog::query()
+        $this->assertSame(2, \App\Models\HostActionLog::query()
             ->where('host_id', $host->id)
             ->where('action', 'due_reminder_failed')
             ->count());
+        $this->assertDatabaseMissing('due_reminders', ['host_id' => $host->id, 'days_before' => 7]);
     }
 
     public function test_due_reminders_continue_after_single_notification_exception(): void

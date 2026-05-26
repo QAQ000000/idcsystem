@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\DueReminder;
 use App\Models\HostActionLog;
 use App\Models\HostUsageSnapshot;
 use App\Modules\Order\Models\Host;
@@ -61,51 +62,72 @@ class HostMonitoringService
         return $result;
     }
 
-    public function sendDueReminders(int $days = 7): array
+    public function sendDueReminders(int|array|string|null $days = null): array
     {
         $result = ['processed' => 0, 'notified' => 0, 'failed' => 0];
+        $legacyWindowDays = is_int($days) ? $days : null;
+        $reminderDays = $legacyWindowDays === null
+            ? $this->normalizeReminderDays($days ?? config('billing.reminder_days', [7, 3, 1]))
+            : [$legacyWindowDays];
 
-        Host::query()
-            ->with(['client', 'product'])
-            ->whereIn('status', ['Active', 'Suspended'])
-            ->whereNotNull('next_due_date')
-            ->whereBetween('next_due_date', [now(), now()->addDays($days)])
-            ->orderBy('id')
-            ->chunkById(100, function ($hosts) use (&$result): void {
-                foreach ($hosts as $host) {
-                    $result['processed']++;
+        foreach ($reminderDays as $daysBefore) {
+            Host::query()
+                ->with(['client', 'product'])
+                ->whereIn('status', ['Active', 'Suspended'])
+                ->whereNotNull('next_due_date')
+                ->when(
+                    $legacyWindowDays === null,
+                    fn ($query) => $query->whereDate('next_due_date', now()->addDays($daysBefore)->toDateString()),
+                    fn ($query) => $query->whereBetween('next_due_date', [now(), now()->addDays($legacyWindowDays)])
+                )
+                ->orderBy('id')
+                ->chunkById(100, function ($hosts) use (&$result, $daysBefore, $legacyWindowDays): void {
+                    foreach ($hosts as $host) {
+                        $actualDaysBefore = $legacyWindowDays === null
+                            ? $daysBefore
+                            : max(1, (int) now()->startOfDay()->diffInDays($host->next_due_date?->copy()->startOfDay(), false));
+                        $result['processed']++;
 
-                    if ($this->recentlyReminded($host)) {
-                        continue;
-                    }
-
-                    try {
-                        $notification = app(NotificationService::class)->notifyClient($host->client, 'host_due_reminder', [
-                            'client_name' => $host->client->username,
-                            'product_name' => $host->product?->name ?? '服务',
-                            'due_date' => $host->next_due_date?->format('Y-m-d'),
-                        ]);
-
-                        $sent = ($notification['mail'] ?? false) === true || ($notification['sms'] ?? false) === true;
-                        $this->logDueReminder($host, $sent, [
-                            'due_date' => $host->next_due_date?->toDateTimeString(),
-                            'notification' => $notification,
-                        ]);
-
-                        if ($sent) {
-                            $result['notified']++;
-                        } else {
-                            $result['failed']++;
+                        if ($this->alreadySentDueReminder($host, $actualDaysBefore)) {
+                            continue;
                         }
-                    } catch (Throwable $exception) {
-                        $result['failed']++;
-                        $this->logDueReminder($host, false, [
-                            'due_date' => $host->next_due_date?->toDateTimeString(),
-                            'error' => $exception->getMessage(),
-                        ]);
+
+                        try {
+                            $notification = app(NotificationService::class)->notifyClient($host->client, 'host_due_reminder', [
+                                'client_name' => $host->client->username,
+                                'product_name' => $host->product?->name ?? '服务',
+                                'due_date' => $host->next_due_date?->format('Y-m-d'),
+                                'days' => $actualDaysBefore,
+                            ]);
+
+                            $sent = ($notification['mail'] ?? false) === true || ($notification['sms'] ?? false) === true;
+                            $this->logDueReminder($host, $sent, [
+                                'due_date' => $host->next_due_date?->toDateTimeString(),
+                                'days_before' => $actualDaysBefore,
+                                'notification' => $notification,
+                            ]);
+
+                            if ($sent) {
+                                DueReminder::query()->create([
+                                    'host_id' => $host->id,
+                                    'days_before' => $actualDaysBefore,
+                                    'sent_at' => now(),
+                                ]);
+                                $result['notified']++;
+                            } else {
+                                $result['failed']++;
+                            }
+                        } catch (Throwable $exception) {
+                            $result['failed']++;
+                            $this->logDueReminder($host, false, [
+                                'due_date' => $host->next_due_date?->toDateTimeString(),
+                                'days_before' => $actualDaysBefore,
+                                'error' => $exception->getMessage(),
+                            ]);
+                        }
                     }
-                }
-            });
+                });
+        }
 
         return $result;
     }
@@ -150,12 +172,24 @@ class HostMonitoringService
         return round($value, 2);
     }
 
-    private function recentlyReminded(Host $host): bool
+    private function normalizeReminderDays(int|array|string $days): array
     {
-        return HostActionLog::query()
+        $values = is_array($days) ? $days : explode(',', (string) $days);
+
+        return collect($values)
+            ->map(fn ($value): int => (int) trim((string) $value))
+            ->filter(fn (int $value): bool => $value > 0)
+            ->unique()
+            ->sortDesc()
+            ->values()
+            ->all() ?: [7, 3, 1];
+    }
+
+    private function alreadySentDueReminder(Host $host, int $daysBefore): bool
+    {
+        return DueReminder::query()
             ->where('host_id', $host->id)
-            ->whereIn('action', ['due_reminder', 'due_reminder_failed'])
-            ->where('created_at', '>=', now()->subDay())
+            ->where('days_before', $daysBefore)
             ->exists();
     }
 

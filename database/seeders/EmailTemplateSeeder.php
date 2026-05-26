@@ -59,7 +59,7 @@ class EmailTemplateSeeder extends Seeder
             [
                 'name' => 'host_due_reminder',
                 'subject' => '{{product_name}} 即将到期',
-                'body' => '您好 {{client_name}}，您的 {{product_name}} 将于 {{due_date}} 到期，请及时续费。',
+                'body' => '您好 {{client_name}}，您的 {{product_name}} 将在 {{days}} 天后（{{due_date}}）到期，请及时续费。',
                 'enabled' => true,
             ],
             [
