@@ -7,6 +7,11 @@ use Illuminate\Http\JsonResponse;
 
 class PaymentController extends ApiController
 {
+    /**
+     * 获取启用的支付网关。
+     *
+     * @response 200 {"success":true,"data":[{"name":"manual_pay","title":"Manual Pay","type":"gateway"}]}
+     */
     public function gateways(): JsonResponse
     {
         $gateways = Plugin::query()

@@ -75,6 +75,9 @@
                     @if ($canAdmin('webhook.manage'))
                         <a href="{{ route('admin.webhooks.index') }}">Webhooks</a>
                     @endif
+                    @if ($canAdmin('api_doc.view'))
+                        <a href="{{ route('admin.api-docs.index') }}">API文档</a>
+                    @endif
                     @if ($canAdmin('ticket.view'))
                         <a href="{{ route('admin.tickets.index') }}">工单</a>
                     @endif

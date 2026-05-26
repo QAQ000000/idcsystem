@@ -8,6 +8,11 @@ use Illuminate\Http\Request;
 
 class AccountController extends ApiController
 {
+    /**
+     * 获取账户资料。
+     *
+     * @response 200 {"success":true,"data":{"id":1,"username":"demo","credit":10}}
+     */
     public function show(Request $request): JsonResponse
     {
         $client = $request->user();
@@ -26,6 +31,11 @@ class AccountController extends ApiController
         ]);
     }
 
+    /**
+     * 获取余额和信用额度。
+     *
+     * @response 200 {"success":true,"data":{"credit":10,"credit_limit":100,"available_credit":110}}
+     */
     public function credit(Request $request): JsonResponse
     {
         $client = $request->user();
@@ -38,6 +48,11 @@ class AccountController extends ApiController
         ]);
     }
 
+    /**
+     * 创建账户充值账单。
+     *
+     * @response 201 {"success":true,"data":{"invoice_id":1,"invoice_number":"INV-202605260001","amount":100,"pay_url":"https://example.com/client/invoices/1"}}
+     */
     public function recharge(Request $request, InvoiceService $invoices): JsonResponse
     {
         $data = $request->validate([

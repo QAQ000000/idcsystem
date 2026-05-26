@@ -10,6 +10,11 @@ use Illuminate\Http\Request;
 
 class InvoiceController extends ApiController
 {
+    /**
+     * 获取当前客户账单列表。
+     *
+     * @response 200 {"success":true,"data":[{"id":1,"invoice_number":"INV-202605260001","status":"Unpaid"}],"meta":{"current_page":1}}
+     */
     public function index(Request $request): JsonResponse
     {
         $invoices = Invoice::query()
@@ -23,6 +28,11 @@ class InvoiceController extends ApiController
         return $this->list($invoices, fn (Invoice $invoice) => $this->invoicePayload($invoice));
     }
 
+    /**
+     * 获取账单详情。
+     *
+     * @response 200 {"success":true,"data":{"id":1,"invoice_number":"INV-202605260001","items":[]}}
+     */
     public function show(Request $request, Invoice $invoice): JsonResponse
     {
         if ((int) $invoice->client_id !== (int) $request->user()->id) {
@@ -34,6 +44,11 @@ class InvoiceController extends ApiController
         return $this->success($this->invoicePayload($invoice, true));
     }
 
+    /**
+     * 使用余额或信用额度支付账单。
+     *
+     * @response 200 {"success":true,"data":{"invoice":{"id":1,"status":"Paid"}}}
+     */
     public function payWithCredit(Request $request, Invoice $invoice, InvoiceService $invoices): JsonResponse
     {
         if ((int) $invoice->client_id !== (int) $request->user()->id) {

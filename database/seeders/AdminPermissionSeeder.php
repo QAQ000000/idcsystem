@@ -40,6 +40,7 @@ class AdminPermissionSeeder extends Seeder
             'cancel_request.manage',
             'kb.manage',
             'webhook.manage',
+            'api_doc.view',
             'promo.manage',
             'tax_rule.view',
             'tax_rule.manage',

@@ -11,6 +11,11 @@ use Illuminate\Validation\Rule;
 
 class AuthController extends ApiController
 {
+    /**
+     * 客户登录并签发 API Token。
+     *
+     * @response 200 {"success":true,"data":{"token":"1|plain-text-token","client":{"id":1,"username":"demo","email":"demo@example.com"}}}
+     */
     public function login(Request $request, AuthService $auth): JsonResponse
     {
         $data = $request->validate([
@@ -32,6 +37,11 @@ class AuthController extends ApiController
         ]);
     }
 
+    /**
+     * 注册客户并返回 API Token。
+     *
+     * @response 201 {"success":true,"data":{"token":"1|plain-text-token","client":{"id":1,"username":"demo","email":"demo@example.com"}}}
+     */
     public function register(Request $request, AuthService $auth): JsonResponse
     {
         $data = $request->validate([
@@ -41,11 +51,14 @@ class AuthController extends ApiController
             'phone' => ['nullable', 'string', 'max:50'],
             'currency_id' => ['nullable', 'integer', Rule::exists('currencies', 'id')],
             'device_name' => ['nullable', 'string', 'max:100'],
+            'privacy_policy' => ['accepted'],
         ]);
 
         $password = $data['password'];
         $deviceName = $data['device_name'] ?? 'api';
         unset($data['device_name']);
+        unset($data['privacy_policy']);
+        $data['privacy_ip'] = $request->ip();
 
         $client = $auth->register($data);
         // API 注册完成后签发 Token，保持第三方接入流程闭环。
@@ -59,6 +72,11 @@ class AuthController extends ApiController
         ], 201);
     }
 
+    /**
+     * 注销当前 Token。
+     *
+     * @response 200 {"success":true,"data":{"logged_out":true}}
+     */
     public function logout(Request $request): JsonResponse
     {
         $token = $request->user()?->currentAccessToken();
@@ -69,6 +87,11 @@ class AuthController extends ApiController
         return $this->success(['logged_out' => true]);
     }
 
+    /**
+     * 获取当前客户资料。
+     *
+     * @response 200 {"success":true,"data":{"client":{"id":1,"username":"demo","email":"demo@example.com"}}}
+     */
     public function me(Request $request): JsonResponse
     {
         return $this->success([

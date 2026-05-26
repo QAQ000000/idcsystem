@@ -11,6 +11,11 @@ use Illuminate\Http\Request;
 
 class ProductController extends ApiController
 {
+    /**
+     * 获取可购买产品列表。
+     *
+     * @response 200 {"success":true,"data":[{"id":1,"name":"虚拟主机","type":"hosting","prices":{"monthly":99}}]}
+     */
     public function index(Request $request, ProductService $products, PricingService $pricing, CurrencyService $currencies): JsonResponse
     {
         $currency = $currencies->default();
@@ -29,6 +34,11 @@ class ProductController extends ApiController
         return $this->success($items);
     }
 
+    /**
+     * 获取产品详情。
+     *
+     * @response 200 {"success":true,"data":{"id":1,"name":"虚拟主机","prices":{"monthly":99}}}
+     */
     public function show(Product $product, PricingService $pricing, CurrencyService $currencies): JsonResponse
     {
         if (!app(ProductService::class)->isPurchasable($product)) {

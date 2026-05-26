@@ -51,6 +51,7 @@ class ApiTest extends TestCase
             'username' => 'api-new-client',
             'email' => 'api-new-client@example.com',
             'password' => 'client123456',
+            'privacy_policy' => true,
         ])
             ->assertCreated()
             ->assertJsonPath('success', true)
@@ -60,6 +61,9 @@ class ApiTest extends TestCase
         $this->assertDatabaseHas('clients', [
             'email' => 'api-new-client@example.com',
             'status' => 1,
+        ]);
+        $this->assertDatabaseHas('privacy_policy_consents', [
+            'policy_version' => config('app.privacy_policy_version', '1.0'),
         ]);
     }
 

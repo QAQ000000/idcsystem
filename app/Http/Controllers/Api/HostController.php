@@ -10,6 +10,11 @@ use RuntimeException;
 
 class HostController extends ApiController
 {
+    /**
+     * 获取当前客户服务列表。
+     *
+     * @response 200 {"success":true,"data":[{"id":1,"domain":"example.com","status":"Active"}],"meta":{"current_page":1}}
+     */
     public function index(Request $request): JsonResponse
     {
         $hosts = Host::query()
@@ -22,6 +27,11 @@ class HostController extends ApiController
         return $this->list($hosts, fn (Host $host) => $this->hostPayload($host));
     }
 
+    /**
+     * 获取服务详情。
+     *
+     * @response 200 {"success":true,"data":{"id":1,"domain":"example.com","status":"Active"}}
+     */
     public function show(Request $request, Host $host): JsonResponse
     {
         if ((int) $host->client_id !== (int) $request->user()->id) {
@@ -33,6 +43,11 @@ class HostController extends ApiController
         return $this->success($this->hostPayload($host));
     }
 
+    /**
+     * 创建服务续费账单。
+     *
+     * @response 201 {"success":true,"data":{"invoice":{"id":1,"invoice_number":"INV-202605260001","status":"Unpaid","total":99}}}
+     */
     public function renew(Request $request, Host $host, HostService $hosts): JsonResponse
     {
         if ((int) $host->client_id !== (int) $request->user()->id) {

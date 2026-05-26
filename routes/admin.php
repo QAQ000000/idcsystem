@@ -145,6 +145,10 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
         Route::get('credits', [ExportController::class, 'credits'])->name('credits');
     });
 
+    Route::view('/api-docs', 'admin.api-docs')
+        ->middleware('admin.permission:api_doc.view')
+        ->name('api-docs.index');
+
     Route::prefix('gdpr')->name('gdpr.')->middleware('admin.permission:gdpr.manage')->group(function (): void {
         Route::get('deletion-requests', [GdprDeletionRequestController::class, 'index'])->name('deletion-requests.index');
         Route::post('deletion-requests/{request}/approve', [GdprDeletionRequestController::class, 'approve'])->name('deletion-requests.approve');
