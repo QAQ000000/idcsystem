@@ -102,6 +102,11 @@ class Client extends Authenticatable
         return $this->hasMany(\App\Models\ClientActivityLog::class);
     }
 
+    public function notifications()
+    {
+        return $this->hasMany(\App\Models\Notification::class);
+    }
+
     public function tags()
     {
         return $this->belongsToMany(ClientTag::class, 'client_tag_pivot')

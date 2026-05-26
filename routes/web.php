@@ -11,6 +11,7 @@ use App\Http\Controllers\Client\HostController;
 use App\Http\Controllers\Client\InvoiceController;
 use App\Http\Controllers\Client\InvoiceReceiptController;
 use App\Http\Controllers\Client\KnowledgeBaseController;
+use App\Http\Controllers\Client\NotificationController;
 use App\Http\Controllers\Client\ProductController;
 use App\Http\Controllers\Client\PrivacyController;
 use App\Http\Controllers\Client\SslController;
@@ -95,6 +96,10 @@ Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.sta
     Route::post('/account/recharge', [AccountController::class, 'recharge'])->name('account.recharge.store');
     Route::get('/affiliate', [AccountController::class, 'affiliate'])->name('affiliate');
     Route::post('/affiliate/withdraw', [AccountController::class, 'withdrawAffiliate'])->name('affiliate.withdraw');
+    Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
+    Route::post('/notifications/{notification}/read', [NotificationController::class, 'read'])->name('notifications.read');
+    Route::post('/notifications/read-all', [NotificationController::class, 'readAll'])->name('notifications.read-all');
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount'])->name('notifications.unread-count');
 
     Route::get('/cart', [CartController::class, 'index'])->name('cart.index');
     Route::post('/cart', [CartController::class, 'add'])->name('cart.add');

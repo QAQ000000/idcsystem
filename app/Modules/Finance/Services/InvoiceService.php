@@ -14,6 +14,7 @@ use App\Modules\User\Services\ClientService;
 use App\Modules\User\Services\ClientTagService;
 use App\Services\ClientActivityService;
 use App\Services\Concerns\NotifiesClientsSafely;
+use App\Services\NotificationCenterService;
 use App\Services\WebhookService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -84,6 +85,13 @@ class InvoiceService
             'invoice_number' => $invoice->invoice_number,
             'amount' => $invoice->total,
         ], 'invoice.generate');
+        app(NotificationCenterService::class)->create(
+            $client,
+            'invoice',
+            '账单已生成',
+            "账单 {$invoice->invoice_number} 已生成，金额 {$invoice->total}。",
+            ['invoice_id' => $invoice->id]
+        );
 
         return $invoice;
     }
@@ -305,6 +313,13 @@ class InvoiceService
                 'payment_method' => $freshInvoice->payment_method,
             ]);
             app(ClientTagService::class)->applyAutoRules($freshInvoice->client);
+            app(NotificationCenterService::class)->create(
+                $freshInvoice->client,
+                'invoice',
+                '支付成功',
+                "账单 {$freshInvoice->invoice_number} 已支付成功。",
+                ['invoice_id' => $freshInvoice->id]
+            );
             ProcessPaidInvoiceJob::dispatch($invoice->id)->onQueue('default');
         }
 

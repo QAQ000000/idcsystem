@@ -19,6 +19,7 @@ use App\Modules\Product\Services\AddonService;
 use App\Modules\User\Services\ClientService;
 use App\Services\ClientActivityService;
 use App\Services\Concerns\NotifiesClientsSafely;
+use App\Services\NotificationCenterService;
 use App\Services\WebhookService;
 use App\Plugins\Contracts\ServerModuleInterface;
 use App\Plugins\Facades\Plugin;
@@ -51,7 +52,7 @@ class HostService
      */
     public function create(Order $order, Product $product, array $config): Host
     {
-        return DB::transaction(function () use ($order, $product, $config) {
+        $host = DB::transaction(function () use ($order, $product, $config) {
             $billingCycle = (string) ($config['billing_cycle'] ?? 'monthly');
             $amount = $this->pricingService->calculatePrice($product, $billingCycle, $config);
 
@@ -80,6 +81,19 @@ class HostService
 
             return $host;
         });
+
+        $host->loadMissing('client', 'product');
+        if ($host->client) {
+            app(NotificationCenterService::class)->create(
+                $host->client,
+                'host',
+                '服务已创建',
+                "服务 {$host->product?->name} 已创建，等待开通。",
+                ['host_id' => $host->id]
+            );
+        }
+
+        return $host;
     }
 
     /**
@@ -195,6 +209,16 @@ class HostService
 
             if ($updated) {
                 $this->log($lockedHost, 'suspend', $reason);
+                $lockedHost->loadMissing('client', 'product');
+                if ($lockedHost->client) {
+                    app(NotificationCenterService::class)->create(
+                        $lockedHost->client,
+                        'host',
+                        '服务已暂停',
+                        "服务 {$lockedHost->product?->name} 已暂停，原因：{$reason}",
+                        ['host_id' => $lockedHost->id]
+                    );
+                }
                 DB::afterCommit(fn () => $this->dispatchHostWebhook('host.suspended', $lockedHost->id, [
                     'reason' => $reason,
                     'status_before' => 'Active',

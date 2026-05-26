@@ -22,6 +22,7 @@
                 <a href="{{ route('client.contracts.index') }}">{{ __('messages.nav.contracts') }}</a>
                 <a href="{{ route('client.tickets.index') }}">{{ __('messages.nav.tickets') }}</a>
                 @auth('client')
+                    <a href="{{ route('client.notifications.index') }}">消息<span id="notification-unread-badge" class="ml-1 rounded bg-red-600 px-1.5 py-0.5 text-xs text-white" hidden>0</span></a>
                     <a href="{{ route('client.account.profile') }}">{{ __('messages.nav.profile') }}</a>
                     <a href="{{ route('client.account.recharge') }}">{{ __('messages.nav.recharge') }}</a>
                     <a href="{{ route('client.affiliate') }}">{{ __('messages.nav.affiliate') }}</a>
@@ -59,5 +60,24 @@
 
         @yield('content')
     </main>
+    @auth('client')
+        <script>
+            async function refreshNotificationUnreadCount() {
+                const badge = document.getElementById('notification-unread-badge');
+                if (!badge) return;
+                try {
+                    const response = await fetch('{{ route('client.notifications.unread-count') }}', {headers: {'Accept': 'application/json'}});
+                    const data = await response.json();
+                    const count = Number(data.unread_count || 0);
+                    badge.textContent = String(count);
+                    badge.hidden = count <= 0;
+                } catch (error) {
+                    badge.hidden = true;
+                }
+            }
+            refreshNotificationUnreadCount();
+            setInterval(refreshNotificationUnreadCount, 30000);
+        </script>
+    @endauth
 </body>
 </html>

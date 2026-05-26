@@ -10,6 +10,7 @@ use App\Modules\Ticket\Models\TicketStatus;
 use App\Modules\User\Models\Client;
 use App\Services\ClientActivityService;
 use App\Services\Concerns\NotifiesClientsSafely;
+use App\Services\NotificationCenterService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -101,6 +102,13 @@ class TicketService
         if ($reply && $ticket->client) {
             if ($authorType === 'admin') {
                 app(SlaService::class)->recordFirstResponse($ticket);
+                app(NotificationCenterService::class)->create(
+                    $ticket->client,
+                    'ticket',
+                    '工单有新回复',
+                    "工单 {$ticket->ticket_number} 已有新的后台回复。",
+                    ['ticket_id' => $ticket->id]
+                );
             }
 
             $this->notifyClientSafely($ticket->client, 'ticket_replied', [
