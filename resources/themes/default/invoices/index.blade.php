@@ -1,8 +1,8 @@
 @extends('theme::layouts.app')
 
-@section('title', '我的账单')
+@section('title', __('messages.invoices.title'))
 
 @section('content')
-    <h1 class="mb-6 text-2xl font-semibold">我的账单</h1>
-    <x-table :rows="$invoices" :columns="['ID' => 'id', '账单号' => 'invoice_number', '状态' => 'status', '总额' => 'total']" route-prefix="client.invoices" />
+    <h1 class="mb-6 text-2xl font-semibold">{{ __('messages.invoices.title') }}</h1>
+    <x-table :rows="$invoices" :columns="[__('messages.invoices.id') => 'id', __('messages.invoices.number') => 'invoice_number', __('messages.invoices.status') => 'status', __('messages.invoices.total') => 'total']" route-prefix="client.invoices" />
 @endsection

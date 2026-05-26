@@ -50,6 +50,7 @@ class ClientTest extends TestCase
                 'province' => '广东',
                 'city' => '深圳',
                 'address' => '科技园',
+                'locale' => 'zh_CN',
             ])
             ->assertRedirect(route('client.account.profile'));
 

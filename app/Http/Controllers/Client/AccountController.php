@@ -38,12 +38,16 @@ class AccountController extends Controller
             'city' => ['nullable', 'string', 'max:100'],
             'address' => ['nullable', 'string', 'max:255'],
             'currency_id' => ['nullable', 'integer', Rule::exists('currencies', 'id')],
+            'locale' => ['nullable', 'string', Rule::in(config('app.available_locales', ['zh_CN', 'en']))],
         ]);
         $data['currency_id'] = $data['currency_id'] ?? $client->currency_id;
+        $data['locale'] = $data['locale'] ?? $client->locale ?? config('app.locale');
 
         $client->update($data);
+        $request->session()->put('locale', $data['locale']);
+        app()->setLocale($data['locale']);
 
-        return redirect()->route('client.account.profile')->with('status', '资料已更新');
+        return redirect()->route('client.account.profile')->with('status', __('messages.profile_updated'));
     }
 
     public function security(TwoFactorService $twoFactor)

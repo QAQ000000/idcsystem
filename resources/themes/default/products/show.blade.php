@@ -1,6 +1,6 @@
 @extends('theme::layouts.app')
 
-@section('title', '产品详情')
+@section('title', __('messages.products.detail_title'))
 
 @section('content')
     <h1 class="mb-4 text-2xl font-semibold">{{ $product->name }}</h1>
@@ -12,7 +12,7 @@
             <div class="mt-6 grid gap-3 sm:grid-cols-2">
                 @foreach ($prices as $cycle => $price)
                     <div class="rounded border p-4">
-                        <div class="text-sm text-zinc-500">{{ ['monthly' => '月付', 'quarterly' => '季付', 'semiannually' => '半年付', 'annually' => '年付'][$cycle] }}</div>
+                        <div class="text-sm text-zinc-500">{{ __('messages.products.' . $cycle) }}</div>
                         <div class="mt-1 text-xl font-semibold">{{ $price['formatted'] }}</div>
                     </div>
                 @endforeach
@@ -24,17 +24,17 @@
             <input type="hidden" name="product_id" value="{{ $product->id }}">
 
             <label class="mb-4 block text-sm">
-                计费周期
+                {{ __('messages.products.billing_cycle') }}
                 <select class="mt-1 w-full rounded border px-3 py-2" name="billing_cycle">
-                    <option value="monthly">月付</option>
-                    <option value="quarterly">季付</option>
-                    <option value="semiannually">半年付</option>
-                    <option value="annually">年付</option>
+                    <option value="monthly">{{ __('messages.products.monthly') }}</option>
+                    <option value="quarterly">{{ __('messages.products.quarterly') }}</option>
+                    <option value="semiannually">{{ __('messages.products.semiannually') }}</option>
+                    <option value="annually">{{ __('messages.products.annually') }}</option>
                 </select>
             </label>
 
             <label class="mb-4 block text-sm">
-                数量
+                {{ __('messages.products.quantity') }}
                 <input class="mt-1 w-full rounded border px-3 py-2" name="qty" type="number" min="1" value="1">
             </label>
 
@@ -43,7 +43,7 @@
                     {{ $field->field_name }} @if ($field->required)<span class="text-red-600">*</span>@endif
                     @if (in_array($field->field_type, ['dropdown', 'select'], true))
                         <select class="mt-1 w-full rounded border px-3 py-2" name="custom_fields[{{ $field->id }}]" @required($field->required)>
-                            <option value="">请选择</option>
+                            <option value="">{{ __('messages.products.select_placeholder') }}</option>
                             @foreach ($field->optionsList() as $option)
                                 <option value="{{ $option }}" @selected(old('custom_fields.' . $field->id) === $option)>{{ $option }}</option>
                             @endforeach
@@ -54,7 +54,7 @@
                         <input type="hidden" name="custom_fields[{{ $field->id }}]" value="0">
                         <label class="mt-2 flex items-center gap-2">
                             <input type="checkbox" name="custom_fields[{{ $field->id }}]" value="1" @checked(old('custom_fields.' . $field->id))>
-                            <span>{{ $field->description ?: '是' }}</span>
+                            <span>{{ $field->description ?: __('messages.common.yes') }}</span>
                         </label>
                     @else
                         <input class="mt-1 w-full rounded border px-3 py-2" name="custom_fields[{{ $field->id }}]" type="{{ $field->field_type === 'password' ? 'password' : 'text' }}" value="{{ old('custom_fields.' . $field->id) }}" @required($field->required)>
@@ -67,14 +67,14 @@
 
             @if ($product->addons->isNotEmpty())
                 <section class="mb-4 rounded border bg-zinc-50 p-4">
-                    <h2 class="mb-3 font-semibold">可选附加项</h2>
+                    <h2 class="mb-3 font-semibold">{{ __('messages.products.optional_addons') }}</h2>
                     <div class="space-y-3">
                         @foreach ($product->addons as $addon)
                             <label class="flex items-start gap-3 text-sm">
                                 <input class="mt-1" type="checkbox" name="addons[]" value="{{ $addon->id }}">
                                 <span>
                                     <span class="font-medium">{{ $addon->name }}</span>
-                                    <span class="text-zinc-500"> / {{ $addon->billing_cycle === 'recurring' ? '周期' : '一次性' }} / {{ number_format((float) $addon->price, 2) }}</span>
+                                    <span class="text-zinc-500"> / {{ $addon->billing_cycle === 'recurring' ? __('messages.products.recurring') : __('messages.products.one_time') }} / {{ number_format((float) $addon->price, 2) }}</span>
                                     @if ($addon->description)
                                         <span class="mt-1 block text-xs text-zinc-500">{{ $addon->description }}</span>
                                     @endif
@@ -85,7 +85,7 @@
                 </section>
             @endif
 
-            <button class="w-full rounded bg-zinc-900 px-4 py-2 text-white">加入购物车</button>
+            <button class="w-full rounded bg-zinc-900 px-4 py-2 text-white">{{ __('messages.products.add_to_cart') }}</button>
         </form>
     </div>
 @endsection
