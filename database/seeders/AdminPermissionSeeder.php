@@ -40,6 +40,8 @@ class AdminPermissionSeeder extends Seeder
             'kb.manage',
             'webhook.manage',
             'promo.manage',
+            'tax_rule.view',
+            'tax_rule.manage',
             'host.view',
             'host.manage',
             'invoice.view',

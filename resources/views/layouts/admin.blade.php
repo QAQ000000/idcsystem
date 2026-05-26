@@ -44,6 +44,9 @@
                     @if ($canAdmin('promo.manage'))
                         <a href="{{ route('admin.promo-codes.index') }}">优惠码</a>
                     @endif
+                    @if ($canAdmin('tax_rule.view'))
+                        <a href="{{ route('admin.tax-rules.index') }}">税率规则</a>
+                    @endif
                     @if ($canAdmin('invoice.view'))
                         <a href="{{ route('admin.invoices.index') }}">账单</a>
                         <a href="{{ route('admin.invoice-receipts.index') }}">发票申请</a>

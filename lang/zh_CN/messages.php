@@ -98,6 +98,8 @@ return [
         'phone' => '手机号',
         'country' => '国家',
         'province' => '省份',
+        'country_code' => '国家代码',
+        'state_code' => '州/省代码',
         'city' => '城市',
         'address' => '地址',
         'save' => '保存资料',

@@ -30,6 +30,7 @@ use App\Http\Controllers\Admin\SystemTaskController;
 use App\Http\Controllers\Admin\SettingController;
 use App\Http\Controllers\Admin\SmsLogController;
 use App\Http\Controllers\Admin\SmsTemplateController;
+use App\Http\Controllers\Admin\TaxRuleController;
 use App\Http\Controllers\Admin\TicketController;
 use App\Http\Controllers\Admin\WebhookController;
 use Illuminate\Support\Facades\Route;
@@ -224,6 +225,24 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::resource('promo-codes', PromoCodeController::class)
         ->except(['show'])
         ->middleware('admin.permission:promo.manage');
+    Route::get('/tax-rules', [TaxRuleController::class, 'index'])
+        ->middleware('admin.permission:tax_rule.view')
+        ->name('tax-rules.index');
+    Route::get('/tax-rules/create', [TaxRuleController::class, 'create'])
+        ->middleware('admin.permission:tax_rule.manage')
+        ->name('tax-rules.create');
+    Route::post('/tax-rules', [TaxRuleController::class, 'store'])
+        ->middleware('admin.permission:tax_rule.manage')
+        ->name('tax-rules.store');
+    Route::get('/tax-rules/{taxRule}/edit', [TaxRuleController::class, 'edit'])
+        ->middleware('admin.permission:tax_rule.manage')
+        ->name('tax-rules.edit');
+    Route::put('/tax-rules/{taxRule}', [TaxRuleController::class, 'update'])
+        ->middleware('admin.permission:tax_rule.manage')
+        ->name('tax-rules.update');
+    Route::delete('/tax-rules/{taxRule}', [TaxRuleController::class, 'destroy'])
+        ->middleware('admin.permission:tax_rule.manage')
+        ->name('tax-rules.destroy');
 
     Route::post('/hosts/bulk-action', [HostController::class, 'bulkAction'])
         ->middleware('admin.permission:host.manage')

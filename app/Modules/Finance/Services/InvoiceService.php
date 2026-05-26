@@ -40,8 +40,10 @@ class InvoiceService
             if ($subtotal < 0) {
                 throw new InvalidArgumentException('账单金额不能为负数。');
             }
-            $taxRate = (float) config('billing.tax_rate', 0);
-            $tax = round($subtotal * ($taxRate / 100), 2);
+            $taxService = app(TaxService::class);
+            $taxRate = $taxService->getRate($client);
+            $tax = $taxService->calculate($client, $subtotal);
+            $taxRule = $taxService->getRule($client);
             $total = round($subtotal + $tax, 2);
             $this->assertAmountFitsStorage($subtotal);
             $this->assertAmountFitsStorage($tax);
@@ -53,6 +55,8 @@ class InvoiceService
                 'subtotal' => $subtotal,
                 'tax' => $tax,
                 'tax_rate' => $taxRate,
+                'tax_rule_id' => $taxRule?->id,
+                'tax_rule_name' => $taxRule?->name,
                 'credit_used' => 0,
                 'total' => $total,
                 'status' => 'Unpaid',

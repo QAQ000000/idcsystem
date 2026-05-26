@@ -6,6 +6,13 @@
     <h1 class="mb-4 text-2xl font-semibold">{{ $invoice->invoice_number }}</h1>
     <div class="rounded bg-white p-5 shadow-sm">
         <p>状态：{{ $invoice->status }}</p>
+        <p>小计：{{ $invoice->subtotal }}</p>
+        <p>
+            税费：{{ $invoice->tax }}
+            @if ((float) $invoice->tax_rate > 0)
+                （{{ $invoice->tax_rule_name ?: '全局税率' }} {{ rtrim(rtrim(number_format((float) $invoice->tax_rate, 2, '.', ''), '0'), '.') }}%）
+            @endif
+        </p>
         <p>总额：{{ $invoice->total }}</p>
 
         <div class="mt-5 divide-y">

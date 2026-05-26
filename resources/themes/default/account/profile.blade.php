@@ -77,6 +77,14 @@
                 <input class="mt-1 w-full rounded border px-3 py-2" name="province" value="{{ old('province', $client->province) }}">
             </label>
             <label class="block text-sm">
+                {{ __('messages.profile.country_code') }}
+                <input class="mt-1 w-full rounded border px-3 py-2 uppercase" name="country_code" maxlength="2" value="{{ old('country_code', $client->country_code) }}" placeholder="CN">
+            </label>
+            <label class="block text-sm">
+                {{ __('messages.profile.state_code') }}
+                <input class="mt-1 w-full rounded border px-3 py-2 uppercase" name="state_code" maxlength="10" value="{{ old('state_code', $client->state_code) }}" placeholder="GD">
+            </label>
+            <label class="block text-sm">
                 {{ __('messages.profile.city') }}
                 <input class="mt-1 w-full rounded border px-3 py-2" name="city" value="{{ old('city', $client->city) }}">
             </label>

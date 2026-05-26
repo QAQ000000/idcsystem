@@ -98,6 +98,8 @@ return [
         'phone' => 'Phone',
         'country' => 'Country',
         'province' => 'Province',
+        'country_code' => 'Country Code',
+        'state_code' => 'State Code',
         'city' => 'City',
         'address' => 'Address',
         'save' => 'Save Profile',

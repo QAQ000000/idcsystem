@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Finance\Models\Currency;
+use App\Modules\Finance\Services\TaxService;
 use App\Modules\Finance\Services\InvoiceService;
 use App\Modules\User\Models\Client;
 use App\Modules\User\Services\AffiliateService;
@@ -38,11 +39,15 @@ class AccountController extends Controller
             'province' => ['nullable', 'string', 'max:100'],
             'city' => ['nullable', 'string', 'max:100'],
             'address' => ['nullable', 'string', 'max:255'],
+            'country_code' => ['nullable', 'string', 'regex:/^[A-Za-z]{2}$/'],
+            'state_code' => ['nullable', 'string', 'regex:/^[A-Za-z0-9_-]{1,10}$/'],
             'currency_id' => ['nullable', 'integer', Rule::exists('currencies', 'id')],
             'locale' => ['nullable', 'string', Rule::in(config('app.available_locales', ['zh_CN', 'en']))],
         ]);
         $data['currency_id'] = $data['currency_id'] ?? $client->currency_id;
         $data['locale'] = $data['locale'] ?? $client->locale ?? config('app.locale');
+        $data['country_code'] = app(TaxService::class)->normalizeCountryCode($data['country_code'] ?? null);
+        $data['state_code'] = app(TaxService::class)->normalizeStateCode($data['state_code'] ?? null);
 
         $changed = array_keys(array_filter(
             $data,

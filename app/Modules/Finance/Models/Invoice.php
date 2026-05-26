@@ -11,7 +11,7 @@ class Invoice extends Model
 
     protected $fillable = [
         'client_id', 'invoice_number', 'subtotal', 'tax', 'tax_rate',
-        'credit_used', 'total', 'status', 'payment_method',
+        'tax_rule_id', 'tax_rule_name', 'credit_used', 'total', 'status', 'payment_method',
         'due_date', 'paid_at', 'notes',
     ];
 
@@ -48,5 +48,10 @@ class Invoice extends Model
     public function order()
     {
         return $this->hasOne(\App\Modules\Order\Models\Order::class);
+    }
+
+    public function taxRule()
+    {
+        return $this->belongsTo(TaxRule::class);
     }
 }

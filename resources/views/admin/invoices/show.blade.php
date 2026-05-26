@@ -17,6 +17,13 @@
                 @endif
             </p>
             <p>状态：{{ $invoice->status }}</p>
+            <p>小计：{{ $invoice->subtotal }}</p>
+            <p>
+                税费：{{ $invoice->tax }}
+                @if ((float) $invoice->tax_rate > 0)
+                    （{{ $invoice->tax_rule_name ?: '全局税率' }} {{ rtrim(rtrim(number_format((float) $invoice->tax_rate, 2, '.', ''), '0'), '.') }}%）
+                @endif
+            </p>
             <p>总额：{{ $invoice->total }}</p>
             @if (in_array($invoice->status, ['Paid', 'Partially Refunded'], true))
                 <p>剩余可退：{{ number_format($remainingRefundableAmount, 2, '.', '') }}</p>
