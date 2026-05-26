@@ -5,7 +5,9 @@ namespace App\Modules\User\Services;
 use App\Modules\Finance\Models\Invoice;
 use App\Modules\User\Models\Affiliate;
 use App\Modules\User\Models\AffiliateCommission;
+use App\Modules\User\Models\AffiliateLinkClick;
 use App\Modules\User\Models\Client;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -66,7 +68,46 @@ class AffiliateService
             ]);
 
             $affiliate->increment('referral_count');
+            $affiliate->increment('total_signups');
         });
+    }
+
+    public function trackClick(Affiliate $affiliate, Request $request): void
+    {
+        if (!$affiliate->isActive()) {
+            return;
+        }
+
+        AffiliateLinkClick::query()->create([
+            'affiliate_id' => $affiliate->id,
+            'ip' => (string) $request->ip(),
+            'user_agent' => substr((string) $request->userAgent(), 0, 255) ?: null,
+            'referer' => substr((string) $request->headers->get('referer'), 0, 255) ?: null,
+            'clicked_at' => now(),
+        ]);
+
+        $this->incrementClicks($affiliate);
+    }
+
+    public function getLeaderboard(string $type = 'commission', int $limit = 10)
+    {
+        $query = Affiliate::query()->with('client')->where('status', 'active');
+
+        return match ($type) {
+            'referrals' => $query->orderByDesc('total_signups')->orderByDesc('referral_count')->limit($limit)->get(),
+            'clicks' => $query->orderByDesc('total_clicks')->limit($limit)->get(),
+            default => $query->orderByDesc(DB::raw('balance + withdrawn'))->limit($limit)->get(),
+        };
+    }
+
+    public function incrementClicks(Affiliate $affiliate): void
+    {
+        Affiliate::query()->whereKey($affiliate->id)->increment('total_clicks');
+    }
+
+    public function incrementSignups(Affiliate $affiliate): void
+    {
+        Affiliate::query()->whereKey($affiliate->id)->increment('total_signups');
     }
 
     public function recordPayment(Invoice $invoice): void

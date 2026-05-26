@@ -99,6 +99,7 @@ Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.sta
     Route::post('/api-tokens', [ApiTokenController::class, 'store'])->name('api-tokens.store');
     Route::delete('/api-tokens/{token}', [ApiTokenController::class, 'destroy'])->name('api-tokens.destroy');
     Route::get('/affiliate', [AccountController::class, 'affiliate'])->name('affiliate');
+    Route::get('/affiliate/leaderboard', [AccountController::class, 'affiliateLeaderboard'])->name('affiliate.leaderboard');
     Route::post('/affiliate/withdraw', [AccountController::class, 'withdrawAffiliate'])->name('affiliate.withdraw');
     Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
     Route::post('/notifications/{notification}/read', [NotificationController::class, 'read'])->name('notifications.read');

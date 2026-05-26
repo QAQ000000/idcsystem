@@ -170,6 +170,19 @@ class AccountController extends Controller
         ]);
     }
 
+    public function affiliateLeaderboard(AffiliateService $affiliates)
+    {
+        $client = Auth::guard('client')->user();
+        $affiliate = $affiliates->getOrCreate($client);
+
+        return view('theme::account.affiliate-leaderboard', [
+            'affiliate' => $affiliate->fresh(),
+            'commissionLeaders' => $affiliates->getLeaderboard('commission', 10),
+            'referralLeaders' => $affiliates->getLeaderboard('referrals', 10),
+            'clickLeaders' => $affiliates->getLeaderboard('clicks', 10),
+        ]);
+    }
+
     public function withdrawAffiliate(Request $request, AffiliateService $affiliates)
     {
         $client = Auth::guard('client')->user();

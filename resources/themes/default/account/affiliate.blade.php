@@ -5,7 +5,10 @@
 @section('content')
     <div class="mb-6 flex items-center justify-between">
         <h1 class="text-2xl font-semibold">推介计划</h1>
-        <a class="rounded border px-4 py-2 text-sm" href="{{ route('client.account.profile') }}">账户资料</a>
+        <div class="flex gap-2">
+            <a class="rounded border px-4 py-2 text-sm" href="{{ route('client.affiliate.leaderboard') }}">排行榜</a>
+            <a class="rounded border px-4 py-2 text-sm" href="{{ route('client.account.profile') }}">账户资料</a>
+        </div>
     </div>
 
     <div class="mb-6 grid gap-4 md:grid-cols-4">
@@ -24,6 +27,14 @@
         <div class="rounded bg-white p-5 shadow-sm">
             <div class="text-sm text-zinc-500">状态</div>
             <div class="mt-1 text-2xl font-semibold">{{ $affiliate->status === 'active' ? '正常' : '停用' }}</div>
+        </div>
+        <div class="rounded bg-white p-5 shadow-sm">
+            <div class="text-sm text-zinc-500">点击数</div>
+            <div class="mt-1 text-2xl font-semibold">{{ $affiliate->total_clicks }}</div>
+        </div>
+        <div class="rounded bg-white p-5 shadow-sm">
+            <div class="text-sm text-zinc-500">转化率</div>
+            <div class="mt-1 text-2xl font-semibold">{{ $affiliate->total_clicks > 0 ? number_format($affiliate->total_signups / $affiliate->total_clicks * 100, 2) : '0.00' }}%</div>
         </div>
     </div>
 

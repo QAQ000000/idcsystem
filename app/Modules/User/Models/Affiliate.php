@@ -12,12 +12,16 @@ class Affiliate extends Model
         'status',
         'balance',
         'withdrawn',
+        'total_clicks',
+        'total_signups',
         'referral_count',
     ];
 
     protected $casts = [
         'balance' => 'decimal:2',
         'withdrawn' => 'decimal:2',
+        'total_clicks' => 'integer',
+        'total_signups' => 'integer',
         'referral_count' => 'integer',
     ];
 
@@ -29,6 +33,11 @@ class Affiliate extends Model
     public function commissions()
     {
         return $this->hasMany(AffiliateCommission::class);
+    }
+
+    public function clicks()
+    {
+        return $this->hasMany(AffiliateLinkClick::class);
     }
 
     public function isActive(): bool
