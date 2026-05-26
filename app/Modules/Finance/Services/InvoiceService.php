@@ -12,6 +12,7 @@ use App\Modules\Order\Services\HostService;
 use App\Modules\User\Models\Client;
 use App\Modules\User\Services\ClientService;
 use App\Services\Concerns\NotifiesClientsSafely;
+use App\Services\WebhookService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -273,6 +274,18 @@ class InvoiceService
         if ($paid) {
             $freshInvoice = $invoice->fresh(['order.hosts.product', 'items', 'client']);
             $this->provisionPendingOrderHosts($freshInvoice);
+            app(WebhookService::class)->dispatch('invoice.paid', [
+                'invoice_id' => $freshInvoice->id,
+                'invoice_number' => $freshInvoice->invoice_number,
+                'client_id' => $freshInvoice->client_id,
+                'order_id' => $freshInvoice->order_id,
+                'order_status' => $freshInvoice->order?->status,
+                'total' => (float) $freshInvoice->total,
+                'payment_method' => $freshInvoice->payment_method,
+                'trans_id' => $transId,
+                'paid_at' => $freshInvoice->paid_at?->toIso8601String(),
+                'host_ids' => $freshInvoice->order?->hosts?->pluck('id')->values()->all() ?? [],
+            ]);
             ProcessPaidInvoiceJob::dispatch($invoice->id)->onQueue('default');
         }
 

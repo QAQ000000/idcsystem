@@ -30,6 +30,7 @@ use App\Http\Controllers\Admin\SettingController;
 use App\Http\Controllers\Admin\SmsLogController;
 use App\Http\Controllers\Admin\SmsTemplateController;
 use App\Http\Controllers\Admin\TicketController;
+use App\Http\Controllers\Admin\WebhookController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('admin')->name('admin.')->group(function (): void {
@@ -81,6 +82,15 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::resource('announcements', AnnouncementController::class)
         ->except(['show'])
         ->middleware('admin.permission:announcement.manage');
+    Route::get('/webhooks/{webhook}/deliveries', [WebhookController::class, 'deliveries'])
+        ->middleware('admin.permission:webhook.manage')
+        ->name('webhooks.deliveries');
+    Route::post('/webhooks/{webhook}/test', [WebhookController::class, 'test'])
+        ->middleware('admin.permission:webhook.manage')
+        ->name('webhooks.test');
+    Route::resource('webhooks', WebhookController::class)
+        ->except(['show'])
+        ->middleware('admin.permission:webhook.manage');
     Route::prefix('kb')->name('kb.')->middleware('admin.permission:kb.manage')->group(function (): void {
         Route::resource('categories', KbCategoryController::class)->except(['show']);
         Route::resource('articles', KbArticleController::class)->except(['show']);

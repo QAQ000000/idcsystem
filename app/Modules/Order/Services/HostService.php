@@ -17,6 +17,7 @@ use App\Modules\Product\Services\ProductService;
 use App\Modules\Product\Services\PricingService;
 use App\Modules\User\Services\ClientService;
 use App\Services\Concerns\NotifiesClientsSafely;
+use App\Services\WebhookService;
 use App\Plugins\Contracts\ServerModuleInterface;
 use App\Plugins\Facades\Plugin;
 use Illuminate\Support\Facades\DB;
@@ -191,6 +192,11 @@ class HostService
 
             if ($updated) {
                 $this->log($lockedHost, 'suspend', $reason);
+                DB::afterCommit(fn () => $this->dispatchHostWebhook('host.suspended', $lockedHost->id, [
+                    'reason' => $reason,
+                    'status_before' => 'Active',
+                    'status_after' => 'Suspended',
+                ]));
             }
 
             return $updated;
@@ -241,6 +247,11 @@ class HostService
 
             if ($updated) {
                 $this->log($lockedHost, 'unsuspend', '服务已解除暂停');
+                DB::afterCommit(fn () => $this->dispatchHostWebhook('host.unsuspended', $lockedHost->id, [
+                    'previous_suspend_reason' => $lockedHost->suspend_reason,
+                    'status_before' => 'Suspended',
+                    'status_after' => 'Active',
+                ]));
             }
 
             return $updated;
@@ -285,6 +296,11 @@ class HostService
 
             if ($updated) {
                 $this->log($lockedHost, 'terminate', '服务已终止');
+                DB::afterCommit(fn () => $this->dispatchHostWebhook('host.terminated', $lockedHost->id, [
+                    'status_before' => $lockedHost->getOriginal('status'),
+                    'status_after' => 'Terminated',
+                    'termination_date' => $lockedHost->termination_date?->toIso8601String(),
+                ]));
             }
 
             return $updated;
@@ -968,6 +984,25 @@ class HostService
     private function logFailure(Host $host, string $action, string $message, array $meta = []): void
     {
         $this->log($host, $action . '_failed', $message, $meta);
+    }
+
+    private function dispatchHostWebhook(string $event, int $hostId, array $extra = []): void
+    {
+        $host = Host::query()->with(['client', 'product'])->find($hostId);
+        if (!$host) {
+            return;
+        }
+
+        app(WebhookService::class)->dispatch($event, [
+            'host_id' => $host->id,
+            'order_id' => $host->order_id,
+            'client_id' => $host->client_id,
+            'product_id' => $host->product_id,
+            'server_id' => $host->server_id,
+            'server_type' => $host->product?->server_type,
+            'status' => $host->status,
+            'action_at' => now()->toIso8601String(),
+        ] + $extra);
     }
 
     private function maskSensitive(mixed $value): mixed

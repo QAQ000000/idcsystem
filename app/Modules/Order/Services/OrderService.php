@@ -11,6 +11,7 @@ use App\Modules\Product\Models\Product;
 use App\Modules\Product\Services\PricingService;
 use App\Modules\Product\Services\ProductService;
 use App\Modules\User\Models\Client;
+use App\Services\WebhookService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -34,7 +35,7 @@ class OrderService
      */
     public function create(Client $client, array $items, ?string $promoCode = null): Order
     {
-        return DB::transaction(function () use ($client, $items, $promoCode) {
+        $createdOrder = DB::transaction(function () use ($client, $items, $promoCode) {
             $lockedClient = Client::query()->whereKey($client->id)->lockForUpdate()->first();
             if (!$lockedClient || $lockedClient->trashed() || !$lockedClient->isActive()) {
                 throw new RuntimeException('客户账号状态不允许创建订单。');
@@ -74,6 +75,21 @@ class OrderService
 
             return $order->fresh(['hosts']);
         });
+
+        app(WebhookService::class)->dispatch('order.created', [
+            'order_id' => $createdOrder->id,
+            'order_number' => $createdOrder->order_number,
+            'client_id' => $createdOrder->client_id,
+            'status' => $createdOrder->status,
+            'amount' => (float) $createdOrder->amount,
+            'currency_id' => $createdOrder->currency_id,
+            'invoice_id' => $createdOrder->invoice_id,
+            'host_ids' => $createdOrder->hosts->pluck('id')->values()->all(),
+            'promo_code' => $createdOrder->promo_code,
+            'created_at' => $createdOrder->created_at?->toIso8601String(),
+        ]);
+
+        return $createdOrder;
     }
 
     /**

@@ -57,6 +57,9 @@
                     @if ($canAdmin('kb.manage'))
                         <a href="{{ route('admin.kb.articles.index') }}">知识库</a>
                     @endif
+                    @if ($canAdmin('webhook.manage'))
+                        <a href="{{ route('admin.webhooks.index') }}">Webhooks</a>
+                    @endif
                     @if ($canAdmin('ticket.view'))
                         <a href="{{ route('admin.tickets.index') }}">工单</a>
                     @endif
