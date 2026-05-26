@@ -21,6 +21,7 @@ use App\Http\Controllers\Admin\NotificationCenterController;
 use App\Http\Controllers\Admin\PluginController;
 use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\ProductCustomFieldController;
+use App\Http\Controllers\Admin\ReportController;
 use App\Http\Controllers\Admin\SystemTaskController;
 use App\Http\Controllers\Admin\SettingController;
 use App\Http\Controllers\Admin\SmsLogController;
@@ -86,6 +87,14 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
         Route::get('invoices', [ExportController::class, 'invoices'])->name('invoices');
         Route::get('hosts', [ExportController::class, 'hosts'])->name('hosts');
         Route::get('credits', [ExportController::class, 'credits'])->name('credits');
+    });
+
+    Route::prefix('reports')->name('reports.')->middleware('admin.permission:report.view')->group(function (): void {
+        Route::get('/', [ReportController::class, 'index'])->name('index');
+        Route::get('revenue', [ReportController::class, 'revenue'])->name('revenue');
+        Route::get('clients', [ReportController::class, 'clients'])->name('clients');
+        Route::get('hosts', [ReportController::class, 'hosts'])->name('hosts');
+        Route::get('products', [ReportController::class, 'products'])->name('products');
     });
 
     Route::post('/clients/bulk-action', [ClientController::class, 'bulkAction'])

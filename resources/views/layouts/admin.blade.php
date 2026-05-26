@@ -26,6 +26,9 @@
                     @if ($canAdmin('export.data'))
                         <a href="{{ route('admin.export.clients') }}">导出</a>
                     @endif
+                    @if ($canAdmin('report.view'))
+                        <a href="{{ route('admin.reports.index') }}">报表</a>
+                    @endif
                     @if ($canAdmin('product.view'))
                         <a href="{{ route('admin.products.index') }}">产品</a>
                     @endif
