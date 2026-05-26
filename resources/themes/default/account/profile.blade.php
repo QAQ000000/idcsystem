@@ -78,11 +78,25 @@
             </label>
             <label class="block text-sm">
                 {{ __('messages.profile.country_code') }}
-                <input class="mt-1 w-full rounded border px-3 py-2 uppercase" name="country_code" maxlength="2" value="{{ old('country_code', $client->country_code) }}" placeholder="CN">
+                <select class="mt-1 w-full rounded border px-3 py-2" name="country_code">
+                    <option value="">{{ __('messages.profile.region_none') }}</option>
+                    @foreach ($countryOptions as $code => $name)
+                        <option value="{{ $code }}" @selected(old('country_code', $client->country_code) === $code)>{{ $code }} - {{ $name }}</option>
+                    @endforeach
+                </select>
             </label>
             <label class="block text-sm">
                 {{ __('messages.profile.state_code') }}
-                <input class="mt-1 w-full rounded border px-3 py-2 uppercase" name="state_code" maxlength="10" value="{{ old('state_code', $client->state_code) }}" placeholder="GD">
+                <select class="mt-1 w-full rounded border px-3 py-2" name="state_code">
+                    <option value="">{{ __('messages.profile.region_none') }}</option>
+                    @foreach ($stateOptions as $country => $states)
+                        <optgroup label="{{ $country }}">
+                            @foreach ($states as $code => $name)
+                                <option value="{{ $code }}" @selected(old('state_code', $client->state_code) === $code)>{{ $code }} - {{ $name }}</option>
+                            @endforeach
+                        </optgroup>
+                    @endforeach
+                </select>
             </label>
             <label class="block text-sm">
                 {{ __('messages.profile.city') }}

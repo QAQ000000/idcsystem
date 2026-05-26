@@ -95,13 +95,18 @@ class InvoiceService
         return DB::transaction(function () use ($client, $items) {
             $this->assertClientCanReceiveInvoice($client);
             $this->validateNoPaymentItems($items);
+            $taxService = app(TaxService::class);
+            $taxRate = $taxService->getRate($client);
+            $taxRule = $taxService->getRule($client);
 
             $invoice = Invoice::create([
                 'client_id' => $client->id,
                 'invoice_number' => $this->nextInvoiceNumber(),
                 'subtotal' => 0,
                 'tax' => 0,
-                'tax_rate' => (float) config('billing.tax_rate', 0),
+                'tax_rate' => $taxRate,
+                'tax_rule_id' => $taxRule?->id,
+                'tax_rule_name' => $taxRule?->name,
                 'credit_used' => 0,
                 'total' => 0,
                 'status' => 'Paid',

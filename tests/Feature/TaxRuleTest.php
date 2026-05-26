@@ -108,6 +108,12 @@ class TaxRuleTest extends TestCase
         TaxRule::query()->create(['name' => '广东服务税', 'country_code' => 'CN', 'state_code' => 'GD', 'rate' => 13, 'active' => true]);
 
         $this->actingAs($client, 'client')
+            ->get(route('client.account.profile'))
+            ->assertOk()
+            ->assertSee('<select class="mt-1 w-full rounded border px-3 py-2" name="country_code">', false)
+            ->assertSee('<select class="mt-1 w-full rounded border px-3 py-2" name="state_code">', false);
+
+        $this->actingAs($client, 'client')
             ->put(route('client.account.profile.update'), [
                 'phone_code' => '86',
                 'phone' => '13800138000',
@@ -131,6 +137,29 @@ class TaxRuleTest extends TestCase
             ->assertOk()
             ->assertSee('广东服务税')
             ->assertSee('13%');
+    }
+
+    public function test_no_payment_required_invoice_keeps_regional_tax_snapshot(): void
+    {
+        $client = $this->client(countryCode: 'CN', stateCode: 'GD');
+        $rule = TaxRule::query()->create([
+            'name' => '广东服务税',
+            'country_code' => 'CN',
+            'state_code' => 'GD',
+            'rate' => 13,
+            'active' => true,
+        ]);
+
+        $invoice = app(InvoiceService::class)->generateNoPaymentRequired($client, [[
+            'type' => 'downgrade',
+            'description' => '降配调整',
+            'amount' => 0,
+        ]]);
+
+        $this->assertSame('13.00', $invoice->tax_rate);
+        $this->assertSame($rule->id, $invoice->tax_rule_id);
+        $this->assertSame('广东服务税', $invoice->tax_rule_name);
+        $this->assertSame('0.00', $invoice->total);
     }
 
     private function client(?string $countryCode = null, ?string $stateCode = null): Client

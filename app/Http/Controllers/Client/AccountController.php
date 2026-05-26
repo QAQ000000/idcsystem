@@ -25,6 +25,8 @@ class AccountController extends Controller
         return view('theme::account.profile', [
             'client' => Auth::guard('client')->user(),
             'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->get(),
+            'countryOptions' => $this->countryOptions(),
+            'stateOptions' => $this->stateOptions(),
         ]);
     }
 
@@ -244,5 +246,50 @@ class AccountController extends Controller
         ]);
 
         return redirect()->route('client.account.security')->with('status', '两步验证已关闭。');
+    }
+
+    private function countryOptions(): array
+    {
+        return [
+            'CN' => 'China',
+            'US' => 'United States',
+            'GB' => 'United Kingdom',
+            'HK' => 'Hong Kong',
+            'SG' => 'Singapore',
+            'JP' => 'Japan',
+            'DE' => 'Germany',
+            'FR' => 'France',
+            'AU' => 'Australia',
+            'CA' => 'Canada',
+        ];
+    }
+
+    private function stateOptions(): array
+    {
+        return [
+            'CN' => [
+                'BJ' => 'Beijing',
+                'SH' => 'Shanghai',
+                'GD' => 'Guangdong',
+                'ZJ' => 'Zhejiang',
+                'JS' => 'Jiangsu',
+            ],
+            'US' => [
+                'CA' => 'California',
+                'NY' => 'New York',
+                'TX' => 'Texas',
+                'WA' => 'Washington',
+            ],
+            'CA' => [
+                'ON' => 'Ontario',
+                'QC' => 'Quebec',
+                'BC' => 'British Columbia',
+            ],
+            'AU' => [
+                'NSW' => 'New South Wales',
+                'VIC' => 'Victoria',
+                'QLD' => 'Queensland',
+            ],
+        ];
     }
 }

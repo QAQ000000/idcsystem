@@ -62,6 +62,15 @@ class EmailCampaignService
                 ->pluck('id')
                 ->all();
 
+            if ($recipientIds === []) {
+                $lockedCampaign->update([
+                    'status' => 'sent',
+                    'sent_at' => now(),
+                ]);
+
+                return;
+            }
+
             DB::afterCommit(function () use ($recipientIds): void {
                 foreach ($recipientIds as $recipientId) {
                     SendCampaignEmailJob::dispatch((int) $recipientId);

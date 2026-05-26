@@ -138,6 +138,27 @@ class EmailCampaignTest extends TestCase
         Queue::assertPushed(SendCampaignEmailJob::class);
     }
 
+    public function test_campaign_with_no_recipients_finishes_without_jobs(): void
+    {
+        Queue::fake();
+        $group = ClientGroup::query()->create(['name' => '空分组']);
+        $campaign = app(EmailCampaignService::class)->create([
+            'name' => '空活动',
+            'subject' => '没有收件人',
+            'content' => '<p>内容</p>',
+            'target_groups' => [$group->id],
+        ]);
+
+        $this->assertSame(0, $campaign->total_recipients);
+
+        app(EmailCampaignService::class)->send($campaign);
+
+        $campaign->refresh();
+        $this->assertSame('sent', $campaign->status);
+        $this->assertNotNull($campaign->sent_at);
+        Queue::assertNotPushed(SendCampaignEmailJob::class);
+    }
+
     private function client(string $username = 'campaign-client', string $email = 'campaign@example.com', ?ClientGroup $group = null): Client
     {
         $group ??= ClientGroup::query()->firstOrCreate(['name' => '默认客户组']);
