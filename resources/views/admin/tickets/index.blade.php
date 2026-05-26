@@ -14,6 +14,7 @@
                     <th class="px-4 py-3 font-medium">主题</th>
                     <th class="px-4 py-3 font-medium">客户</th>
                     <th class="px-4 py-3 font-medium">状态</th>
+                    <th class="px-4 py-3 font-medium">SLA</th>
                     <th class="px-4 py-3 font-medium">操作</th>
                 </tr>
             </thead>
@@ -30,11 +31,24 @@
                             @endif
                         </td>
                         <td class="px-4 py-3">{{ $ticket->status?->name }}</td>
+                        <td class="px-4 py-3">
+                            @if ($ticket->slaLog)
+                                <span @class([
+                                    'inline-flex rounded px-2 py-0.5 text-xs',
+                                    'bg-red-100 text-red-700' => $ticket->slaLog->response_breached || $ticket->slaLog->resolution_breached,
+                                    'bg-green-100 text-green-700' => !($ticket->slaLog->response_breached || $ticket->slaLog->resolution_breached),
+                                ])>
+                                    {{ $ticket->slaLog->response_breached || $ticket->slaLog->resolution_breached ? '已超时' : '正常' }}
+                                </span>
+                            @else
+                                -
+                            @endif
+                        </td>
                         <td class="px-4 py-3"><a class="text-blue-600" href="{{ route('admin.tickets.show', $ticket) }}">查看</a></td>
                     </tr>
                 @empty
                     <tr>
-                        <td class="px-4 py-6 text-center text-slate-500" colspan="6">暂无数据</td>
+                        <td class="px-4 py-6 text-center text-slate-500" colspan="7">暂无数据</td>
                     </tr>
                 @endforelse
             </tbody>

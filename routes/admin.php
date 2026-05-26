@@ -41,6 +41,7 @@ use App\Http\Controllers\Admin\SmsTemplateController;
 use App\Http\Controllers\Admin\SslController;
 use App\Http\Controllers\Admin\TaxRuleController;
 use App\Http\Controllers\Admin\TicketController;
+use App\Http\Controllers\Admin\TicketSlaController;
 use App\Http\Controllers\Admin\WebhookController;
 use Illuminate\Support\Facades\Route;
 
@@ -394,6 +395,18 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::post('/tickets/{ticket}/close', [TicketController::class, 'close'])
         ->middleware('admin.permission:ticket.manage')
         ->name('tickets.close');
+    Route::get('/ticket-slas/statistics', [TicketSlaController::class, 'statistics'])
+        ->middleware('admin.permission:ticket.view')
+        ->name('ticket-slas.statistics');
+    Route::get('/ticket-slas', [TicketSlaController::class, 'index'])
+        ->middleware('admin.permission:ticket.view')
+        ->name('ticket-slas.index');
+    Route::post('/ticket-slas', [TicketSlaController::class, 'store'])
+        ->middleware('admin.permission:ticket.manage')
+        ->name('ticket-slas.store');
+    Route::put('/ticket-slas/{ticketSla}', [TicketSlaController::class, 'update'])
+        ->middleware('admin.permission:ticket.manage')
+        ->name('ticket-slas.update');
     Route::resource('tickets', TicketController::class)
         ->only(['index', 'show'])
         ->middleware('admin.permission:ticket.view');

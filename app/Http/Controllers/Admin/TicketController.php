@@ -19,7 +19,7 @@ class TicketController extends Controller
         $keyword = $this->queryString($request, 'keyword');
 
         $tickets = Ticket::query()
-            ->with(['client', 'department', 'status'])
+            ->with(['client', 'department', 'status', 'slaLog'])
             ->when($keyword, function ($query, string $keyword) {
                 $query->where(function ($query) use ($keyword) {
                     $query->where('ticket_number', 'like', "%{$keyword}%")
@@ -38,7 +38,7 @@ class TicketController extends Controller
 
     public function show(Ticket $ticket)
     {
-        $ticket->load(['client', 'department', 'status', 'replies']);
+        $ticket->load(['client', 'department', 'status', 'replies', 'slaLog.sla']);
 
         return view('admin.tickets.show', compact('ticket'));
     }

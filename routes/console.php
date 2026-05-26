@@ -295,6 +295,22 @@ Artisan::command('financial:generate-monthly-statement', function () {
     return 0;
 })->purpose('Generate previous month financial statement');
 
+Artisan::command('tickets:check-sla-breaches', function () {
+    $task = app(\App\Services\SystemTaskService::class)->run('tickets:check-sla-breaches', function () {
+        return [
+            'breaches' => app(\App\Modules\Ticket\Services\SlaService::class)->checkBreaches(),
+        ];
+    });
+
+    if ($task->status === 'failed') {
+        $this->error($task->error ?: 'Ticket SLA breach check failed');
+        return 1;
+    }
+
+    $this->info($task->output ?: 'Ticket SLA breach check completed');
+    return 0;
+})->purpose('Check ticket SLA breaches');
+
 // 核心业务调度：由系统 cron 每分钟触发 schedule:run 后按频率执行。
 Schedule::command('logs:cleanup')->dailyAt('01:00');
 Schedule::command('billing:generate-invoices')->dailyAt('02:00');
@@ -313,3 +329,4 @@ Schedule::command('host:sync-usage')->hourly();
 Schedule::command('usage:check-alerts')->hourly();
 Schedule::command('notifications:recover-stale')->everyFifteenMinutes();
 Schedule::command('campaigns:send-scheduled')->everyMinute();
+Schedule::command('tickets:check-sla-breaches')->everyFifteenMinutes();

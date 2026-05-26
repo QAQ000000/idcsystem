@@ -44,6 +44,8 @@ class TicketService
             return $ticket;
         });
 
+        app(SlaService::class)->applyToTicket($ticket);
+
         app(ClientActivityService::class)->log($client, 'ticket.created', '工单已创建', [
             'ticket_id' => $ticket->id,
             'ticket_number' => $ticket->ticket_number,
@@ -96,6 +98,10 @@ class TicketService
         });
 
         if ($reply && $ticket->client) {
+            if ($authorType === 'admin') {
+                app(SlaService::class)->recordFirstResponse($ticket);
+            }
+
             $this->notifyClientSafely($ticket->client, 'ticket_replied', [
                 'client_name' => $ticket->client->username,
                 'ticket_number' => $ticket->ticket_number,
@@ -115,7 +121,7 @@ class TicketService
             return false;
         }
 
-        return DB::transaction(function () use ($ticket, $statusId) {
+        $changed = DB::transaction(function () use ($ticket, $statusId) {
             $lockedTicket = $this->lockTicket($ticket);
             if (!$lockedTicket) {
                 return false;
@@ -125,8 +131,19 @@ class TicketService
                 return false;
             }
 
-            return $lockedTicket->update(['status_id' => $statusId]);
+            $updated = $lockedTicket->update(['status_id' => $statusId]);
+            if ($updated && $this->isClosedStatusId($statusId)) {
+                app(SlaService::class)->recordResolution($lockedTicket);
+            }
+
+            return $updated;
         });
+
+        if ($changed && $this->isClosedStatusId($statusId)) {
+            app(SlaService::class)->recordResolution($ticket->fresh());
+        }
+
+        return $changed;
     }
 
     /**
@@ -158,7 +175,7 @@ class TicketService
             return false;
         }
 
-        return DB::transaction(function () use ($ticket, $statusId) {
+        $closed = DB::transaction(function () use ($ticket, $statusId) {
             $lockedTicket = $this->lockTicket($ticket);
             if (!$lockedTicket) {
                 return false;
@@ -168,8 +185,19 @@ class TicketService
                 return true;
             }
 
-            return $lockedTicket->update(['status_id' => $statusId]);
+            $updated = $lockedTicket->update(['status_id' => $statusId]);
+            if ($updated) {
+                app(SlaService::class)->recordResolution($lockedTicket);
+            }
+
+            return $updated;
         });
+
+        if ($closed) {
+            app(SlaService::class)->recordResolution($ticket->fresh());
+        }
+
+        return $closed;
     }
 
     /**

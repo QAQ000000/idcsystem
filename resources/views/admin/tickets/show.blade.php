@@ -18,6 +18,25 @@
                 @endif
             </p>
             <p>状态：{{ $ticket->status?->name }}</p>
+            @if ($ticket->slaLog)
+                <div class="mt-4 rounded border p-3 text-sm">
+                    <div class="font-semibold">SLA 状态</div>
+                    <div class="mt-2 grid gap-2 md:grid-cols-2">
+                        <div @class(['text-red-700' => $ticket->slaLog->response_breached])>
+                            首次响应截止：{{ $ticket->slaLog->response_due_at?->format('Y-m-d H:i') ?: '-' }}
+                            @if ($ticket->slaLog->first_response_at)
+                                <span class="text-slate-500">（已响应 {{ $ticket->slaLog->first_response_at->format('Y-m-d H:i') }}）</span>
+                            @endif
+                        </div>
+                        <div @class(['text-red-700' => $ticket->slaLog->resolution_breached])>
+                            解决截止：{{ $ticket->slaLog->resolution_due_at?->format('Y-m-d H:i') ?: '-' }}
+                            @if ($ticket->slaLog->resolved_at)
+                                <span class="text-slate-500">（已解决 {{ $ticket->slaLog->resolved_at->format('Y-m-d H:i') }}）</span>
+                            @endif
+                        </div>
+                    </div>
+                </div>
+            @endif
             <p class="mt-4 whitespace-pre-line">{{ $ticket->message }}</p>
 
             <div class="mt-6 divide-y">
