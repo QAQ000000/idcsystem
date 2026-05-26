@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\AdminActionLogController;
 use App\Http\Controllers\Admin\AffiliateController;
 use App\Http\Controllers\Admin\AnnouncementController;
 use App\Http\Controllers\Admin\ClientController;
+use App\Http\Controllers\Admin\ClientGroupController;
 use App\Http\Controllers\Admin\ContractTemplateController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\EmailLogController;
@@ -110,6 +111,9 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::delete('/clients/{client}', [ClientController::class, 'destroy'])
         ->middleware('admin.permission:client.manage')
         ->name('clients.destroy');
+    Route::resource('client-groups', ClientGroupController::class)
+        ->except(['show'])
+        ->middleware('admin.permission:client_group.manage');
 
     Route::get('/products/{product}/pricing', [ProductController::class, 'pricing'])
         ->middleware('admin.permission:product.view')

@@ -100,7 +100,7 @@ class CartService
         $cart = Cache::get($this->cacheKey($client), ['items' => []]);
         $cart['items'] ??= [];
 
-        return $this->withTotals($cart);
+        return $this->withTotals($cart, $client);
     }
 
     /**
@@ -272,7 +272,7 @@ class CartService
         }, $cart['items'] ?? [])), 2);
     }
 
-    private function withTotals(array $cart): array
+    private function withTotals(array $cart, ?Client $client = null): array
     {
         $cart['items'] ??= [];
         $subtotal = round(array_sum(array_map(
@@ -280,17 +280,17 @@ class CartService
             $cart['items']
         )), 2);
 
-        $discount = 0.0;
+        $promoDiscount = 0.0;
         if (is_array($cart['promo'] ?? null)) {
             $promo = $this->validPromo((string) ($cart['promo']['code'] ?? ''));
             if ($promo) {
-                $discount = $this->calculateDiscount($cart, $promo);
-                if ($discount > 0) {
+                $promoDiscount = $this->calculateDiscount($cart, $promo);
+                if ($promoDiscount > 0) {
                     $cart['promo'] = [
                         'code' => $promo->code,
                         'type' => $promo->type,
                         'value' => (float) $promo->value,
-                        'discount' => $discount,
+                        'discount' => $promoDiscount,
                     ];
                 } else {
                     unset($cart['promo']);
@@ -300,13 +300,45 @@ class CartService
             }
         }
 
+        $groupDiscount = $this->calculateClientGroupDiscount($client, $subtotal, $promoDiscount);
+        if ($groupDiscount > 0 && $client) {
+            $client->loadMissing('group');
+            $cart['group_discount'] = [
+                'name' => $client->group?->name,
+                'percent' => (float) $client->group?->discount_percent,
+                'discount' => $groupDiscount,
+            ];
+        } else {
+            unset($cart['group_discount']);
+        }
+
+        $discount = round($promoDiscount + $groupDiscount, 2);
         $cart['totals'] = [
             'subtotal' => $subtotal,
             'discount' => $discount,
+            'promo_discount' => $promoDiscount,
+            'group_discount' => $groupDiscount,
             'total' => round(max(0, $subtotal - $discount), 2),
         ];
 
         return $cart;
+    }
+
+    private function calculateClientGroupDiscount(?Client $client, float $subtotal, float $promoDiscount): float
+    {
+        if (!$client || $subtotal <= 0) {
+            return 0.0;
+        }
+
+        $client->loadMissing('group');
+        $percent = (float) ($client->group?->discount_percent ?? 0);
+        if ($percent <= 0) {
+            return 0.0;
+        }
+
+        $discountBase = max(0, $subtotal - $promoDiscount);
+
+        return round(min($discountBase, $discountBase * ($percent / 100)), 2);
     }
 
     private function customFieldLabels(Product $product, array $values): array

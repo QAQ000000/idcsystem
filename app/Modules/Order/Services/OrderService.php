@@ -111,19 +111,40 @@ class OrderService
             ];
         }
 
-        $discount = $this->calculatePromoDiscount($subtotal, $promoCode);
-        $appliedPromoCode = $discount > 0 ? $promoCode : null;
-        if ($discount > 0) {
+        $promoDiscount = $this->calculatePromoDiscount($subtotal, $promoCode);
+        $appliedPromoCode = $promoDiscount > 0 ? $promoCode : null;
+        if ($promoDiscount > 0) {
             $invoiceItems[] = [
                 'type' => 'discount',
                 'description' => '优惠码 ' . $appliedPromoCode,
-                'amount' => -round($discount, 2),
+                'amount' => -round($promoDiscount, 2),
             ];
         }
 
+        $groupDiscount = $this->calculateClientGroupDiscount($client, $subtotal, $promoDiscount);
+        if ($groupDiscount > 0) {
+            $client->loadMissing('group');
+            $invoiceItems[] = [
+                'type' => 'discount',
+                'description' => sprintf(
+                    '客户分组折扣 %s (%s%%)',
+                    $client->group?->name ?: '默认分组',
+                    rtrim(rtrim(number_format((float) $client->group?->discount_percent, 2, '.', ''), '0'), '.')
+                ),
+                'amount' => -round($groupDiscount, 2),
+                'meta' => [
+                    'discount_type' => 'client_group',
+                    'client_group_id' => $client->group?->id,
+                    'discount_percent' => (float) $client->group?->discount_percent,
+                ],
+            ];
+        }
+
+        $discount = round($promoDiscount + $groupDiscount, 2);
+
         return [
             'subtotal' => round($subtotal, 2),
-            'discount' => round($discount, 2),
+            'discount' => $discount,
             'total' => round(max(0, $subtotal - $discount), 2),
             'currency_id' => $currencyId ?? $this->pricingService->defaultCurrencyId(),
             'promo_code' => $appliedPromoCode,
@@ -299,6 +320,23 @@ class OrderService
         return in_array($promo->type, ['percentage', 'percent'], true)
             ? min($subtotal, $subtotal * ((float) $promo->value / 100))
             : min($subtotal, (float) $promo->value);
+    }
+
+    private function calculateClientGroupDiscount(?Client $client, float $subtotal, float $promoDiscount): float
+    {
+        if (!$client || $subtotal <= 0) {
+            return 0.0;
+        }
+
+        $client->loadMissing('group');
+        $percent = (float) ($client->group?->discount_percent ?? 0);
+        if ($percent <= 0) {
+            return 0.0;
+        }
+
+        $discountBase = max(0, $subtotal - $promoDiscount);
+
+        return round(min($discountBase, $discountBase * ($percent / 100)), 2);
     }
 
     private function nextOrderNumber(): string

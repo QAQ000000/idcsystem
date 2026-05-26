@@ -85,6 +85,12 @@
                 <span class="text-zinc-500">优惠</span>
                 <span>-{{ $currencies->format((float) ($cart['totals']['discount'] ?? 0), $currency) }}</span>
             </div>
+            @if (($cart['totals']['group_discount'] ?? 0) > 0)
+                <div class="flex justify-between py-1 text-emerald-700">
+                    <span>客户分组折扣（{{ $cart['group_discount']['name'] ?? '默认分组' }}）</span>
+                    <span>-{{ $currencies->format((float) ($cart['totals']['group_discount'] ?? 0), $currency) }}</span>
+                </div>
+            @endif
             <div class="mt-2 flex justify-between border-t pt-3 font-semibold">
                 <span>合计</span>
                 <span>{{ $currencies->format((float) ($cart['totals']['total'] ?? 0), $currency) }}</span>

@@ -10,6 +10,7 @@ use App\Modules\Product\Models\CustomField;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Models\ProductGroup;
 use App\Modules\User\Models\Client;
+use App\Modules\User\Models\ClientGroup;
 use App\Modules\Order\Services\CartService;
 use App\Modules\Order\Services\OrderService;
 use App\Modules\Product\Services\PricingService;
@@ -393,6 +394,45 @@ class CartBoundaryTest extends TestCase
             'amount' => -10.00,
         ]);
         $this->assertSame(1, PromoCode::query()->where('code', 'SAVE10')->value('used_count'));
+    }
+
+    public function test_cart_applies_client_group_discount_after_promo_discount(): void
+    {
+        $group = ClientGroup::query()->create([
+            'name' => 'VIP',
+            'discount_percent' => 10,
+            'color' => '#16a34a',
+        ]);
+        $client = $this->client();
+        $client->update(['group_id' => $group->id]);
+        $product = $this->product();
+        $cart = app(CartService::class);
+        PromoCode::query()->create([
+            'code' => 'SAVE10',
+            'type' => 'percent',
+            'value' => 10,
+            'active' => true,
+        ]);
+
+        $this->assertNotNull($cart->add($client->fresh(), $product, ['billing_cycle' => 'monthly', 'qty' => 2]));
+        $cart->applyPromoCode($client->fresh(), 'SAVE10');
+        $cartData = $cart->getCart($client->fresh());
+
+        $this->assertSame(10.0, $cartData['totals']['promo_discount']);
+        $this->assertSame(9.0, $cartData['totals']['group_discount']);
+        $this->assertSame(19.0, $cartData['totals']['discount']);
+        $this->assertSame(81.0, $cartData['totals']['total']);
+
+        $order = $cart->checkout($client->fresh());
+
+        $this->assertSame('81.00', (string) $order->amount);
+        $this->assertSame('81.00', (string) $order->invoice->fresh()->total);
+        $this->assertDatabaseHas('invoice_items', [
+            'invoice_id' => $order->invoice_id,
+            'type' => 'discount',
+            'description' => '客户分组折扣 VIP (10%)',
+            'amount' => -9.00,
+        ]);
     }
 
     public function test_cart_fixed_promo_is_capped_to_eligible_product_subtotal(): void

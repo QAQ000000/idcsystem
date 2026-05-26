@@ -23,6 +23,7 @@ class AdminPermissionSeeder extends Seeder
             'client.view',
             'client.manage',
             'client.credit',
+            'client_group.manage',
             'affiliate.view',
             'affiliate.manage',
             'export.data',
