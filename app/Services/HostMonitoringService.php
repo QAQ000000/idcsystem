@@ -113,6 +113,18 @@ class HostMonitoringService
                                     'days_before' => $actualDaysBefore,
                                     'sent_at' => now(),
                                 ]);
+                                try {
+                                    app(\App\Modules\Support\Services\MarketingAutomationService::class)->trigger('host.expiring', [
+                                        'client_id' => $host->client_id,
+                                        'host_id' => $host->id,
+                                        'domain' => $host->domain,
+                                        'product_name' => $host->product?->name ?? '服务',
+                                        'due_date' => $host->next_due_date?->format('Y-m-d'),
+                                        'days_until_expiry' => $actualDaysBefore,
+                                    ]);
+                                } catch (Throwable $exception) {
+                                    report($exception);
+                                }
                                 $result['notified']++;
                             } else {
                                 $result['failed']++;

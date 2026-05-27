@@ -37,6 +37,15 @@ class AuthService
             'email' => $client->email,
             'username' => $client->username,
         ]);
+        try {
+            app(\App\Modules\Support\Services\MarketingAutomationService::class)->trigger('client.registered', [
+                'client_id' => $client->id,
+                'email' => $client->email,
+                'client_name' => $client->username,
+            ]);
+        } catch (\Throwable $exception) {
+            report($exception);
+        }
 
         return $client;
     }

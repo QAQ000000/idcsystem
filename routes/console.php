@@ -375,6 +375,22 @@ Artisan::command('client-segments:refresh', function () {
     return 0;
 })->purpose('Refresh dynamic client segments');
 
+Artisan::command('marketing-automations:process-due', function () {
+    $task = app(\App\Services\SystemTaskService::class)->run('marketing-automations:process-due', function () {
+        return [
+            'executions' => app(\App\Modules\Support\Services\MarketingAutomationService::class)->processDueExecutions(),
+        ];
+    });
+
+    if ($task->status === 'failed') {
+        $this->error($task->error ?: 'Marketing automation processing failed');
+        return 1;
+    }
+
+    $this->info($task->output ?: 'Marketing automation processing completed');
+    return 0;
+})->purpose('Process due marketing automation steps');
+
 // 核心业务调度：由系统 cron 每分钟触发 schedule:run 后按频率执行。
 Schedule::command('logs:cleanup')->dailyAt('01:00');
 Schedule::command('billing:generate-invoices')->dailyAt('02:00');
@@ -398,3 +414,4 @@ Schedule::command('tickets:check-sla-breaches')->everyFifteenMinutes();
 Schedule::command('products:check-stock-alerts')->hourly();
 Schedule::command('custom-reports:run-scheduled')->everyMinute();
 Schedule::command('client-segments:refresh')->dailyAt('03:45');
+Schedule::command('marketing-automations:process-due')->everyMinute();

@@ -120,6 +120,16 @@ class BillingService
                         if ($freshHost?->client) {
                             app(CreditScoreService::class)->adjustForOverdue($freshHost->client, $freshHost);
                             app(ClientTagService::class)->applyAutoRules($freshHost->client);
+                            try {
+                                app(\App\Modules\Support\Services\MarketingAutomationService::class)->trigger('invoice.overdue', [
+                                    'client_id' => $freshHost->client_id,
+                                    'host_id' => $freshHost->id,
+                                    'domain' => $freshHost->domain,
+                                    'reason' => 'Overdue payment',
+                                ]);
+                            } catch (\Throwable $exception) {
+                                report($exception);
+                            }
                         }
                     }
                 }

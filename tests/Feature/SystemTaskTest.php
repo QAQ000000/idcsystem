@@ -325,7 +325,8 @@ class SystemTaskTest extends TestCase
             ->expectsOutputToContain('billing:suspend-overdue')
             ->expectsOutputToContain('host:sync-usage')
             ->expectsOutputToContain('host:send-due-reminders')
-            ->expectsOutputToContain('notifications:recover-stale');
+            ->expectsOutputToContain('notifications:recover-stale')
+            ->expectsOutputToContain('marketing-automations:process-due');
     }
 
     public function test_notification_recovery_command_marks_stale_processing_logs_failed(): void
