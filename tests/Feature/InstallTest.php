@@ -30,6 +30,7 @@ class InstallTest extends TestCase
         ]);
         File::delete($this->lockPath);
         File::delete($this->envPath);
+        $this->forgetInstallMarkerTable();
     }
 
     protected function tearDown(): void
@@ -40,6 +41,15 @@ class InstallTest extends TestCase
         File::delete(storage_path('framework/testing/install.sqlite'));
 
         parent::tearDown();
+    }
+
+    private function forgetInstallMarkerTable(): void
+    {
+        try {
+            Schema::dropIfExists('settings');
+        } catch (\Throwable) {
+            // 安装器测试需要覆盖数据库不可用场景；清理失败不应掩盖目标断言。
+        }
     }
 
     public function test_uninstalled_install_page_is_accessible(): void
