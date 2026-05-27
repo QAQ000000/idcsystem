@@ -11,6 +11,7 @@ use App\Services\GdprService;
 use App\Services\NotificationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 
@@ -150,6 +151,21 @@ class AuthService
     public function createToken(Client $client, string $deviceName = 'web', array $abilities = ['*']): string
     {
         return $client->createToken($deviceName, $abilities)->plainTextToken;
+    }
+
+    public function createTokenCredential(Client $client, string $deviceName = 'web', array $abilities = ['*'], array $ipWhitelist = []): array
+    {
+        $newAccessToken = $client->createToken($deviceName, $abilities);
+        $secret = Str::random(64);
+        $newAccessToken->accessToken->forceFill([
+            'api_secret' => Crypt::encryptString($secret),
+            'ip_whitelist' => $ipWhitelist === [] ? null : json_encode(array_values($ipWhitelist)),
+        ])->save();
+
+        return [
+            'token' => $newAccessToken->plainTextToken,
+            'api_secret' => $secret,
+        ];
     }
 
     public function logout(Client $client): void

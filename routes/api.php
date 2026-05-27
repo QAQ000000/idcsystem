@@ -28,12 +28,12 @@ use Illuminate\Support\Facades\Route;
 | GET  payment/gateways
 */
 
-Route::middleware('throttle:10,1')->group(function (): void {
+Route::middleware(['api.size', 'throttle:10,1'])->group(function (): void {
     Route::post('auth/login', [AuthController::class, 'login']);
     Route::post('auth/register', [AuthController::class, 'register']);
 });
 
-Route::middleware(['auth:sanctum', 'throttle:api', 'api.log'])->group(function (): void {
+Route::middleware(['api.size', 'auth:sanctum', 'throttle:api', 'api.ip_whitelist', 'api.signature', 'api.log'])->group(function (): void {
     Route::post('auth/logout', [AuthController::class, 'logout']);
     Route::get('auth/me', [AuthController::class, 'me'])->middleware('api.ability:account:read');
 

@@ -80,6 +80,8 @@ return [
         'account:write' => '修改账户信息',
     ],
 
+    'max_request_body_bytes' => env('API_MAX_REQUEST_BODY_BYTES', 1048576),
+
     /*
     |--------------------------------------------------------------------------
     | Sanctum Middleware

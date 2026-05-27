@@ -32,8 +32,11 @@ class AuthController extends ApiController
 
         $auth->recordLogin($client);
 
+        $credential = $auth->createTokenCredential($client, $data['device_name'] ?? 'api');
+
         return $this->success([
-            'token' => $auth->createToken($client, $data['device_name'] ?? 'api'),
+            'token' => $credential['token'],
+            'api_secret' => $credential['api_secret'],
             'client' => $this->clientPayload($client->fresh()),
         ]);
     }
@@ -67,8 +70,11 @@ class AuthController extends ApiController
             $client->update(['status' => 1]);
         }
 
+        $credential = $auth->createTokenCredential($client->fresh(), $deviceName);
+
         return $this->success([
-            'token' => $auth->createToken($client->fresh(), $deviceName),
+            'token' => $credential['token'],
+            'api_secret' => $credential['api_secret'],
             'client' => $this->clientPayload($client->fresh()),
         ], 201);
     }

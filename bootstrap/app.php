@@ -40,7 +40,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'client.status' => CheckClientStatus::class,
             'admin.permission' => \App\Http\Middleware\EnsureAdminPermission::class,
             'api.ability' => \App\Http\Middleware\CheckApiAbility::class,
+            'api.ip_whitelist' => \App\Http\Middleware\CheckApiIpWhitelist::class,
             'api.log' => \App\Http\Middleware\LogApiRequest::class,
+            'api.signature' => \App\Http\Middleware\VerifyApiSignature::class,
+            'api.size' => \App\Http\Middleware\LimitRequestSize::class,
         ]);
         $middleware->redirectGuestsTo(function ($request) {
             return $request->is('admin/*') || $request->is('admin')
