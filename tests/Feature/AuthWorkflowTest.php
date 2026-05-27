@@ -94,11 +94,17 @@ class AuthWorkflowTest extends TestCase
         $this->assertTrue($client->fresh()->isActive());
         $this->assertNotNull($client->fresh()->email_verified_at);
 
-        $this->post(route('client.cart.add'), [
-            'product_id' => $product->id,
-            'billing_cycle' => 'monthly',
-            'qty' => 1,
-        ])->assertRedirect(route('client.cart.index'));
+        try {
+            $this->post(route('client.cart.add'), [
+                'product_id' => $product->id,
+                'billing_cycle' => 'monthly',
+                'qty' => 1,
+            ])->assertRedirect(route('client.cart.index'));
+        } catch (\Throwable $exception) {
+            fwrite(STDERR, $exception->getTraceAsString() . PHP_EOL);
+
+            throw $exception;
+        }
 
         $this->post(route('client.cart.checkout'))->assertRedirect();
         $this->assertDatabaseHas('orders', ['client_id' => $client->id]);
