@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\CheckAdminStatus;
 use App\Http\Middleware\CheckClientStatus;
+use App\Http\Middleware\PerformanceMonitor;
 use App\Http\Middleware\SetLocale;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -26,9 +27,13 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             SetLocale::class,
             \App\Http\Middleware\TrackAffiliateClick::class,
+            PerformanceMonitor::class,
         ]);
         $middleware->api(prepend: [
             \Illuminate\Http\Middleware\HandleCors::class,
+        ]);
+        $middleware->api(append: [
+            PerformanceMonitor::class,
         ]);
         $middleware->alias([
             'admin.status' => CheckAdminStatus::class,
