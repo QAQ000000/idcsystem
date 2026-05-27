@@ -59,6 +59,9 @@ class ClientTest extends TestCase
         $this->assertSame('client-security', $client->username);
         $this->assertSame('IDC Co', $client->company_name);
         $this->assertSame('13800138011', $client->phone);
+        $rawPhone = DB::table('clients')->where('id', $client->id)->value('phone');
+        $this->assertNotSame('13800138011', $rawPhone);
+        $this->assertSame(hash('sha256', '13800138011'), $client->phone_hash);
         $this->assertSame('科技园', $client->address);
     }
 

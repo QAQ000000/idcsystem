@@ -24,6 +24,8 @@ class InvoiceReceipt extends Model
     ];
 
     protected $casts = [
+        'bank_account' => 'encrypted',
+        'company_phone' => 'encrypted',
         'issued_at' => 'datetime',
     ];
 

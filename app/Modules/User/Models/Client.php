@@ -14,6 +14,7 @@ class Client extends Authenticatable
     protected $fillable = [
         'username', 'email', 'password', 'status', 'group_id',
         'company_name', 'phone_code', 'phone', 'country', 'province', 'city', 'address',
+        'phone_hash',
         'country_code', 'state_code', 'currency_id', 'locale', 'credit', 'credit_limit',
         'credit_score', 'credit_level', 'credit_score_updated_at',
         'two_factor_enabled', 'two_factor_secret', 'notification_preferences',
@@ -24,6 +25,7 @@ class Client extends Authenticatable
 
     protected $casts = [
         'status'             => 'integer',
+        'phone'              => 'encrypted',
         'credit'             => 'decimal:2',
         'credit_limit'       => 'decimal:2',
         'credit_score'       => 'integer',
@@ -153,5 +155,17 @@ class Client extends Authenticatable
     public function availableCredit(): float
     {
         return round((float) $this->credit + (float) $this->credit_limit, 2);
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function (Client $client): void {
+            if (!$client->isDirty('phone')) {
+                return;
+            }
+
+            $phone = $client->phone;
+            $client->phone_hash = $phone ? hash('sha256', (string) $phone) : null;
+        });
     }
 }

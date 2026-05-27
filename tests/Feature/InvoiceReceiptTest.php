@@ -7,6 +7,7 @@ use App\Modules\Finance\Models\Invoice;
 use App\Modules\Finance\Models\InvoiceReceipt;
 use App\Modules\User\Models\Client;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -45,6 +46,12 @@ class InvoiceReceiptTest extends TestCase
             'status' => 'pending',
             'title' => 'IDC 测试公司',
         ]);
+        $receipt = InvoiceReceipt::query()->where('invoice_id', $invoice->id)->firstOrFail();
+        $this->assertSame('622200000000', $receipt->bank_account);
+        $this->assertSame('010-12345678', $receipt->company_phone);
+        $raw = DB::table('invoice_receipts')->where('id', $receipt->id)->first();
+        $this->assertNotSame('622200000000', $raw->bank_account);
+        $this->assertNotSame('010-12345678', $raw->company_phone);
     }
 
     public function test_client_cannot_apply_receipt_for_unpaid_or_duplicate_invoice(): void
