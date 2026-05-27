@@ -24,7 +24,7 @@
                             <h2 class="font-semibold">{{ $notification->title }}</h2>
                         </div>
                         <p class="mt-2 whitespace-pre-line text-sm text-slate-700">{{ $notification->content }}</p>
-                        <p class="mt-3 text-xs text-slate-500">{{ $notification->created_at?->format('Y-m-d H:i') }}</p>
+                        <p class="mt-3 text-xs text-slate-500">{{ userTime($notification->created_at, 'Y-m-d H:i') }}</p>
                     </div>
                     @if (!$notification->read)
                         <form method="post" action="{{ route('client.notifications.read', $notification) }}">

@@ -23,7 +23,7 @@
                 <tbody class="divide-y divide-zinc-100">
                     @forelse ($activities as $activity)
                         <tr>
-                            <td class="whitespace-nowrap px-4 py-3 text-zinc-600">{{ $activity->created_at?->format('Y-m-d H:i:s') }}</td>
+                            <td class="whitespace-nowrap px-4 py-3 text-zinc-600">{{ userTime($activity->created_at) }}</td>
                             <td class="whitespace-nowrap px-4 py-3 font-medium text-zinc-900">{{ $activity->action }}</td>
                             <td class="px-4 py-3 text-zinc-700">{{ $activity->description }}</td>
                             <td class="whitespace-nowrap px-4 py-3 text-zinc-600">{{ $activity->ip ?: '-' }}</td>

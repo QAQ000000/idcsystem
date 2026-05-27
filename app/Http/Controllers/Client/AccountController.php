@@ -45,9 +45,11 @@ class AccountController extends Controller
             'state_code' => ['nullable', 'string', 'regex:/^[A-Za-z0-9_-]{1,10}$/'],
             'currency_id' => ['nullable', 'integer', Rule::exists('currencies', 'id')],
             'locale' => ['nullable', 'string', Rule::in(config('app.available_locales', ['zh_CN', 'en']))],
+            'timezone' => ['nullable', 'string', Rule::in(array_keys(timezones()))],
         ]);
         $data['currency_id'] = $data['currency_id'] ?? $client->currency_id;
         $data['locale'] = $data['locale'] ?? $client->locale ?? config('app.locale');
+        $data['timezone'] = $data['timezone'] ?? $client->timezone ?? 'Asia/Shanghai';
         $data['country_code'] = app(TaxService::class)->normalizeCountryCode($data['country_code'] ?? null);
         $data['state_code'] = app(TaxService::class)->normalizeStateCode($data['state_code'] ?? null);
 
@@ -59,6 +61,7 @@ class AccountController extends Controller
         $client->update($data);
         $request->session()->put('locale', $data['locale']);
         app()->setLocale($data['locale']);
+        config(['app.user_timezone' => $data['timezone']]);
         if ($changed !== []) {
             app(ClientActivityService::class)->log($client->fresh(), 'profile.updated', '账户资料已更新', [
                 'fields' => $changed,

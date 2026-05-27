@@ -62,7 +62,7 @@
                             @php($whitelist = is_string($token->ip_whitelist) ? json_decode($token->ip_whitelist, true) : $token->ip_whitelist)
                             {{ is_array($whitelist) && $whitelist !== [] ? implode(', ', $whitelist) : '不限制' }}
                         </td>
-                        <td class="px-4 py-3">{{ $token->last_used_at?->format('Y-m-d H:i') ?: '-' }}</td>
+                        <td class="px-4 py-3">{{ userTime($token->last_used_at, 'Y-m-d H:i') ?: '-' }}</td>
                         <td class="px-4 py-3">
                             <form method="post" action="{{ route('client.api-tokens.destroy', $token) }}">
                                 @csrf

@@ -101,6 +101,7 @@ return [
         'email' => 'Email',
         'currency' => 'Display Currency',
         'locale' => 'Interface Language',
+        'timezone' => 'Time Zone',
         'company_name' => 'Company Name',
         'phone_code' => 'Phone Code',
         'phone' => 'Phone',

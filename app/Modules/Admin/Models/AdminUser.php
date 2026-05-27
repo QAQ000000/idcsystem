@@ -14,7 +14,7 @@ class AdminUser extends Authenticatable
     protected string $guard_name = 'web';
 
     protected $fillable = [
-        'username', 'email', 'password', 'real_name', 'phone',
+        'username', 'email', 'password', 'real_name', 'phone', 'timezone',
         'two_factor_enabled', 'two_factor_secret',
         'assigned_ticket_count', 'status', 'last_login_at', 'last_login_ip',
     ];

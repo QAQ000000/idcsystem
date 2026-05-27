@@ -22,7 +22,7 @@
                         <td class="px-4 py-3 font-medium">{{ $contract->title }}</td>
                         <td class="px-4 py-3">{{ $contract->order?->order_number ?: '-' }}</td>
                         <td class="px-4 py-3">{{ $contract->status }}</td>
-                        <td class="px-4 py-3">{{ $contract->signed_at?->format('Y-m-d H:i:s') ?: '-' }}</td>
+                        <td class="px-4 py-3">{{ userTime($contract->signed_at) ?: '-' }}</td>
                         <td class="px-4 py-3">
                             <a class="text-blue-600" href="{{ route('client.contracts.show', $contract) }}">查看</a>
                         </td>

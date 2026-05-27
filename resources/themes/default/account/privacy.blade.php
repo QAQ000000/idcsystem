@@ -56,7 +56,7 @@
         <h2 class="mb-4 text-lg font-semibold">隐私政策同意记录</h2>
         <div class="space-y-3 text-sm">
             @forelse ($consents as $consent)
-                <div class="rounded border p-3">版本 {{ $consent->policy_version }} / {{ $consent->consented_at?->format('Y-m-d H:i') }} / {{ $consent->ip }}</div>
+                <div class="rounded border p-3">版本 {{ $consent->policy_version }} / {{ userTime($consent->consented_at, 'Y-m-d H:i') }} / {{ $consent->ip }}</div>
             @empty
                 <p class="text-zinc-500">暂无同意记录。</p>
             @endforelse

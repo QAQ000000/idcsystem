@@ -101,6 +101,7 @@ return [
         'email' => '邮箱',
         'currency' => '价格显示货币',
         'locale' => '界面语言',
+        'timezone' => '时区',
         'company_name' => '公司名称',
         'phone_code' => '手机区号',
         'phone' => '手机号',

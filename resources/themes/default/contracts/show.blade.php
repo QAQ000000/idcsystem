@@ -21,7 +21,7 @@
             </form>
         @elseif ($contract->status === 'signed')
             <div class="mt-6 rounded border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                已于 {{ $contract->signed_at?->format('Y-m-d H:i:s') }} 签署，签署 IP：{{ $contract->sign_ip ?: '-' }}
+                已于 {{ userTime($contract->signed_at) }} 签署，签署 IP：{{ $contract->sign_ip ?: '-' }}
             </div>
         @endif
     </section>

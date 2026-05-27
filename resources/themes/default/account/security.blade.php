@@ -35,7 +35,7 @@
             <dl class="space-y-3 text-sm">
                 <div>
                     <dt class="text-zinc-500">最近登录时间</dt>
-                    <dd>{{ $client->last_login_at?->format('Y-m-d H:i:s') ?: '-' }}</dd>
+                    <dd>{{ userTime($client->last_login_at) ?: '-' }}</dd>
                 </div>
                 <div>
                     <dt class="text-zinc-500">最近登录 IP</dt>
@@ -95,7 +95,7 @@
             <tbody class="divide-y divide-zinc-100">
                 @forelse ($loginLogs as $log)
                     <tr>
-                        <td class="px-4 py-3">{{ $log->logged_in_at?->format('Y-m-d H:i:s') }}</td>
+                        <td class="px-4 py-3">{{ userTime($log->logged_in_at) }}</td>
                         <td class="px-4 py-3">{{ $log->ip ?: '-' }}</td>
                         <td class="px-4 py-3">{{ $log->user_agent ?: '-' }}</td>
                     </tr>

@@ -43,7 +43,7 @@
                     @php($urgent = $host->next_due_date && $host->next_due_date->lte(now()->addDays(7)))
                     <div class="py-3 text-sm">
                         <div class="font-medium">{{ $host->domain ?: $host->product?->name }}</div>
-                        <div class="mt-1 {{ $urgent ? 'text-red-600' : 'text-slate-600' }}">到期：{{ $host->next_due_date?->format('Y-m-d') ?: '-' }}</div>
+                        <div class="mt-1 {{ $urgent ? 'text-red-600' : 'text-slate-600' }}">到期：{{ userTime($host->next_due_date, 'Y-m-d') ?: '-' }}</div>
                         <a class="mt-2 inline-block text-blue-600" href="{{ route('client.hosts.show', $host) }}">立即续费</a>
                     </div>
                 @empty
@@ -78,7 +78,7 @@
                         <div class="{{ $credit->type === 'deduct' ? 'text-red-600' : 'text-emerald-600' }}">
                             {{ $credit->type === 'deduct' ? '-' : '+' }}{{ number_format((float) $credit->amount, 2, '.', '') }}
                         </div>
-                        <div class="mt-1 text-slate-600">{{ $credit->description }} / {{ $credit->created_at?->format('Y-m-d H:i') }}</div>
+                        <div class="mt-1 text-slate-600">{{ $credit->description }} / {{ userTime($credit->created_at, 'Y-m-d H:i') }}</div>
                     </div>
                 @empty
                     <div class="py-4 text-sm text-slate-500">暂无余额流水</div>

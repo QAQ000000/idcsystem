@@ -16,7 +16,8 @@
             @forelse ($rows as $row)
                 <tr>
                     @foreach ($columns as $field)
-                        <td class="px-4 py-3">{{ data_get($row, $field) }}</td>
+                        @php($value = data_get($row, $field))
+                        <td class="px-4 py-3">{{ $value instanceof \DateTimeInterface ? userTime($value) : $value }}</td>
                     @endforeach
                     @if ($routePrefix)
                         <td class="px-4 py-3">

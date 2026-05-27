@@ -15,7 +15,7 @@ class Client extends Authenticatable
         'username', 'email', 'password', 'status', 'group_id',
         'company_name', 'phone_code', 'phone', 'country', 'province', 'city', 'address',
         'phone_hash',
-        'country_code', 'state_code', 'currency_id', 'locale', 'credit', 'credit_limit',
+        'country_code', 'state_code', 'currency_id', 'locale', 'timezone', 'credit', 'credit_limit',
         'credit_score', 'credit_level', 'credit_score_updated_at',
         'two_factor_enabled', 'two_factor_secret', 'notification_preferences',
         'email_verified_at', 'last_login_at', 'last_login_ip', 'locked_until',

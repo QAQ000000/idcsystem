@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Services\ThemeService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -33,6 +34,14 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('api', function (Request $request) {
             return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
+        });
+
+        Blade::directive('usertime', function ($expression): string {
+            return "<?php echo e(userTime($expression)); ?>";
+        });
+
+        Blade::directive('usertimezone', function (): string {
+            return "<?php echo e(current_timezone()); ?>";
         });
 
         $theme = app(ThemeService::class)->active();

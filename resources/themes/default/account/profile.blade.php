@@ -57,6 +57,14 @@
                 </select>
             </label>
             <label class="block text-sm">
+                {{ __('messages.profile.timezone') }}
+                <select class="mt-1 w-full rounded border px-3 py-2" name="timezone" required>
+                    @foreach (timezones() as $timezone => $label)
+                        <option value="{{ $timezone }}" @selected(old('timezone', $client->timezone ?: current_timezone()) === $timezone)>{{ $label }}</option>
+                    @endforeach
+                </select>
+            </label>
+            <label class="block text-sm">
                 {{ __('messages.profile.company_name') }}
                 <input class="mt-1 w-full rounded border px-3 py-2" name="company_name" value="{{ old('company_name', $client->company_name) }}">
             </label>

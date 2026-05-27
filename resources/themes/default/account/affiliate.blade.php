@@ -65,7 +65,7 @@
             <tbody class="divide-y divide-zinc-100">
                 @forelse ($affiliate->commissions->sortByDesc('id') as $commission)
                     <tr>
-                        <td class="px-4 py-3">{{ $commission->created_at?->format('Y-m-d H:i') }}</td>
+                        <td class="px-4 py-3">{{ userTime($commission->created_at, 'Y-m-d H:i') }}</td>
                         <td class="px-4 py-3">{{ $commission->type === 'signup' ? '注册' : '付款' }}</td>
                         <td class="px-4 py-3">{{ $commission->referredClient?->username ?: '-' }}</td>
                         <td class="px-4 py-3">{{ $commission->invoice?->invoice_number ?: '-' }}</td>

@@ -22,9 +22,9 @@
                 <div>计费周期：{{ $host->billing_cycle }}</div>
                 <div>首次金额：{{ $host->first_payment_amount }}</div>
                 <div>续费金额：{{ $host->recurring_amount }}</div>
-                <div>开通时间：{{ $host->registered_at?->format('Y-m-d H:i:s') ?: '-' }}</div>
-                <div>到期时间：{{ $host->next_due_date?->format('Y-m-d H:i:s') ?: '-' }}</div>
-                <div>下次账单：{{ $host->next_invoice_date?->format('Y-m-d H:i:s') ?: '-' }}</div>
+                <div>开通时间：{{ userTime($host->registered_at) ?: '-' }}</div>
+                <div>到期时间：{{ userTime($host->next_due_date) ?: '-' }}</div>
+                <div>下次账单：{{ userTime($host->next_invoice_date) ?: '-' }}</div>
                 <div>自动续费：{{ $host->auto_renew ? '开启' : '关闭' }}</div>
                 <div>绑定账单：{{ $host->order?->invoice?->invoice_number ?: '-' }}</div>
                 <div>暂停原因：{{ $host->suspend_reason ?: '-' }}</div>
@@ -54,7 +54,7 @@
                     <div class="flex items-center justify-between py-3 text-sm">
                         <div>
                             <div class="font-medium">{{ $hostAddon->addon?->name ?: 'Addon #' . $hostAddon->addon_id }}</div>
-                            <div class="text-zinc-500">{{ $hostAddon->billing_cycle }} / {{ $hostAddon->status }} / 到期 {{ $hostAddon->next_due_date?->format('Y-m-d') ?: '-' }}</div>
+                            <div class="text-zinc-500">{{ $hostAddon->billing_cycle }} / {{ $hostAddon->status }} / 到期 {{ userTime($hostAddon->next_due_date, 'Y-m-d') ?: '-' }}</div>
                         </div>
                         <div>{{ number_format((float) $hostAddon->price, 2) }}</div>
                     </div>
@@ -171,7 +171,7 @@
             @forelse ($host->actionLogs as $log)
                 <div class="py-3 text-sm">
                     <div class="font-medium">{{ $log->message ?: $log->action }}</div>
-                    <div class="text-zinc-500">{{ $log->action }} · {{ $log->created_at?->format('Y-m-d H:i:s') }}</div>
+                    <div class="text-zinc-500">{{ $log->action }} · {{ userTime($log->created_at) }}</div>
                 </div>
             @empty
                 <p class="text-sm text-zinc-500">暂无操作记录</p>
