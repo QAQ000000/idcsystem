@@ -18,6 +18,20 @@ jobs:
     name: Tests (MySQL 8)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      APP_ENV: testing
+      APP_KEY: base64:qyqMH2AWFpTtI3d7qzEtKFoX4ZEIChK5p0STvcGdL+U=
+      BCRYPT_ROUNDS: 4
+      CACHE_STORE: array
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: idcsystem_test
+      DB_USERNAME: root
+      DB_PASSWORD: root
+      MAIL_MAILER: array
+      QUEUE_CONNECTION: sync
+      SESSION_DRIVER: array
 
     services:
       mysql:
@@ -61,11 +75,4 @@ jobs:
         run: vendor/bin/pint --test
 
       - name: Run test suite
-        env:
-          DB_CONNECTION: mysql
-          DB_HOST: 127.0.0.1
-          DB_PORT: 3306
-          DB_DATABASE: idcsystem_test
-          DB_USERNAME: root
-          DB_PASSWORD: root
         run: php artisan test
