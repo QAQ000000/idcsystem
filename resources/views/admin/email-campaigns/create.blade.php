@@ -20,18 +20,35 @@
                 <input class="mt-1 w-full rounded border px-3 py-2" name="subject" value="{{ old('subject') }}" required>
             </label>
             <div class="md:col-span-2">
-                <div class="text-sm font-medium">目标客户分组</div>
-                <div class="mt-2 grid gap-2 rounded border p-3 text-sm md:grid-cols-3">
-                    @forelse ($groups as $group)
-                        <label class="inline-flex items-center gap-2">
-                            <input type="checkbox" name="target_groups[]" value="{{ $group->id }}" @checked(in_array($group->id, old('target_groups', [])))>
-                            <span>{{ $group->name }}</span>
-                        </label>
-                    @empty
-                        <div class="text-slate-500">暂无客户分组；不选择时默认面向全部活跃客户。</div>
-                    @endforelse
+                <div class="grid gap-4 md:grid-cols-2">
+                    <div>
+                        <div class="text-sm font-medium">目标客户分组</div>
+                        <div class="mt-2 grid gap-2 rounded border p-3 text-sm">
+                            @forelse ($groups as $group)
+                                <label class="inline-flex items-center gap-2">
+                                    <input type="checkbox" name="target_groups[]" value="{{ $group->id }}" @checked(in_array($group->id, old('target_groups', [])))>
+                                    <span>{{ $group->name }}</span>
+                                </label>
+                            @empty
+                                <div class="text-slate-500">暂无客户分组。</div>
+                            @endforelse
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-sm font-medium">目标客户分群</div>
+                        <div class="mt-2 grid gap-2 rounded border p-3 text-sm">
+                            @forelse ($segments as $segment)
+                                <label class="inline-flex items-center gap-2">
+                                    <input type="checkbox" name="target_segments[]" value="{{ $segment->id }}" @checked(in_array($segment->id, old('target_segments', [])))>
+                                    <span>{{ $segment->name }} <span class="text-slate-500">{{ $segment->clients_count }}</span></span>
+                                </label>
+                            @empty
+                                <div class="text-slate-500">暂无客户分群。</div>
+                            @endforelse
+                        </div>
+                    </div>
                 </div>
-                <p class="mt-1 text-xs text-slate-500">不选择任何分组时，活动会面向全部活跃客户。</p>
+                <p class="mt-1 text-xs text-slate-500">不选择任何分组或分群时，活动会面向全部活跃客户；同时选择时取并集。</p>
             </div>
             <label class="block text-sm md:col-span-2">
                 邮件内容

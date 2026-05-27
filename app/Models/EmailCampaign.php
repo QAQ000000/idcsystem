@@ -11,6 +11,7 @@ class EmailCampaign extends Model
         'subject',
         'content',
         'target_groups',
+        'target_segments',
         'status',
         'scheduled_at',
         'sent_at',
@@ -22,6 +23,7 @@ class EmailCampaign extends Model
 
     protected $casts = [
         'target_groups' => 'array',
+        'target_segments' => 'array',
         'scheduled_at' => 'datetime',
         'sent_at' => 'datetime',
         'total_recipients' => 'integer',

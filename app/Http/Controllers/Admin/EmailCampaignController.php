@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\EmailCampaign;
 use App\Modules\User\Models\ClientGroup;
+use App\Modules\User\Models\ClientSegment;
 use App\Services\AdminAuditService;
 use App\Services\EmailCampaignService;
 use Carbon\Carbon;
@@ -32,6 +33,7 @@ class EmailCampaignController extends Controller
         return view('admin.email-campaigns.create', [
             'campaign' => new EmailCampaign(),
             'groups' => ClientGroup::query()->orderBy('name')->get(),
+            'segments' => ClientSegment::query()->orderBy('name')->get(),
         ]);
     }
 
@@ -92,6 +94,8 @@ class EmailCampaignController extends Controller
             'content' => ['required', 'string'],
             'target_groups' => ['nullable', 'array'],
             'target_groups.*' => ['integer', Rule::exists('client_groups', 'id')],
+            'target_segments' => ['nullable', 'array'],
+            'target_segments.*' => ['integer', Rule::exists('client_segments', 'id')],
         ]);
     }
 

@@ -11,6 +11,7 @@ use App\Modules\Admin\Models\AdminUser;
 use App\Modules\Finance\Models\Currency;
 use App\Modules\User\Models\Client;
 use App\Modules\User\Models\ClientGroup;
+use App\Modules\User\Models\ClientSegment;
 use App\Plugins\Core\PluginManager;
 use App\Services\EmailCampaignService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -37,6 +38,33 @@ class EmailCampaignTest extends TestCase
         ]);
 
         $this->assertSame(1, $campaign->total_recipients);
+        $this->assertDatabaseHas('email_campaign_recipients', [
+            'campaign_id' => $campaign->id,
+            'client_id' => $client->id,
+            'status' => 'pending',
+        ]);
+    }
+
+    public function test_campaign_create_calculates_segment_recipients(): void
+    {
+        $client = $this->client('segment-client', 'segment@example.com');
+        $this->client('outside-segment-client', 'outside-segment@example.com');
+        $segment = ClientSegment::query()->create([
+            'name' => '活动分群',
+            'type' => 'static',
+            'clients_count' => 1,
+        ]);
+        $segment->clients()->attach($client->id, ['added_at' => now()]);
+
+        $campaign = app(EmailCampaignService::class)->create([
+            'name' => '分群活动',
+            'subject' => '分群优惠',
+            'content' => '<p>您好 {{client_name}}</p>',
+            'target_segments' => [$segment->id],
+        ]);
+
+        $this->assertSame(1, $campaign->total_recipients);
+        $this->assertSame([$segment->id], $campaign->target_segments);
         $this->assertDatabaseHas('email_campaign_recipients', [
             'campaign_id' => $campaign->id,
             'client_id' => $client->id,
@@ -119,6 +147,7 @@ class EmailCampaignTest extends TestCase
                 'subject' => '公告主题',
                 'content' => '<p>公告内容</p>',
                 'target_groups' => [$group->id],
+                'target_segments' => [],
             ])
             ->assertRedirect();
 

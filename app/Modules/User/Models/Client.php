@@ -118,6 +118,12 @@ class Client extends Authenticatable
             ->withPivot('tagged_at');
     }
 
+    public function segments()
+    {
+        return $this->belongsToMany(ClientSegment::class, 'client_segment_members', 'client_id', 'segment_id')
+            ->withPivot('added_at');
+    }
+
     public function credits()
     {
         return $this->hasMany(\App\Modules\Finance\Models\Credit::class);

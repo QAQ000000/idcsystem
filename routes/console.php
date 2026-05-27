@@ -359,6 +359,22 @@ Artisan::command('custom-reports:run-scheduled', function () {
     return 0;
 })->purpose('Run due custom reports');
 
+Artisan::command('client-segments:refresh', function () {
+    $task = app(\App\Services\SystemTaskService::class)->run('client-segments:refresh', function () {
+        return [
+            'segments' => app(\App\Modules\User\Services\ClientSegmentService::class)->refreshDynamicSegments(),
+        ];
+    });
+
+    if ($task->status === 'failed') {
+        $this->error($task->error ?: 'Client segment refresh failed');
+        return 1;
+    }
+
+    $this->info($task->output ?: 'Client segment refresh completed');
+    return 0;
+})->purpose('Refresh dynamic client segments');
+
 // 核心业务调度：由系统 cron 每分钟触发 schedule:run 后按频率执行。
 Schedule::command('logs:cleanup')->dailyAt('01:00');
 Schedule::command('billing:generate-invoices')->dailyAt('02:00');
@@ -381,3 +397,4 @@ Schedule::command('campaigns:send-scheduled')->everyMinute();
 Schedule::command('tickets:check-sla-breaches')->everyFifteenMinutes();
 Schedule::command('products:check-stock-alerts')->hourly();
 Schedule::command('custom-reports:run-scheduled')->everyMinute();
+Schedule::command('client-segments:refresh')->dailyAt('03:45');

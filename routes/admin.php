@@ -8,6 +8,7 @@ use App\Http\Controllers\Admin\BackupController;
 use App\Http\Controllers\Admin\CancelRequestController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\ClientGroupController;
+use App\Http\Controllers\Admin\ClientSegmentController;
 use App\Http\Controllers\Admin\ClientTagController;
 use App\Http\Controllers\Admin\ContractTemplateController;
 use App\Http\Controllers\Admin\CustomReportController;
@@ -260,6 +261,18 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::resource('client-groups', ClientGroupController::class)
         ->except(['show'])
         ->middleware('admin.permission:client_group.manage');
+    Route::post('/client-segments/{clientSegment}/calculate', [ClientSegmentController::class, 'calculate'])
+        ->middleware('admin.permission:client.manage')
+        ->name('client-segments.calculate');
+    Route::post('/client-segments/{clientSegment}/members', [ClientSegmentController::class, 'addMembers'])
+        ->middleware('admin.permission:client.manage')
+        ->name('client-segments.members.store');
+    Route::delete('/client-segments/{clientSegment}/members/{client}', [ClientSegmentController::class, 'removeMember'])
+        ->middleware('admin.permission:client.manage')
+        ->name('client-segments.members.destroy');
+    Route::resource('client-segments', ClientSegmentController::class)
+        ->only(['index', 'create', 'store', 'show', 'destroy'])
+        ->middleware('admin.permission:client.manage');
 
     Route::get('/products/{product}/pricing', [ProductController::class, 'pricing'])
         ->middleware('admin.permission:product.view')

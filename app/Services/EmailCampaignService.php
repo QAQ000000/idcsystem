@@ -16,11 +16,13 @@ class EmailCampaignService
     {
         return DB::transaction(function () use ($data) {
             $groupIds = $this->normalizeGroups($data['target_groups'] ?? []);
+            $segmentIds = $this->normalizeIds($data['target_segments'] ?? []);
             $campaign = EmailCampaign::query()->create([
                 'name' => $data['name'],
                 'subject' => $data['subject'],
                 'content' => $data['content'],
                 'target_groups' => $groupIds === [] ? null : $groupIds,
+                'target_segments' => $segmentIds === [] ? null : $segmentIds,
                 'status' => 'draft',
             ]);
 
@@ -189,8 +191,17 @@ class EmailCampaignService
         $clients = Client::query()
             ->where('status', 1)
             ->whereNotNull('email')
-            ->when($campaign->target_groups !== null && $campaign->target_groups !== [], function ($query) use ($campaign): void {
-                $query->whereIn('group_id', $campaign->target_groups);
+            ->when($this->hasTargets($campaign), function ($query) use ($campaign): void {
+                $query->where(function ($query) use ($campaign): void {
+                    if ($campaign->target_groups !== null && $campaign->target_groups !== []) {
+                        $query->whereIn('group_id', $campaign->target_groups);
+                    }
+
+                    if ($campaign->target_segments !== null && $campaign->target_segments !== []) {
+                        $method = ($campaign->target_groups !== null && $campaign->target_groups !== []) ? 'orWhereHas' : 'whereHas';
+                        $query->{$method}('segments', fn ($query) => $query->whereIn('client_segments.id', $campaign->target_segments));
+                    }
+                });
             })
             ->get(['id']);
 
@@ -208,12 +219,23 @@ class EmailCampaignService
 
     private function normalizeGroups(mixed $groups): array
     {
-        return collect(is_array($groups) ? $groups : [])
+        return $this->normalizeIds($groups);
+    }
+
+    private function normalizeIds(mixed $ids): array
+    {
+        return collect(is_array($ids) ? $ids : [])
             ->map(fn ($id): int => (int) $id)
             ->filter()
             ->unique()
             ->values()
             ->all();
+    }
+
+    private function hasTargets(EmailCampaign $campaign): bool
+    {
+        return ($campaign->target_groups !== null && $campaign->target_groups !== [])
+            || ($campaign->target_segments !== null && $campaign->target_segments !== []);
     }
 
     private function rewriteLinks(EmailCampaignRecipient $recipient, string $content): string
