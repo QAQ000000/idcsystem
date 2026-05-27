@@ -46,6 +46,20 @@
     @endphp
 
     @if ($chartable)
+    @php
+        $chartPalette = ['#2563eb','#16a34a','#f59e0b','#dc2626','#7c3aed','#0891b2','#be185d'];
+        $chartLabels  = array_column($result['rows'], $labelCol);
+        $chartDatasets = array_values(array_map(function ($col, $i) use ($result, $chartPalette) {
+            return [
+                'label'           => $col,
+                'data'            => array_map(fn($r) => is_numeric($r[$col] ?? null) ? (float)$r[$col] : null, $result['rows']),
+                'backgroundColor' => $chartPalette[$i % count($chartPalette)] . '33',
+                'borderColor'     => $chartPalette[$i % count($chartPalette)],
+                'borderWidth'     => 2,
+                'tension'         => 0.25,
+            ];
+        }, $numericCols, array_keys($numericCols)));
+    @endphp
     <section class="mb-6 rounded bg-white p-5 shadow-sm">
         <div class="mb-3 text-sm font-semibold text-slate-700">数据图表</div>
         <div style="position:relative;height:300px">
@@ -57,18 +71,8 @@
     document.addEventListener('DOMContentLoaded', function () {
         var el = document.getElementById('customReportChart');
         if (!el || typeof Chart === 'undefined') return;
-        var palette = ['#2563eb','#16a34a','#f59e0b','#dc2626','#7c3aed','#0891b2','#be185d'];
-        var labels = @json(array_column($result['rows'], $labelCol));
-        var datasets = @json(array_values(array_map(function ($col, $i) use ($result, $palette) {
-            return [
-                'label' => $col,
-                'data' => array_map(fn($r) => is_numeric($r[$col] ?? null) ? (float)$r[$col] : null, $result['rows']),
-                'backgroundColor' => $palette[$i % count($palette)] . '33',
-                'borderColor' => $palette[$i % count($palette)],
-                'borderWidth' => 2,
-                'tension' => 0.25,
-            ];
-        }, $numericCols, array_keys($numericCols))));
+        var labels   = @json($chartLabels);
+        var datasets = @json($chartDatasets);
         new Chart(el, {
             type: 'bar',
             data: { labels: labels, datasets: datasets },

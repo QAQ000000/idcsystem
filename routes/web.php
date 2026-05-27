@@ -6,6 +6,7 @@ use App\Http\Controllers\Client\ApiTokenController;
 use App\Http\Controllers\Client\CartController;
 use App\Http\Controllers\Client\CancelRequestController;
 use App\Http\Controllers\Client\ContractController;
+use App\Http\Controllers\Client\CouponController as ClientCouponController;
 use App\Http\Controllers\Client\DashboardController;
 use App\Http\Controllers\Client\DomainController;
 use App\Http\Controllers\Client\HostController;
@@ -157,4 +158,7 @@ Route::prefix('client')->name('client.')->middleware(['auth:client', 'client.sta
         ->whereNumber('index')
         ->name('tickets.attachments.download');
     Route::post('/tickets/{ticket}/reply', [TicketController::class, 'reply'])->name('tickets.reply');
+
+    Route::get('/coupons', [ClientCouponController::class, 'index'])->name('coupons.index');
+    Route::post('/coupons/{coupon}/claim', [ClientCouponController::class, 'claim'])->name('coupons.claim');
 });

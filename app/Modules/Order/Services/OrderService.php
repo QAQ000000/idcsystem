@@ -5,6 +5,7 @@ namespace App\Modules\Order\Services;
 use App\Modules\Finance\Services\InvoiceService;
 use App\Modules\Finance\Models\Account;
 use App\Models\PaymentAttempt;
+use App\Modules\Order\Models\CouponClaim;
 use App\Modules\Order\Models\Order;
 use App\Modules\Order\Models\PromoCode;
 use App\Modules\Product\Models\Product;
@@ -37,9 +38,9 @@ class OrderService
     /**
      * 创建订单、账单和对应的待开通服务。
      */
-    public function create(Client $client, array $items, ?string $promoCode = null): Order
+    public function create(Client $client, array $items, ?string $promoCode = null, ?int $couponClaimId = null): Order
     {
-        $createdOrder = DB::transaction(function () use ($client, $items, $promoCode) {
+        $createdOrder = DB::transaction(function () use ($client, $items, $promoCode, $couponClaimId) {
             $lockedClient = Client::query()->whereKey($client->id)->lockForUpdate()->first();
             if (!$lockedClient || $lockedClient->trashed() || !$lockedClient->isActive()) {
                 throw new RuntimeException('客户账号状态不允许创建订单。');
@@ -48,7 +49,7 @@ class OrderService
             $items = $this->normalizeItemsForClient($items, $lockedClient);
             $this->assertOrderItemsPurchasable($items);
 
-            $totals = $this->calculateTotalForClient($items, $promoCode, $lockedClient);
+            $totals = $this->calculateTotalForClient($items, $promoCode, $lockedClient, $couponClaimId);
             $order = Order::create([
                 'client_id' => $lockedClient->id,
                 'order_number' => $this->nextOrderNumber(),
@@ -66,6 +67,9 @@ class OrderService
                 PromoCode::query()
                     ->where('code', $totals['promo_code'])
                     ->increment('used_count');
+            }
+            if ($totals['coupon_claim'] instanceof CouponClaim) {
+                app(CouponService::class)->markUsed($totals['coupon_claim'], $order->id);
             }
 
             $hostService = new HostService($this->pricingService, $this->invoiceService);
@@ -113,7 +117,7 @@ class OrderService
         return $this->calculateTotalForClient($items, $promoCode);
     }
 
-    private function calculateTotalForClient(array $items, ?string $promoCode = null, ?Client $client = null): array
+    private function calculateTotalForClient(array $items, ?string $promoCode = null, ?Client $client = null, ?int $couponClaimId = null): array
     {
         $subtotal = 0.0;
         $currencyId = null;
@@ -184,7 +188,38 @@ class OrderService
             ];
         }
 
-        $discount = round($promoDiscount + $groupDiscount, 2);
+        $couponDiscount = 0.0;
+        $couponClaim = null;
+        if ($couponClaimId && $client) {
+            $baseAfterOther = max(0.0, $subtotal - $promoDiscount - $groupDiscount);
+            $firstProductId = null;
+            foreach ($items as $item) {
+                $firstProductId = (int) ($item['product_id'] ?? ($item['product']->id ?? null));
+                break;
+            }
+            try {
+                $result = app(CouponService::class)->validateAndCalculate(
+                    $couponClaimId,
+                    $client->id,
+                    $baseAfterOther,
+                    $firstProductId
+                );
+                $couponDiscount = (float) $result['discount'];
+                $couponClaim = $result['claim'];
+                if ($couponDiscount > 0) {
+                    $invoiceItems[] = [
+                        'type' => 'discount',
+                        'description' => '优惠券 ' . $couponClaim->coupon->name,
+                        'amount' => -round($couponDiscount, 2),
+                        'meta' => ['coupon_claim_id' => $couponClaimId],
+                    ];
+                }
+            } catch (\InvalidArgumentException) {
+                // invalid or already-used coupon — skip silently
+            }
+        }
+
+        $discount = round($promoDiscount + $groupDiscount + $couponDiscount, 2);
 
         return [
             'subtotal' => round($subtotal, 2),
@@ -193,6 +228,7 @@ class OrderService
             'currency_id' => $currencyId ?? $this->pricingService->defaultCurrencyId(),
             'promo_code' => $appliedPromoCode,
             'invoice_items' => $invoiceItems,
+            'coupon_claim' => $couponClaim,
         ];
     }
 

@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\AnnouncementController;
 use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\BackupController;
 use App\Http\Controllers\Admin\CancelRequestController;
+use App\Http\Controllers\Admin\CouponController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\ClientGroupController;
 use App\Http\Controllers\Admin\ClientSegmentController;
@@ -363,6 +364,9 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
         ->middleware('admin.permission:promo.manage')
         ->name('promo-codes.toggle');
     Route::resource('promo-codes', PromoCodeController::class)
+        ->except(['show'])
+        ->middleware('admin.permission:promo.manage');
+    Route::resource('coupons', CouponController::class)
         ->except(['show'])
         ->middleware('admin.permission:promo.manage');
     Route::get('/tax-rules', [TaxRuleController::class, 'index'])
