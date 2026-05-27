@@ -28,7 +28,7 @@ class AddonService
                 $lockedAddon->decrement('stock_qty');
             }
 
-            return HostAddon::query()->create([
+            $hostAddon = HostAddon::query()->create([
                 'host_id' => $host->id,
                 'addon_id' => $lockedAddon->id,
                 'price' => $lockedAddon->price,
@@ -36,6 +36,10 @@ class AddonService
                 'status' => 'Active',
                 'next_due_date' => $lockedAddon->billing_cycle === 'recurring' ? $host->next_due_date : null,
             ]);
+
+            DB::afterCommit(fn () => app(ProductCacheService::class)->invalidateProduct((int) $lockedAddon->product_id));
+
+            return $hostAddon;
         });
     }
 

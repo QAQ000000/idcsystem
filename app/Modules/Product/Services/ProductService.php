@@ -23,13 +23,16 @@ class ProductService
      */
     public function create(array $data): Product
     {
-        return DB::transaction(function () use ($data) {
+        $product = DB::transaction(function () use ($data) {
             $product = Product::create($this->normalizeProductPayload($data));
             $this->checkProductStockAlert($product);
-            $this->cache->invalidateProduct((int) $product->id);
 
             return $product;
         });
+
+        $this->cache->invalidateProduct((int) $product->id);
+
+        return $product;
     }
 
     /**
@@ -37,16 +40,21 @@ class ProductService
      */
     public function update(Product $product, array $data): bool
     {
-        return DB::transaction(function () use ($product, $data) {
+        $updated = DB::transaction(function () use ($product, $data) {
             $updated = $product->update($this->normalizeProductPayload($data, $product));
             if ($updated) {
                 $product->refresh();
                 $this->checkProductStockAlert($product);
-                $this->cache->invalidateProduct((int) $product->id);
             }
 
             return $updated;
         });
+
+        if ($updated) {
+            $this->cache->invalidateProduct((int) $product->id);
+        }
+
+        return $updated;
     }
 
     /**
@@ -54,7 +62,7 @@ class ProductService
      */
     public function delete(Product $product): bool
     {
-        return DB::transaction(function () use ($product) {
+        $deleted = DB::transaction(function () use ($product) {
             if ($product->hosts()->exists()) {
                 return false;
             }
@@ -69,13 +77,14 @@ class ProductService
                 ->where('rel_id', $product->id)
                 ->delete();
 
-            $deleted = (bool) $product->delete();
-            if ($deleted) {
-                $this->cache->invalidateProduct((int) $product->id);
-            }
-
-            return $deleted;
+            return (bool) $product->delete();
         });
+
+        if ($deleted) {
+            $this->cache->invalidateProduct((int) $product->id);
+        }
+
+        return $deleted;
     }
 
     /**
@@ -120,7 +129,7 @@ class ProductService
             return true;
         }
 
-        return DB::transaction(function () use ($product, $qty) {
+        $decremented = DB::transaction(function () use ($product, $qty) {
             $affected = Product::query()
                 ->whereKey($product->id)
                 ->where('stock_control', true)
@@ -130,11 +139,16 @@ class ProductService
             if ($affected > 0) {
                 $product->refresh();
                 $this->checkProductStockAlert($product);
-                $this->cache->invalidateProduct((int) $product->id);
             }
 
             return $affected > 0;
         });
+
+        if ($decremented) {
+            $this->cache->invalidateProduct((int) $product->id);
+        }
+
+        return $decremented;
     }
 
     /**

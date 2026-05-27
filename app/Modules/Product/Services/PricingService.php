@@ -77,7 +77,8 @@ class PricingService
     ): float
     {
         $currencyId = (int) ($currencyId ?? $configOptions['currency_id'] ?? $this->defaultCurrencyId());
-        $pricing = $this->getPricing('product', (int) $product->id, $currencyId);
+        $pricing = $this->loadedPricing($product, $currencyId)
+            ?? $this->getPricing('product', (int) $product->id, $currencyId);
 
         if (!$pricing) {
             return 0.0;
@@ -144,6 +145,16 @@ class PricingService
         }
 
         return $payload;
+    }
+
+    private function loadedPricing(Product $product, int $currencyId): ?Pricing
+    {
+        if (!$product->relationLoaded('pricings')) {
+            return null;
+        }
+
+        return $product->pricings
+            ->first(fn (Pricing $pricing): bool => (int) $pricing->currency_id === $currencyId);
     }
 
     /**

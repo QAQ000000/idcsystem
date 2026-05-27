@@ -16,6 +16,7 @@ use App\Modules\User\Models\Client;
 use App\Modules\User\Services\ClientService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
@@ -84,6 +85,31 @@ class ApiTest extends TestCase
             ->assertJsonFragment(['name' => $product->name])
             ->assertJsonMissing(['name' => $hidden->name])
             ->assertJsonPath('data.0.prices.monthly', 100);
+    }
+
+    public function test_api_products_reuse_loaded_pricing_without_per_product_price_queries(): void
+    {
+        $client = $this->client();
+        for ($i = 1; $i <= 5; $i++) {
+            $this->product(['name' => 'API Query Product ' . $i]);
+        }
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+
+        $this->actingAs($client, 'sanctum')
+            ->getJson('/api/products')
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        $queries = collect(DB::getQueryLog())->pluck('query');
+        DB::disableQueryLog();
+
+        $pricingQueries = $queries
+            ->filter(fn (string $query): bool => str_contains($query, 'from "pricings"'))
+            ->count();
+
+        $this->assertLessThanOrEqual(2, $pricingQueries);
     }
 
     public function test_api_protects_host_and_invoice_ownership(): void
@@ -175,7 +201,7 @@ class ApiTest extends TestCase
             ->getJson('/api/products')
             ->assertOk()
             ->assertJsonFragment(['id' => $product->id, 'stock_qty' => 1]);
-        $this->assertNotNull(Cache::get('product:available'));
+        $this->assertNotNull(Cache::get('product:available:ids'));
 
         $this->assertTrue(app(ProductService::class)->decrementStock($product, 1));
 

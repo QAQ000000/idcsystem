@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Models\ProductAddon;
+use App\Modules\Product\Services\ProductCacheService;
 use App\Services\AdminAuditService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -26,6 +27,7 @@ class ProductAddonController extends Controller
         $data = $this->validated($request);
         $addon = $product->addons()->create($data);
         $audit->record($request, 'product_addon.create', $addon, 'success', $data);
+        app(ProductCacheService::class)->invalidateProduct((int) $product->id);
 
         return redirect()->route('admin.products.addons.index', $product)->with('status', '附加项已创建');
     }
@@ -36,6 +38,7 @@ class ProductAddonController extends Controller
         $data = $this->validated($request);
         $addon->update($data);
         $audit->record($request, 'product_addon.update', $addon, 'success', $data);
+        app(ProductCacheService::class)->invalidateProduct((int) $product->id);
 
         return redirect()->route('admin.products.addons.index', $product)->with('status', '附加项已保存');
     }
@@ -46,6 +49,7 @@ class ProductAddonController extends Controller
         $addonId = $addon->id;
         $addon->delete();
         $audit->record($request, 'product_addon.delete', null, 'success', ['product_addon_id' => $addonId]);
+        app(ProductCacheService::class)->invalidateProduct((int) $product->id);
 
         return redirect()->route('admin.products.addons.index', $product)->with('status', '附加项已删除');
     }

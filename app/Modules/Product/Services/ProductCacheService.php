@@ -14,9 +14,8 @@ class ProductCacheService extends CacheService
 
     public function getAvailableProducts(): Collection
     {
-        return $this->remember('available', function (): Collection {
+        $ids = $this->remember('available:ids', function (): array {
             return Product::query()
-                ->with(['group', 'pricings'])
                 ->where('hidden', false)
                 ->where('retired', false)
                 ->where(function ($query) {
@@ -25,41 +24,66 @@ class ProductCacheService extends CacheService
                 })
                 ->orderBy('sort_order')
                 ->orderBy('id')
-                ->get();
+                ->pluck('id')
+                ->all();
         });
+
+        return $this->productsByIds($ids, ['group', 'pricings']);
     }
 
     public function getProduct(int $id): ?Product
     {
-        return $this->remember("detail:{$id}", function () use ($id): ?Product {
-            return Product::query()
-                ->with([
-                    'group',
-                    'pricings',
-                    'customFields' => fn ($query) => $query
-                        ->where('admin_only', false)
-                        ->orderBy('sort_order')
-                        ->orderBy('id'),
-                    'addons' => fn ($query) => $query
-                        ->where('active', true)
-                        ->where(function ($query): void {
-                            $query->whereNull('stock_qty')->orWhere('stock_qty', '>', 0);
-                        })
-                        ->orderBy('sort_order')
-                        ->orderBy('id'),
-                ])
-                ->find($id);
-        });
+        $exists = $this->remember("detail:{$id}:exists", fn (): bool => Product::query()->whereKey($id)->exists());
+        if (!$exists) {
+            return null;
+        }
+
+        return Product::query()
+            ->with([
+                'group',
+                'pricings',
+                'customFields' => fn ($query) => $query
+                    ->where('admin_only', false)
+                    ->orderBy('sort_order')
+                    ->orderBy('id'),
+                'addons' => fn ($query) => $query
+                    ->where('active', true)
+                    ->where(function ($query): void {
+                        $query->whereNull('stock_qty')->orWhere('stock_qty', '>', 0);
+                    })
+                    ->orderBy('sort_order')
+                    ->orderBy('id'),
+            ])
+            ->find($id);
     }
 
     public function invalidateProduct(int $id): void
     {
-        $this->forget("detail:{$id}");
-        $this->forget('available');
+        $this->forget("detail:{$id}:exists");
+        $this->forget('available:ids');
     }
 
     public function invalidateAll(): void
     {
-        $this->forget('available');
+        $this->forget('available:ids');
+    }
+
+    private function productsByIds(array $ids, array $relations): Collection
+    {
+        if ($ids === []) {
+            return new Collection();
+        }
+
+        $products = Product::query()
+            ->with($relations)
+            ->whereIn('id', $ids)
+            ->get()
+            ->keyBy('id');
+
+        return new Collection(collect($ids)
+            ->map(fn (int $id) => $products->get($id))
+            ->filter()
+            ->values()
+            ->all());
     }
 }

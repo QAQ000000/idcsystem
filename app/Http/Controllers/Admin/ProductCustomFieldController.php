@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Modules\Product\Models\CustomField;
 use App\Modules\Product\Models\Product;
+use App\Modules\Product\Services\ProductCacheService;
 use App\Services\AdminAuditService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -22,6 +23,7 @@ class ProductCustomFieldController extends Controller
             'field_id' => $field->id,
             'field_name' => $field->field_name,
         ]);
+        app(ProductCacheService::class)->invalidateProduct((int) $product->id);
 
         return redirect()->route('admin.products.show', $product)->with('status', '自定义字段已创建');
     }
@@ -35,6 +37,7 @@ class ProductCustomFieldController extends Controller
             'field_id' => $customField->id,
             'field_name' => $customField->field_name,
         ]);
+        app(ProductCacheService::class)->invalidateProduct((int) $product->id);
 
         return redirect()->route('admin.products.show', $product)->with('status', '自定义字段已保存');
     }
@@ -47,6 +50,7 @@ class ProductCustomFieldController extends Controller
         $audit->record($request, 'product.custom_field.delete', $product, 'success', [
             'field_id' => $fieldId,
         ]);
+        app(ProductCacheService::class)->invalidateProduct((int) $product->id);
 
         return redirect()->route('admin.products.show', $product)->with('status', '自定义字段已删除');
     }

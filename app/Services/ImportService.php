@@ -9,6 +9,7 @@ use App\Modules\Finance\Models\InvoiceItem;
 use App\Modules\Product\Models\Pricing;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Models\ProductGroup;
+use App\Modules\Product\Services\ProductCacheService;
 use App\Modules\User\Models\Client;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -114,7 +115,7 @@ class ImportService
             'stock_qty' => ['nullable', 'integer', 'min:0'],
         ]);
 
-        return DB::transaction(function () use ($data) {
+        $product = DB::transaction(function () use ($data) {
             $product = Product::query()->create([
                 'group_id' => (int) $data['group_id'],
                 'name' => $data['name'],
@@ -138,6 +139,10 @@ class ImportService
 
             return $product;
         });
+
+        app(ProductCacheService::class)->invalidateProduct((int) $product->id);
+
+        return $product;
     }
 
     public function importInvoices(array $row): ?Invoice
