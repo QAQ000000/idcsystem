@@ -21,6 +21,7 @@ use App\Modules\User\Services\TwoFactorService;
 use App\Plugins\Core\PluginManager;
 use App\Services\SettingsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Spatie\Permission\Models\Permission;
@@ -579,6 +580,30 @@ class ClientTest extends TestCase
             ->assertSee($ticket->ticket_number)
             ->assertSee('deleted-list-client')
             ->assertSee('已删除');
+    }
+
+    public function test_admin_ticket_index_eager_loads_list_relations(): void
+    {
+        $admin = $this->admin();
+        $client = $this->client('query-ticket-client', 'query-ticket@example.com');
+
+        for ($i = 1; $i <= 5; $i++) {
+            $this->createTicket($client, 'TICQUERY' . $i, '查询优化工单 ' . $i);
+        }
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.tickets.index'))
+            ->assertOk()
+            ->assertSee('TICQUERY1');
+
+        $queries = collect(DB::getQueryLog())->pluck('query')->implode("\n");
+        DB::disableQueryLog();
+
+        $this->assertStringNotContainsString('where "ticket_id" = ?', $queries);
+        $this->assertLessThanOrEqual(10, substr_count($queries, "\n") + 1);
     }
 
     public function test_admin_related_list_filters_ignore_array_query_values(): void

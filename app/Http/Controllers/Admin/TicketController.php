@@ -17,9 +17,15 @@ class TicketController extends Controller
     public function index(Request $request)
     {
         $keyword = $this->queryString($request, 'keyword');
+        $statusId = $this->queryInteger($request, 'status_id');
+        $departmentId = $this->queryInteger($request, 'department_id');
+        $assignedTo = $this->queryInteger($request, 'assigned_to');
 
         $tickets = Ticket::query()
             ->with(['client', 'department', 'status', 'slaLog', 'assignedUser'])
+            ->when($statusId, fn ($query, int $statusId) => $query->where('status_id', $statusId))
+            ->when($departmentId, fn ($query, int $departmentId) => $query->where('department_id', $departmentId))
+            ->when($assignedTo, fn ($query, int $assignedTo) => $query->where('assigned_to', $assignedTo))
             ->when($keyword, function ($query, string $keyword) {
                 $query->where(function ($query) use ($keyword) {
                     $query->where('ticket_number', 'like', "%{$keyword}%")
@@ -31,7 +37,8 @@ class TicketController extends Controller
                 });
             })
             ->latest()
-            ->paginate(20);
+            ->paginate(20)
+            ->withQueryString();
 
         return view('admin.tickets.index', compact('tickets'));
     }
@@ -117,6 +124,17 @@ class TicketController extends Controller
         $value = trim((string) $value);
 
         return $value === '' ? null : $value;
+    }
+
+    private function queryInteger(Request $request, string $key): ?int
+    {
+        $value = $this->queryString($request, $key);
+
+        if ($value === null || !ctype_digit($value)) {
+            return null;
+        }
+
+        return (int) $value;
     }
 
     private function storeAttachments(Request $request): array
