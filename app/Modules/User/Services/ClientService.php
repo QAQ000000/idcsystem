@@ -3,6 +3,7 @@
 namespace App\Modules\User\Services;
 
 use App\Modules\User\Models\Client;
+use App\Modules\Finance\Models\Currency;
 use App\Services\ClientActivityService;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
@@ -16,8 +17,16 @@ class ClientService
     {
         $data['password'] = Hash::make($data['password']);
         $data['status'] = 0; // Inactive by default
+        $data['currency_id'] ??= $this->defaultCurrencyId();
 
         return Client::create($data);
+    }
+
+    private function defaultCurrencyId(): int
+    {
+        return (int) (Currency::query()->where('is_default', true)->value('id')
+            ?: Currency::query()->orderBy('id')->value('id')
+            ?: 1);
     }
 
     public function update(Client $client, array $data): bool

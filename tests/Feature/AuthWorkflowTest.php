@@ -24,8 +24,6 @@ class AuthWorkflowTest extends TestCase
 
     public function test_admin_and_client_workflows_use_separate_guards(): void
     {
-        $this->withoutExceptionHandling();
-
         $this->seed();
 
         $this->post(route('admin.login.store'), [
@@ -94,17 +92,11 @@ class AuthWorkflowTest extends TestCase
         $this->assertTrue($client->fresh()->isActive());
         $this->assertNotNull($client->fresh()->email_verified_at);
 
-        try {
-            $this->post(route('client.cart.add'), [
-                'product_id' => $product->id,
-                'billing_cycle' => 'monthly',
-                'qty' => 1,
-            ])->assertRedirect(route('client.cart.index'));
-        } catch (\Throwable $exception) {
-            fwrite(STDERR, $exception->getTraceAsString() . PHP_EOL);
-
-            throw $exception;
-        }
+        $this->post(route('client.cart.add'), [
+            'product_id' => $product->id,
+            'billing_cycle' => 'monthly',
+            'qty' => 1,
+        ])->assertRedirect(route('client.cart.index'));
 
         $this->post(route('client.cart.checkout'))->assertRedirect();
         $this->assertDatabaseHas('orders', ['client_id' => $client->id]);
