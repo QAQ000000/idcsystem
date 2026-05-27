@@ -17,6 +17,7 @@ class InstallTest extends TestCase
 {
     private string $lockPath;
     private string $envPath;
+    private bool $restoreSettingsTable = false;
 
     protected function setUp(): void
     {
@@ -30,7 +31,8 @@ class InstallTest extends TestCase
         ]);
         File::delete($this->lockPath);
         File::delete($this->envPath);
-        $this->forgetInstallMarkerTable();
+        $this->restoreSettingsTable = false;
+        $this->forgetInstallMarker();
     }
 
     protected function tearDown(): void
@@ -39,17 +41,43 @@ class InstallTest extends TestCase
         File::delete($this->envPath);
         File::delete(storage_path('app/install.state.json'));
         File::delete(storage_path('framework/testing/install.sqlite'));
+        if ($this->restoreSettingsTable) {
+            $this->ensureSettingsTableExists();
+        }
 
         parent::tearDown();
     }
 
-    private function forgetInstallMarkerTable(): void
+    private function forgetInstallMarker(): void
     {
         try {
-            Schema::dropIfExists('settings');
+            if (Schema::hasTable('settings')) {
+                DB::table('settings')->where('key', 'system.installed_at')->delete();
+            }
         } catch (\Throwable) {
             // 安装器测试需要覆盖数据库不可用场景；清理失败不应掩盖目标断言。
         }
+    }
+
+    private function recreateSettingsTable(): void
+    {
+        Schema::dropIfExists('settings');
+        $this->ensureSettingsTableExists();
+    }
+
+    private function ensureSettingsTableExists(): void
+    {
+        if (Schema::hasTable('settings')) {
+            return;
+        }
+
+        Schema::create('settings', function (Blueprint $table): void {
+            $table->id();
+            $table->string('key', 100)->unique();
+            $table->text('value')->nullable();
+            $table->string('group', 50)->default('general');
+            $table->timestamps();
+        });
     }
 
     public function test_uninstalled_install_page_is_accessible(): void
@@ -96,13 +124,7 @@ class InstallTest extends TestCase
 
     public function test_installed_status_uses_database_marker_when_lock_file_is_missing(): void
     {
-        Schema::create('settings', function (Blueprint $table): void {
-            $table->id();
-            $table->string('key', 100)->unique();
-            $table->text('value')->nullable();
-            $table->string('group', 50)->default('general');
-            $table->timestamps();
-        });
+        $this->recreateSettingsTable();
 
         DB::table('settings')->insert([
             'key' => 'system.installed_at',
@@ -121,6 +143,9 @@ class InstallTest extends TestCase
 
     public function test_install_status_ignores_missing_settings_table(): void
     {
+        Schema::dropIfExists('settings');
+        $this->restoreSettingsTable = true;
+
         $this->assertFalse(Schema::hasTable('settings'));
         $this->assertFalse(app(InstallService::class)->isInstalled());
     }
@@ -452,13 +477,7 @@ class InstallTest extends TestCase
 
     public function test_mark_installed_removes_install_state(): void
     {
-        Schema::create('settings', function (Blueprint $table): void {
-            $table->id();
-            $table->string('key', 100)->unique();
-            $table->text('value')->nullable();
-            $table->string('group', 50)->default('general');
-            $table->timestamps();
-        });
+        $this->recreateSettingsTable();
 
         $installer = app(InstallService::class);
         $installer->storeDatabaseConfig([
