@@ -1,0 +1,51 @@
+name: Laravel CI
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+    branches:
+      - master
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, dom, fileinfo, pdo_sqlite, sqlite3, zip, gd, intl, curl, openssl, pcntl
+          coverage: none
+
+      - name: Prepare environment
+        run: |
+          cp .env.example .env
+          mkdir -p database storage/framework/cache storage/framework/sessions storage/framework/views storage/logs
+          touch database/database.sqlite
+
+      - name: Install Composer dependencies
+        uses: ramsey/composer-install@v3
+        with:
+          composer-options: --no-interaction --prefer-dist --no-progress
+
+      - name: Generate application key
+        run: php artisan key:generate --ansi
+
+      - name: Check code style
+        run: vendor/bin/pint --test
+
+      - name: Run test suite
+        run: php artisan test
