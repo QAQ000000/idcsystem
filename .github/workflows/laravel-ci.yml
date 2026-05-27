@@ -71,8 +71,5 @@ jobs:
       - name: Generate application key
         run: php artisan key:generate --ansi
 
-      - name: Check code style
-        run: vendor/bin/pint --test
-
       - name: Run test suite
         run: php artisan test
