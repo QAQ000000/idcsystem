@@ -23,6 +23,65 @@
         <pre class="overflow-auto rounded bg-slate-950 p-4 text-xs text-white">{{ $customReport->query }}</pre>
     </section>
 
+    @php
+        $chartable = false;
+        $numericCols = [];
+        $labelCol = null;
+        if (!empty($result['rows']) && !empty($result['columns'])) {
+            $labelCol = $result['columns'][0];
+            foreach (array_slice($result['columns'], 1) as $col) {
+                $allNumeric = true;
+                foreach ($result['rows'] as $row) {
+                    if (isset($row[$col]) && $row[$col] !== '' && !is_numeric($row[$col])) {
+                        $allNumeric = false;
+                        break;
+                    }
+                }
+                if ($allNumeric) {
+                    $numericCols[] = $col;
+                }
+            }
+            $chartable = count($numericCols) > 0;
+        }
+    @endphp
+
+    @if ($chartable)
+    <section class="mb-6 rounded bg-white p-5 shadow-sm">
+        <div class="mb-3 text-sm font-semibold text-slate-700">数据图表</div>
+        <div style="position:relative;height:300px">
+            <canvas id="customReportChart"></canvas>
+        </div>
+    </section>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var el = document.getElementById('customReportChart');
+        if (!el || typeof Chart === 'undefined') return;
+        var palette = ['#2563eb','#16a34a','#f59e0b','#dc2626','#7c3aed','#0891b2','#be185d'];
+        var labels = @json(array_column($result['rows'], $labelCol));
+        var datasets = @json(array_values(array_map(function ($col, $i) use ($result, $palette) {
+            return [
+                'label' => $col,
+                'data' => array_map(fn($r) => is_numeric($r[$col] ?? null) ? (float)$r[$col] : null, $result['rows']),
+                'backgroundColor' => $palette[$i % count($palette)] . '33',
+                'borderColor' => $palette[$i % count($palette)],
+                'borderWidth' => 2,
+                'tension' => 0.25,
+            ];
+        }, $numericCols, array_keys($numericCols))));
+        new Chart(el, {
+            type: 'bar',
+            data: { labels: labels, datasets: datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: true } },
+            },
+        });
+    });
+    </script>
+    @endif
+
     <section class="mb-6 rounded bg-white shadow-sm">
         <div class="border-b px-5 py-4 font-semibold">执行结果</div>
         <div class="overflow-auto">
