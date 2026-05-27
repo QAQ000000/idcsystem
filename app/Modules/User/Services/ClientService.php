@@ -92,6 +92,7 @@ class ClientService
 
         if ($added) {
             $freshClient = $client->fresh();
+            app(ClientCacheService::class)->invalidateClient((int) $freshClient->id);
             app(ClientActivityService::class)->log($freshClient, 'credit.added', '账户余额已增加', [
                 'amount' => $amount,
                 'balance' => (float) $freshClient->credit,
@@ -110,7 +111,7 @@ class ClientService
             return false;
         }
 
-        return DB::transaction(function () use ($client, $amount, $description) {
+        $deducted = DB::transaction(function () use ($client, $amount, $description) {
             $lockedClient = Client::query()->whereKey($client->id)->lockForUpdate()->first();
             if (!$lockedClient || !$this->canAdjustCredit($lockedClient) || !$this->canAfford($lockedClient, $amount)) {
                 return false;
@@ -129,6 +130,12 @@ class ClientService
 
             return true;
         });
+
+        if ($deducted) {
+            app(ClientCacheService::class)->invalidateClient((int) $client->id);
+        }
+
+        return $deducted;
     }
 
     /**
@@ -158,7 +165,12 @@ class ClientService
             return false;
         }
 
-        return (bool) $client->update(['credit_limit' => $limit]);
+        $updated = (bool) $client->update(['credit_limit' => $limit]);
+        if ($updated) {
+            app(ClientCacheService::class)->invalidateClient((int) $client->id);
+        }
+
+        return $updated;
     }
 
     private function canAdjustCredit(Client $client): bool

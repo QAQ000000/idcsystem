@@ -26,23 +26,9 @@ class ProductController extends Controller
 
     public function show(Product $product, PricingService $pricing, CurrencyService $currencies)
     {
-        abort_unless(app(ProductService::class)->isPurchasable($product), 404);
+        $product = app(ProductService::class)->getProduct((int) $product->id);
+        abort_unless($product && app(ProductService::class)->isPurchasable($product), 404);
 
-        $product->load([
-            'group',
-            'pricings',
-            'customFields' => fn ($query) => $query
-                ->where('admin_only', false)
-                ->orderBy('sort_order')
-                ->orderBy('id'),
-            'addons' => fn ($query) => $query
-                ->where('active', true)
-                ->where(function ($query): void {
-                    $query->whereNull('stock_qty')->orWhere('stock_qty', '>', 0);
-                })
-                ->orderBy('sort_order')
-                ->orderBy('id'),
-        ]);
         $currency = $this->displayCurrency($currencies);
 
         return view('theme::products.show', [

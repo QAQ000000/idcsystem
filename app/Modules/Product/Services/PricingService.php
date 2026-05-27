@@ -38,7 +38,7 @@ class PricingService
             array_intersect_key($prices, array_flip(self::PRICE_FIELDS))
         );
 
-        return Pricing::updateOrCreate(
+        $pricing = Pricing::updateOrCreate(
             [
                 'type' => $type,
                 'rel_id' => $relId,
@@ -46,6 +46,12 @@ class PricingService
             ],
             $payload
         );
+
+        if ($type === 'product') {
+            app(ProductCacheService::class)->invalidateProduct($relId);
+        }
+
+        return $pricing;
     }
 
     /**

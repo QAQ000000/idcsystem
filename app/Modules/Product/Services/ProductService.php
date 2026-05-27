@@ -13,6 +13,11 @@ use InvalidArgumentException;
 
 class ProductService
 {
+    public function __construct(private ?ProductCacheService $cache = null)
+    {
+        $this->cache ??= app(ProductCacheService::class);
+    }
+
     /**
      * 创建产品。
      */
@@ -21,6 +26,7 @@ class ProductService
         return DB::transaction(function () use ($data) {
             $product = Product::create($this->normalizeProductPayload($data));
             $this->checkProductStockAlert($product);
+            $this->cache->invalidateProduct((int) $product->id);
 
             return $product;
         });
@@ -36,6 +42,7 @@ class ProductService
             if ($updated) {
                 $product->refresh();
                 $this->checkProductStockAlert($product);
+                $this->cache->invalidateProduct((int) $product->id);
             }
 
             return $updated;
@@ -62,7 +69,12 @@ class ProductService
                 ->where('rel_id', $product->id)
                 ->delete();
 
-            return (bool) $product->delete();
+            $deleted = (bool) $product->delete();
+            if ($deleted) {
+                $this->cache->invalidateProduct((int) $product->id);
+            }
+
+            return $deleted;
         });
     }
 
@@ -118,6 +130,7 @@ class ProductService
             if ($affected > 0) {
                 $product->refresh();
                 $this->checkProductStockAlert($product);
+                $this->cache->invalidateProduct((int) $product->id);
             }
 
             return $affected > 0;
@@ -129,17 +142,12 @@ class ProductService
      */
     public function getAvailableProducts(): Collection
     {
-        return Product::query()
-            ->with(['group', 'pricings'])
-            ->where('hidden', false)
-            ->where('retired', false)
-            ->where(function ($query) {
-                $query->where('stock_control', false)
-                    ->orWhere('stock_qty', '>', 0);
-            })
-            ->orderBy('sort_order')
-            ->orderBy('id')
-            ->get();
+        return $this->cache->getAvailableProducts();
+    }
+
+    public function getProduct(int $id): ?Product
+    {
+        return $this->cache->getProduct($id);
     }
 
     public function checkStockAlerts(): int

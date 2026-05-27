@@ -41,11 +41,10 @@ class ProductController extends ApiController
      */
     public function show(Product $product, PricingService $pricing, CurrencyService $currencies): JsonResponse
     {
-        if (!app(ProductService::class)->isPurchasable($product)) {
+        $product = app(ProductService::class)->getProduct((int) $product->id);
+        if (!$product || !app(ProductService::class)->isPurchasable($product)) {
             return $this->error('产品不存在或不可购买。', 404);
         }
-
-        $product->load(['group', 'pricings']);
 
         return $this->success($this->productPayload($product, $pricing, (int) $currencies->default()->id));
     }

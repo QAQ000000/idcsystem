@@ -10,8 +10,12 @@ use App\Modules\Order\Models\Order;
 use App\Modules\Product\Models\Pricing;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Models\ProductGroup;
+use App\Modules\Product\Services\PricingService;
+use App\Modules\Product\Services\ProductService;
 use App\Modules\User\Models\Client;
+use App\Modules\User\Services\ClientService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
@@ -140,6 +144,60 @@ class ApiTest extends TestCase
             ->assertJsonPath('data.credit_limit', 100)
             ->assertJsonPath('data.available_credit', 70)
             ->assertJsonPath('data.debt', 30);
+    }
+
+    public function test_api_account_credit_cache_is_invalidated_after_balance_changes(): void
+    {
+        $client = $this->client();
+        $client->update(['credit' => 10, 'credit_limit' => 20]);
+
+        $this->actingAs($client->fresh(), 'sanctum')
+            ->getJson('/api/account/credit')
+            ->assertOk()
+            ->assertJsonPath('data.available_credit', 30);
+        $this->assertSame(30.0, Cache::get('client:credit-summary:' . $client->id)['available_credit']);
+
+        $this->assertTrue(app(ClientService::class)->addCredit($client->fresh(), 15, '缓存失效测试'));
+
+        $this->actingAs($client->fresh(), 'sanctum')
+            ->getJson('/api/account/credit')
+            ->assertOk()
+            ->assertJsonPath('data.credit', 25)
+            ->assertJsonPath('data.available_credit', 45);
+    }
+
+    public function test_product_cache_is_invalidated_after_product_and_pricing_changes(): void
+    {
+        $client = $this->client();
+        $product = $this->product(['stock_control' => true, 'stock_qty' => 1]);
+
+        $this->actingAs($client, 'sanctum')
+            ->getJson('/api/products')
+            ->assertOk()
+            ->assertJsonFragment(['id' => $product->id, 'stock_qty' => 1]);
+        $this->assertNotNull(Cache::get('product:available'));
+
+        $this->assertTrue(app(ProductService::class)->decrementStock($product, 1));
+
+        $this->actingAs($client, 'sanctum')
+            ->getJson('/api/products')
+            ->assertOk()
+            ->assertJsonMissing(['id' => $product->id, 'stock_qty' => 1]);
+
+        $this->assertTrue(app(ProductService::class)->update($product->fresh(), ['stock_qty' => 2]));
+        $this->actingAs($client, 'sanctum')
+            ->getJson('/api/products/' . $product->id)
+            ->assertOk()
+            ->assertJsonPath('data.prices.monthly', 100);
+
+        app(PricingService::class)->setPricing('product', $product->id, $this->currency()->id, [
+            'monthly' => 150,
+        ]);
+
+        $this->actingAs($client, 'sanctum')
+            ->getJson('/api/products/' . $product->id)
+            ->assertOk()
+            ->assertJsonPath('data.prices.monthly', 150);
     }
 
     private function client(string $username = 'api-client', string $email = 'api-client@example.com'): Client

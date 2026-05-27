@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Modules\User\Models\Client;
 use App\Modules\User\Services\AuthService;
+use App\Modules\User\Services\ClientCacheService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -108,9 +109,6 @@ class AuthController extends ApiController
             'status' => $client->status,
             'phone' => $client->phone,
             'company_name' => $client->company_name,
-            'credit' => (float) $client->credit,
-            'credit_limit' => (float) $client->credit_limit,
-            'available_credit' => $client->availableCredit(),
-        ];
+        ] + app(ClientCacheService::class)->getCreditSummary((int) $client->id);
     }
 }

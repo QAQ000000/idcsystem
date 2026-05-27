@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Modules\Finance\Services\InvoiceService;
+use App\Modules\User\Services\ClientCacheService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -25,10 +26,7 @@ class AccountController extends ApiController
             'phone' => $client->phone,
             'status' => $client->status,
             'currency_id' => $client->currency_id,
-            'credit' => (float) $client->credit,
-            'credit_limit' => (float) $client->credit_limit,
-            'available_credit' => $client->availableCredit(),
-        ]);
+        ] + app(ClientCacheService::class)->getCreditSummary((int) $client->id));
     }
 
     /**
@@ -38,14 +36,7 @@ class AccountController extends ApiController
      */
     public function credit(Request $request): JsonResponse
     {
-        $client = $request->user();
-
-        return $this->success([
-            'credit' => (float) $client->credit,
-            'credit_limit' => (float) $client->credit_limit,
-            'available_credit' => $client->availableCredit(),
-            'debt' => max(0, abs(min(0, (float) $client->credit))),
-        ]);
+        return $this->success(app(ClientCacheService::class)->getCreditSummary((int) $request->user()->id));
     }
 
     /**
