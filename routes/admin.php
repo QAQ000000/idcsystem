@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\ClientGroupController;
 use App\Http\Controllers\Admin\ClientTagController;
 use App\Http\Controllers\Admin\ContractTemplateController;
+use App\Http\Controllers\Admin\CustomReportController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\DomainController;
 use App\Http\Controllers\Admin\DomainPricingController;
@@ -177,6 +178,18 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
 
     Route::prefix('reports')->name('reports.')->middleware('admin.permission:report.view')->group(function (): void {
         Route::get('/', [ReportController::class, 'index'])->name('index');
+        Route::get('custom', [CustomReportController::class, 'index'])->name('custom.index');
+        Route::get('custom/create', [CustomReportController::class, 'create'])
+            ->middleware('admin.permission:report.manage')
+            ->name('custom.create');
+        Route::post('custom', [CustomReportController::class, 'store'])
+            ->middleware('admin.permission:report.manage')
+            ->name('custom.store');
+        Route::get('custom/{customReport}', [CustomReportController::class, 'show'])->name('custom.show');
+        Route::get('custom/{customReport}/export', [CustomReportController::class, 'export'])->name('custom.export');
+        Route::delete('custom/{customReport}', [CustomReportController::class, 'destroy'])
+            ->middleware('admin.permission:report.manage')
+            ->name('custom.destroy');
         Route::get('revenue', [ReportController::class, 'revenue'])->name('revenue');
         Route::get('clients', [ReportController::class, 'clients'])->name('clients');
         Route::get('hosts', [ReportController::class, 'hosts'])->name('hosts');

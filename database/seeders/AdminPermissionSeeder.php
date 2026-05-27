@@ -30,6 +30,7 @@ class AdminPermissionSeeder extends Seeder
             'import.data',
             'gdpr.manage',
             'report.view',
+            'report.manage',
             'financial_statement.view',
             'financial_statement.manage',
             'announcement.manage',

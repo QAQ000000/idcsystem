@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Modules\Admin\Models\AdminUser;
+use App\Modules\Admin\Models\CustomReport;
+use App\Modules\Admin\Models\CustomReportExecution;
 use App\Modules\Finance\Models\Currency;
 use App\Modules\Finance\Models\Invoice;
 use App\Modules\Finance\Models\InvoiceItem;
@@ -29,7 +31,8 @@ class AdminReportTest extends TestCase
             ->assertSee('收入趋势')
             ->assertSee('客户增长')
             ->assertSee('服务状态')
-            ->assertSee('产品排行');
+            ->assertSee('产品排行')
+            ->assertSee('自定义报表');
     }
 
     public function test_revenue_report_uses_paid_invoice_totals(): void
@@ -107,6 +110,78 @@ class AdminReportTest extends TestCase
             ->assertOk()
             ->assertSee('Report VPS')
             ->assertSee('120.00');
+    }
+
+    public function test_admin_can_create_execute_and_export_custom_sql_report(): void
+    {
+        $client = $this->client();
+        $admin = $this->admin();
+
+        $response = $this->actingAs($admin, 'admin')
+            ->post(route('admin.reports.custom.store'), [
+                'name' => '客户邮箱报表',
+                'description' => '客户基础数据',
+                'query' => 'select id, username, email from clients',
+                'columns' => 'id, username, email',
+                'schedule' => 'hourly',
+                'recipients' => 'ops@example.com',
+            ]);
+
+        $report = CustomReport::query()->firstOrFail();
+        $response->assertRedirect(route('admin.reports.custom.show', $report));
+        $this->assertSame(['id', 'username', 'email'], $report->columns);
+        $this->assertSame(['ops@example.com'], $report->recipients);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.reports.custom.show', $report))
+            ->assertOk()
+            ->assertSee($client->email);
+
+        $this->assertDatabaseHas('custom_report_executions', [
+            'custom_report_id' => $report->id,
+            'status' => 'success',
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.reports.custom.export', $report))
+            ->assertOk()
+            ->assertHeader('content-disposition');
+    }
+
+    public function test_custom_report_rejects_destructive_sql(): void
+    {
+        $this->actingAs($this->admin(), 'admin')
+            ->from(route('admin.reports.custom.create'))
+            ->post(route('admin.reports.custom.store'), [
+                'name' => '危险报表',
+                'query' => 'delete from clients',
+            ])
+            ->assertRedirect(route('admin.reports.custom.create'))
+            ->assertSessionHasErrors('query');
+
+        $this->assertSame(0, CustomReport::query()->count());
+    }
+
+    public function test_scheduled_custom_report_command_executes_due_reports(): void
+    {
+        $client = $this->client();
+        $report = CustomReport::query()->create([
+            'name' => '计划客户报表',
+            'type' => 'sql',
+            'query' => 'select id, email from clients',
+            'columns' => ['id', 'email'],
+            'schedule' => 'every_minute',
+            'created_by' => $this->admin()->id,
+        ]);
+
+        $this->artisan('custom-reports:run-scheduled')->assertExitCode(0);
+
+        $this->assertDatabaseHas('custom_report_executions', [
+            'custom_report_id' => $report->id,
+            'status' => 'success',
+            'rows_count' => 1,
+        ]);
+        $this->assertSame($client->email, Client::query()->first()->email);
     }
 
     private function admin(): AdminUser

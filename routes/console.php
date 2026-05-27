@@ -343,6 +343,22 @@ Artisan::command('credit:recalculate-scores', function () {
     return 0;
 })->purpose('Recalculate client credit scores');
 
+Artisan::command('custom-reports:run-scheduled', function () {
+    $task = app(\App\Services\SystemTaskService::class)->run('custom-reports:run-scheduled', function () {
+        return [
+            'executed' => app(\App\Modules\Admin\Services\CustomReportService::class)->runScheduled(),
+        ];
+    });
+
+    if ($task->status === 'failed') {
+        $this->error($task->error ?: 'Scheduled custom reports failed');
+        return 1;
+    }
+
+    $this->info($task->output ?: 'Scheduled custom reports completed');
+    return 0;
+})->purpose('Run due custom reports');
+
 // 核心业务调度：由系统 cron 每分钟触发 schedule:run 后按频率执行。
 Schedule::command('logs:cleanup')->dailyAt('01:00');
 Schedule::command('billing:generate-invoices')->dailyAt('02:00');
@@ -364,3 +380,4 @@ Schedule::command('notifications:recover-stale')->everyFifteenMinutes();
 Schedule::command('campaigns:send-scheduled')->everyMinute();
 Schedule::command('tickets:check-sla-breaches')->everyFifteenMinutes();
 Schedule::command('products:check-stock-alerts')->hourly();
+Schedule::command('custom-reports:run-scheduled')->everyMinute();
