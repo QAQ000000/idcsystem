@@ -1,9 +1,9 @@
 <?php
 
-use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\AdminActionLogController;
 use App\Http\Controllers\Admin\AffiliateController;
 use App\Http\Controllers\Admin\AnnouncementController;
+use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\BackupController;
 use App\Http\Controllers\Admin\CancelRequestController;
 use App\Http\Controllers\Admin\ClientController;
@@ -15,8 +15,8 @@ use App\Http\Controllers\Admin\CustomReportController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\DomainController;
 use App\Http\Controllers\Admin\DomainPricingController;
-use App\Http\Controllers\Admin\EmailLogController;
 use App\Http\Controllers\Admin\EmailCampaignController;
+use App\Http\Controllers\Admin\EmailLogController;
 use App\Http\Controllers\Admin\EmailTemplateController;
 use App\Http\Controllers\Admin\ExportController;
 use App\Http\Controllers\Admin\FinancialStatementController;
@@ -29,19 +29,19 @@ use App\Http\Controllers\Admin\KbArticleController;
 use App\Http\Controllers\Admin\KbCategoryController;
 use App\Http\Controllers\Admin\LogController;
 use App\Http\Controllers\Admin\LoginAttemptController;
-use App\Http\Controllers\Admin\OrderController;
-use App\Http\Controllers\Admin\PromoCodeController;
 use App\Http\Controllers\Admin\NotificationCenterController;
+use App\Http\Controllers\Admin\OrderController;
 use App\Http\Controllers\Admin\PluginController;
-use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\ProductAddonController;
+use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\ProductCustomFieldController;
+use App\Http\Controllers\Admin\PromoCodeController;
 use App\Http\Controllers\Admin\ReportController;
-use App\Http\Controllers\Admin\SystemTaskController;
 use App\Http\Controllers\Admin\SettingController;
 use App\Http\Controllers\Admin\SmsLogController;
 use App\Http\Controllers\Admin\SmsTemplateController;
 use App\Http\Controllers\Admin\SslController;
+use App\Http\Controllers\Admin\SystemTaskController;
 use App\Http\Controllers\Admin\TaxRuleController;
 use App\Http\Controllers\Admin\TicketAssignmentRuleController;
 use App\Http\Controllers\Admin\TicketController;
@@ -489,6 +489,9 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::post('/plugins/install', [PluginController::class, 'install'])
         ->middleware('admin.permission:plugin.manage')
         ->name('plugins.install');
+    Route::post('/plugins/marketplace/{marketplacePlugin}/install', [PluginController::class, 'installFromMarketplace'])
+        ->middleware('admin.permission:plugin.manage')
+        ->name('plugins.marketplace.install');
     Route::post('/plugins/{name}/uninstall', [PluginController::class, 'uninstall'])
         ->middleware('admin.permission:plugin.manage')
         ->name('plugins.uninstall');

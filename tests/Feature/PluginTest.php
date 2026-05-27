@@ -2,24 +2,27 @@
 
 namespace Tests\Feature;
 
-use App\Models\Plugin;
-use App\Models\PaymentAttempt;
 use App\Models\EmailLog;
+use App\Models\PaymentAttempt;
+use App\Models\Plugin;
 use App\Models\SmsLog;
 use App\Modules\Admin\Models\AdminUser;
+use App\Modules\Admin\Models\MarketplacePlugin;
+use App\Modules\Admin\Services\PluginMarketplaceService;
 use App\Modules\Finance\Models\Account;
 use App\Modules\Finance\Models\Invoice;
 use App\Modules\Product\Models\Product;
 use App\Modules\Product\Models\ProductGroup;
 use App\Modules\User\Models\Client;
 use App\Plugins\Core\PluginManager;
+use App\Providers\PluginServiceProvider;
 use App\Services\PluginConfigService;
 use App\Services\SettingsService;
-use Spatie\Permission\Models\Role;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
+use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
 class PluginTest extends TestCase
@@ -269,10 +272,101 @@ class PluginTest extends TestCase
         $this->assertFalse($manualPay['installed']);
     }
 
+    public function test_admin_can_browse_and_search_plugin_marketplace(): void
+    {
+        $this->seed();
+        $admin = AdminUser::query()->where('username', 'admin')->firstOrFail();
+
+        MarketplacePlugin::query()->create([
+            'name' => 'manual_pay',
+            'title' => 'Manual Pay Market',
+            'type' => 'gateway',
+            'version' => '1.0.0',
+            'description' => '银行转账收款',
+            'downloads_count' => 8,
+            'rating' => 4.5,
+            'is_verified' => true,
+        ]);
+        MarketplacePlugin::query()->create([
+            'name' => 'smtp',
+            'title' => 'SMTP Mail Market',
+            'type' => 'email',
+            'version' => '1.0.0',
+            'description' => '邮件发送服务',
+            'downloads_count' => 3,
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('admin.plugins.index', ['search' => 'Manual', 'type' => 'gateway', 'verified' => 1]))
+            ->assertOk()
+            ->assertSee('Manual Pay Market')
+            ->assertSee('已认证')
+            ->assertDontSee('SMTP Mail Market');
+    }
+
+    public function test_marketplace_install_checks_requirements_and_installs_local_plugin(): void
+    {
+        $this->seed();
+        $admin = AdminUser::query()->where('username', 'admin')->firstOrFail();
+        $marketplacePlugin = MarketplacePlugin::query()->create([
+            'name' => 'manual_pay',
+            'title' => 'Manual Pay Market',
+            'type' => 'gateway',
+            'version' => '1.0.0',
+            'description' => '银行转账收款',
+            'requirements' => [
+                'php' => '8.0',
+                'laravel' => '10.0',
+            ],
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.plugins.marketplace.install', $marketplacePlugin))
+            ->assertRedirect(route('admin.plugins.index'))
+            ->assertSessionHas('status', '市场插件已安装');
+
+        $this->assertDatabaseHas('plugins', [
+            'name' => 'manual_pay',
+            'type' => 'gateway',
+            'status' => 0,
+        ]);
+        $this->assertSame(1, $marketplacePlugin->fresh()->downloads_count);
+    }
+
+    public function test_marketplace_install_rejects_missing_requirement(): void
+    {
+        $this->seed();
+        $admin = AdminUser::query()->where('username', 'admin')->firstOrFail();
+        $marketplacePlugin = MarketplacePlugin::query()->create([
+            'name' => 'manual_pay',
+            'title' => 'Manual Pay Market',
+            'type' => 'gateway',
+            'version' => '1.0.0',
+            'requirements' => ['php' => '99.0'],
+        ]);
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('admin.plugins.marketplace.install', $marketplacePlugin))
+            ->assertRedirect(route('admin.plugins.index'))
+            ->assertSessionHas('error');
+
+        $this->assertDatabaseMissing('plugins', ['name' => 'manual_pay']);
+        $this->assertSame(0, $marketplacePlugin->fresh()->downloads_count);
+    }
+
+    public function test_marketplace_service_can_uninstall_installed_plugin(): void
+    {
+        $manager = app(PluginManager::class);
+        $manager->install('gateway', 'manual_pay');
+
+        $this->assertTrue(app(PluginMarketplaceService::class)->uninstall('manual_pay'));
+        $this->assertDatabaseMissing('plugins', ['name' => 'manual_pay']);
+    }
+
     public function test_admin_plugin_config_and_disable_flow(): void
     {
         $this->seed();
-        $admin = \App\Modules\Admin\Models\AdminUser::query()->where('username', 'admin')->firstOrFail();
+        $admin = AdminUser::query()->where('username', 'admin')->firstOrFail();
         $plugin = Plugin::query()->create([
             'name' => 'demo_sms',
             'title' => 'Demo SMS',
@@ -307,7 +401,7 @@ class PluginTest extends TestCase
     public function test_admin_plugin_config_rejects_array_values_for_scalar_fields(): void
     {
         $this->seed();
-        $admin = \App\Modules\Admin\Models\AdminUser::query()->where('username', 'admin')->firstOrFail();
+        $admin = AdminUser::query()->where('username', 'admin')->firstOrFail();
         app(PluginManager::class)->install('gateway', 'manual_pay');
         $plugin = Plugin::query()->where('name', 'manual_pay')->firstOrFail();
 
@@ -330,7 +424,7 @@ class PluginTest extends TestCase
     public function test_admin_plugin_config_does_not_render_saved_secret_and_blank_secret_keeps_existing_value(): void
     {
         $this->seed();
-        $admin = \App\Modules\Admin\Models\AdminUser::query()->where('username', 'admin')->firstOrFail();
+        $admin = AdminUser::query()->where('username', 'admin')->firstOrFail();
         $plugin = Plugin::query()->create([
             'name' => 'secure_sms',
             'title' => 'Secure SMS',
@@ -370,7 +464,7 @@ class PluginTest extends TestCase
     public function test_admin_plugin_config_page_ignores_array_old_input_values(): void
     {
         $this->seed();
-        $admin = \App\Modules\Admin\Models\AdminUser::query()->where('username', 'admin')->firstOrFail();
+        $admin = AdminUser::query()->where('username', 'admin')->firstOrFail();
         $plugin = Plugin::query()->create([
             'name' => 'array_old_sms',
             'title' => 'Array Old SMS',
@@ -401,7 +495,7 @@ class PluginTest extends TestCase
     public function test_password_type_config_field_is_treated_as_sensitive_even_when_key_name_is_generic(): void
     {
         $this->seed();
-        $admin = \App\Modules\Admin\Models\AdminUser::query()->where('username', 'admin')->firstOrFail();
+        $admin = AdminUser::query()->where('username', 'admin')->firstOrFail();
         $this->createPasswordFieldPlugin();
         $plugin = Plugin::query()->create([
             'name' => 'password_field_plugin',
@@ -438,7 +532,7 @@ class PluginTest extends TestCase
     public function test_signature_config_key_is_treated_as_sensitive_even_when_declared_as_text(): void
     {
         $this->seed();
-        $admin = \App\Modules\Admin\Models\AdminUser::query()->where('username', 'admin')->firstOrFail();
+        $admin = AdminUser::query()->where('username', 'admin')->firstOrFail();
         $this->createTextSignaturePlugin();
         $plugin = Plugin::query()->create([
             'name' => 'text_signature_plugin',
@@ -475,7 +569,7 @@ class PluginTest extends TestCase
     public function test_authorization_config_key_is_treated_as_sensitive_even_when_declared_as_text(): void
     {
         $this->seed();
-        $admin = \App\Modules\Admin\Models\AdminUser::query()->where('username', 'admin')->firstOrFail();
+        $admin = AdminUser::query()->where('username', 'admin')->firstOrFail();
         $this->createAuthorizationFieldPlugin();
         $plugin = Plugin::query()->create([
             'name' => 'authorization_field_plugin',
@@ -540,7 +634,7 @@ class PluginTest extends TestCase
     public function test_admin_plugin_actions_report_failure_when_target_missing(): void
     {
         $this->seed();
-        $admin = \App\Modules\Admin\Models\AdminUser::query()->where('username', 'admin')->firstOrFail();
+        $admin = AdminUser::query()->where('username', 'admin')->firstOrFail();
 
         $this->actingAs($admin, 'admin')
             ->post(route('admin.plugins.enable', 'missing-plugin'))
@@ -875,13 +969,13 @@ class PluginTest extends TestCase
 
     private function createRoutedPlugin(string $name): void
     {
-        $pluginPath = base_path('plugins/Gateway/' . $name);
+        $pluginPath = base_path('plugins/Gateway/'.$name);
 
-        if (!is_dir($pluginPath . '/routes')) {
-            mkdir($pluginPath . '/routes', 0777, true);
+        if (! is_dir($pluginPath.'/routes')) {
+            mkdir($pluginPath.'/routes', 0777, true);
         }
 
-        file_put_contents($pluginPath . '/plugin.json', json_encode([
+        file_put_contents($pluginPath.'/plugin.json', json_encode([
             'name' => $name,
             'title' => $name,
             'type' => 'gateway',
@@ -889,7 +983,7 @@ class PluginTest extends TestCase
             'entry' => 'MissingPlugin',
         ], JSON_PRETTY_PRINT));
 
-        file_put_contents($pluginPath . '/routes/web.php', <<<'PHP'
+        file_put_contents($pluginPath.'/routes/web.php', <<<'PHP'
 <?php
 
 use Illuminate\Support\Facades\Route;
@@ -897,31 +991,31 @@ use Illuminate\Support\Facades\Route;
 Route::get('/__plugin-test/{name}', fn (string $name) => $name)->name('plugins.demo_route_plugin.test');
 PHP);
 
-        $routeFile = $pluginPath . '/routes/web.php';
+        $routeFile = $pluginPath.'/routes/web.php';
         $contents = file_get_contents($routeFile);
         file_put_contents($routeFile, str_replace('plugins.demo_route_plugin.test', "plugins.{$name}.test", $contents));
     }
 
     private function createManifestOnlyPlugin(string $directory, array $manifest): void
     {
-        $pluginPath = base_path('plugins/Gateway/' . $directory);
+        $pluginPath = base_path('plugins/Gateway/'.$directory);
 
-        if (!is_dir($pluginPath)) {
+        if (! is_dir($pluginPath)) {
             mkdir($pluginPath, 0777, true);
         }
 
-        file_put_contents($pluginPath . '/plugin.json', json_encode($manifest, JSON_PRETTY_PRINT));
+        file_put_contents($pluginPath.'/plugin.json', json_encode($manifest, JSON_PRETTY_PRINT));
     }
 
     private function createPasswordFieldPlugin(): void
     {
         $pluginPath = base_path('plugins/Gateway/password_field_plugin');
 
-        if (!is_dir($pluginPath)) {
+        if (! is_dir($pluginPath)) {
             mkdir($pluginPath, 0777, true);
         }
 
-        file_put_contents($pluginPath . '/plugin.json', json_encode([
+        file_put_contents($pluginPath.'/plugin.json', json_encode([
             'name' => 'password_field_plugin',
             'title' => 'Password Field Plugin',
             'type' => 'gateway',
@@ -938,11 +1032,11 @@ PHP);
     {
         $pluginPath = base_path('plugins/Gateway/text_signature_plugin');
 
-        if (!is_dir($pluginPath)) {
+        if (! is_dir($pluginPath)) {
             mkdir($pluginPath, 0777, true);
         }
 
-        file_put_contents($pluginPath . '/plugin.json', json_encode([
+        file_put_contents($pluginPath.'/plugin.json', json_encode([
             'name' => 'text_signature_plugin',
             'title' => 'Text Signature Plugin',
             'type' => 'gateway',
@@ -959,11 +1053,11 @@ PHP);
     {
         $pluginPath = base_path('plugins/Gateway/authorization_field_plugin');
 
-        if (!is_dir($pluginPath)) {
+        if (! is_dir($pluginPath)) {
             mkdir($pluginPath, 0777, true);
         }
 
-        file_put_contents($pluginPath . '/plugin.json', json_encode([
+        file_put_contents($pluginPath.'/plugin.json', json_encode([
             'name' => 'authorization_field_plugin',
             'title' => 'Authorization Field Plugin',
             'type' => 'gateway',
@@ -979,7 +1073,8 @@ PHP);
 
     private function bootPluginRoutesForTest(): void
     {
-        $provider = new class($this->app) extends \App\Providers\PluginServiceProvider {
+        $provider = new class($this->app) extends PluginServiceProvider
+        {
             public function bootRoutes(): void
             {
                 $this->loadPluginRoutes();

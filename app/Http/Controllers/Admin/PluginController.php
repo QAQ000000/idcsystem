@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Plugin as PluginModel;
+use App\Modules\Admin\Models\MarketplacePlugin;
+use App\Modules\Admin\Services\PluginMarketplaceService;
 use App\Plugins\Core\PluginManager;
 use App\Services\AdminAuditService;
 use App\Services\PluginConfigService;
@@ -11,10 +13,19 @@ use Illuminate\Http\Request;
 
 class PluginController extends Controller
 {
-    public function index()
+    public function index(Request $request, PluginMarketplaceService $marketplace)
     {
+        $filters = $request->validate([
+            'search' => ['nullable', 'string', 'max:100'],
+            'type' => ['nullable', 'string', 'in:gateway,email,sms,server,oauth,captcha,certification'],
+            'sort' => ['nullable', 'string', 'in:title,popular,rating,newest'],
+            'verified' => ['nullable', 'boolean'],
+        ]);
+
         return view('admin.plugins.index', [
             'plugins' => PluginModel::query()->orderBy('type')->orderBy('name')->paginate(20),
+            'marketplacePlugins' => $marketplace->browse($filters),
+            'marketplaceFilters' => $filters,
             'pluginScans' => [
                 'gateway' => app(PluginManager::class)->scan('gateway'),
                 'email' => app(PluginManager::class)->scan('email'),
@@ -35,11 +46,36 @@ class PluginController extends Controller
         $plugin = PluginModel::query()->where('name', $data['name'])->first();
         $audit->record($request, 'plugin.install', $plugin, $success ? 'success' : 'failed', $data, $success ? null : '插件安装失败');
 
-        if (!$success) {
+        if (! $success) {
             return redirect()->route('admin.plugins.index')->with('error', '插件安装失败');
         }
 
         return redirect()->route('admin.plugins.index')->with('status', '插件已安装');
+    }
+
+    public function installFromMarketplace(
+        Request $request,
+        MarketplacePlugin $marketplacePlugin,
+        PluginMarketplaceService $marketplace,
+        AdminAuditService $audit
+    ) {
+        try {
+            $plugin = $marketplace->install($marketplacePlugin);
+        } catch (\RuntimeException $exception) {
+            $audit->record($request, 'plugin.marketplace.install', $marketplacePlugin, 'failed', [
+                'name' => $marketplacePlugin->name,
+                'type' => $marketplacePlugin->type,
+            ], $exception->getMessage());
+
+            return redirect()->route('admin.plugins.index')->with('error', $exception->getMessage());
+        }
+
+        $audit->record($request, 'plugin.marketplace.install', $plugin, 'success', [
+            'name' => $marketplacePlugin->name,
+            'type' => $marketplacePlugin->type,
+        ]);
+
+        return redirect()->route('admin.plugins.index')->with('status', '市场插件已安装');
     }
 
     public function uninstall(Request $request, string $name, PluginManager $plugins, AdminAuditService $audit)
@@ -52,7 +88,7 @@ class PluginController extends Controller
             'type' => $plugin?->type,
         ], $success ? null : '插件卸载失败');
 
-        if (!$success) {
+        if (! $success) {
             return redirect()->route('admin.plugins.index')->with('error', '插件卸载失败');
         }
 
@@ -65,7 +101,7 @@ class PluginController extends Controller
         $plugin = PluginModel::query()->where('name', $name)->first();
         $audit->record($request, 'plugin.enable', $plugin, $success ? 'success' : 'failed', ['name' => $name], $success ? null : '插件启用失败');
 
-        if (!$success) {
+        if (! $success) {
             return redirect()->route('admin.plugins.index')->with('error', '插件启用失败');
         }
 
@@ -78,7 +114,7 @@ class PluginController extends Controller
         $plugin = PluginModel::query()->where('name', $name)->first();
         $audit->record($request, 'plugin.disable', $plugin, $success ? 'success' : 'failed', ['name' => $name], $success ? null : '插件禁用失败');
 
-        if (!$success) {
+        if (! $success) {
             return redirect()->route('admin.plugins.index')->with('error', '插件禁用失败');
         }
 
