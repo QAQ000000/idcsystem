@@ -42,6 +42,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'api.ability' => \App\Http\Middleware\CheckApiAbility::class,
             'api.ip_whitelist' => \App\Http\Middleware\CheckApiIpWhitelist::class,
             'api.log' => \App\Http\Middleware\LogApiRequest::class,
+            'api.quota' => \App\Http\Middleware\CheckApiQuota::class,
             'api.signature' => \App\Http\Middleware\VerifyApiSignature::class,
             'api.size' => \App\Http\Middleware\LimitRequestSize::class,
         ]);

@@ -326,7 +326,8 @@ class SystemTaskTest extends TestCase
             ->expectsOutputToContain('host:sync-usage')
             ->expectsOutputToContain('host:send-due-reminders')
             ->expectsOutputToContain('notifications:recover-stale')
-            ->expectsOutputToContain('marketing-automations:process-due');
+            ->expectsOutputToContain('marketing-automations:process-due')
+            ->expectsOutputToContain('api-quotas:check-alerts');
     }
 
     public function test_notification_recovery_command_marks_stale_processing_logs_failed(): void

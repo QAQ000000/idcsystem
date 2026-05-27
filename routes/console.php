@@ -391,6 +391,23 @@ Artisan::command('marketing-automations:process-due', function () {
     return 0;
 })->purpose('Process due marketing automation steps');
 
+Artisan::command('api-quotas:check-alerts {--threshold=80}', function () {
+    $threshold = max(1, min(100, (int) $this->option('threshold')));
+    $task = app(\App\Services\SystemTaskService::class)->run('api-quotas:check-alerts', function () use ($threshold) {
+        return [
+            'sent' => app(\App\Modules\Admin\Services\ApiQuotaService::class)->checkQuotaAlerts($threshold),
+        ];
+    });
+
+    if ($task->status === 'failed') {
+        $this->error($task->error ?: 'API quota alert check failed');
+        return 1;
+    }
+
+    $this->info($task->output ?: 'API quota alert check completed');
+    return 0;
+})->purpose('Check API quota usage and send alerts');
+
 // 核心业务调度：由系统 cron 每分钟触发 schedule:run 后按频率执行。
 Schedule::command('logs:cleanup')->dailyAt('01:00');
 Schedule::command('billing:generate-invoices')->dailyAt('02:00');
@@ -415,3 +432,4 @@ Schedule::command('products:check-stock-alerts')->hourly();
 Schedule::command('custom-reports:run-scheduled')->everyMinute();
 Schedule::command('client-segments:refresh')->dailyAt('03:45');
 Schedule::command('marketing-automations:process-due')->everyMinute();
+Schedule::command('api-quotas:check-alerts')->hourly();
