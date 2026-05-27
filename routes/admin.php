@@ -46,6 +46,7 @@ use App\Http\Controllers\Admin\TaxRuleController;
 use App\Http\Controllers\Admin\TicketAssignmentRuleController;
 use App\Http\Controllers\Admin\TicketController;
 use App\Http\Controllers\Admin\TicketSlaController;
+use App\Http\Controllers\Admin\TranslationController;
 use App\Http\Controllers\Admin\WebhookController;
 use Illuminate\Support\Facades\Route;
 
@@ -144,6 +145,21 @@ Route::prefix('admin')->name('admin.')->middleware(['auth:admin', 'admin.status'
     Route::post('/settings', [SettingController::class, 'update'])
         ->middleware('admin.permission:setting.manage')
         ->name('settings.update');
+    Route::get('/translations', [TranslationController::class, 'index'])
+        ->middleware('admin.permission:setting.manage')
+        ->name('translations.index');
+    Route::post('/translations/import', [TranslationController::class, 'import'])
+        ->middleware('admin.permission:setting.manage')
+        ->name('translations.import');
+    Route::post('/translations/export', [TranslationController::class, 'export'])
+        ->middleware('admin.permission:setting.manage')
+        ->name('translations.export');
+    Route::post('/translations/auto-translate', [TranslationController::class, 'autoTranslate'])
+        ->middleware('admin.permission:setting.manage')
+        ->name('translations.auto-translate');
+    Route::put('/translations/{translation}', [TranslationController::class, 'update'])
+        ->middleware('admin.permission:setting.manage')
+        ->name('translations.update');
 
     Route::prefix('export')->name('export.')->middleware('admin.permission:export.data')->group(function (): void {
         Route::get('clients', [ExportController::class, 'clients'])->name('clients');

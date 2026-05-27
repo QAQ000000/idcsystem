@@ -82,7 +82,7 @@ return [
 
     'fallback_locale' => env('APP_FALLBACK_LOCALE', 'en'),
 
-    'available_locales' => ['zh_CN', 'en'],
+    'available_locales' => ['zh_CN', 'en', 'ja', 'ko', 'es', 'fr', 'de', 'pt_BR', 'ru', 'vi'],
 
     'privacy_policy_version' => env('PRIVACY_POLICY_VERSION', '1.0'),
 
