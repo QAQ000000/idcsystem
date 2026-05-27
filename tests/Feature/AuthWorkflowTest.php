@@ -24,6 +24,8 @@ class AuthWorkflowTest extends TestCase
 
     public function test_admin_and_client_workflows_use_separate_guards(): void
     {
+        $this->withoutExceptionHandling();
+
         $this->seed();
 
         $this->post(route('admin.login.store'), [
